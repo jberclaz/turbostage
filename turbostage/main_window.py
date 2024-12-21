@@ -1,14 +1,17 @@
+import os
 import sqlite3
+import subprocess
+import tempfile
+import zipfile
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QKeySequence, QStandardItem, QStandardItemModel
+from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
-    QListView,
     QMainWindow,
     QPushButton,
     QTableWidget,
@@ -20,6 +23,8 @@ from PySide6.QtWidgets import (
 
 class MainWindow(QMainWindow):
     DB_PATH = "db/games.db"
+    GAMES_PATH = "games"
+    DOSBOX_EXEC = "/home/jrb/downloads/dosbox-staging-linux-x86_64-0.82.0-9df43/dosbox"
 
     def __init__(self):
         QMainWindow.__init__(self)
@@ -76,6 +81,7 @@ class MainWindow(QMainWindow):
         # Launch button
         self.launch_button = QPushButton("Launch Game")
         self.launch_button.clicked.connect(self.launch_game)
+        self.launch_button.setEnabled(False)
 
         layout = QVBoxLayout()
         layout.addWidget(self.search_box)
@@ -90,16 +96,33 @@ class MainWindow(QMainWindow):
         pass
 
     def launch_game(self):
-        pass
+        selected_row = self.game_table.currentRow()
+        game_name = self.game_table.item(selected_row, 0).text()
+
+        conn = sqlite3.connect(self.DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("SELECT config, archive FROM games WHERE title = ?", (game_name,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        config, archive = rows[0]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            archive_path = os.path.join(self.GAMES_PATH, archive)
+            with zipfile.ZipFile(archive_path, "r") as zip_ref:
+                zip_ref.extractall(temp_dir)
+            command = os.path.join(temp_dir, config)
+            subprocess.run([self.DOSBOX_EXEC, command])
 
     def update_game_info(self):
         selected_items = self.game_table.selectedItems()
         if not selected_items:
             self.game_info_label.setText("Select a game to see details here.")
+            self.launch_button.setEnabled(False)
             return
         selected_row = self.game_table.currentRow()
-
-        self.game_info_label.setText(f"{selected_row}")
+        game_name = self.game_table.item(selected_row, 0).text()
+        self.game_info_label.setText(f"{game_name}")
+        self.launch_button.setEnabled(True)
 
     def load_games(self):
         conn = sqlite3.connect(self.DB_PATH)
