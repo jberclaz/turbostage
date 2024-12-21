@@ -1,7 +1,21 @@
 import sqlite3
 
+from PySide6 import QtWidgets
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QAction, QKeySequence, QStandardItem, QStandardItemModel
-from PySide6.QtWidgets import QLineEdit, QListView, QMainWindow, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QMainWindow,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
+)
 
 
 class MainWindow(QMainWindow):
@@ -39,9 +53,25 @@ class MainWindow(QMainWindow):
         self.search_box.setPlaceholderText("Search for a game...")
         self.search_box.textChanged.connect(self.filter_games)
 
-        self.game_list = QListView(self)
-        self.model = QStandardItemModel(self.game_list)
-        self.game_list.setModel(self.model)
+        main_layout = QHBoxLayout()
+
+        # Game table
+        self.game_table = QTableWidget()
+        self.game_table.setColumnCount(3)
+        self.game_table.setHorizontalHeaderLabels(["Title", "Release Year", "Genre"])
+        self.game_table.setSortingEnabled(True)
+        self.game_table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.game_table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.game_table.selectionModel().selectionChanged.connect(self.update_game_info)
+        self.game_table.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
+        main_layout.addWidget(self.game_table)
+
+        # Right panel: Game info display
+        self.game_panel = QVBoxLayout()
+        self.game_info_label = QLabel("Select a game to see details here.")
+        self.game_info_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        self.game_panel.addWidget(self.game_info_label)
+        main_layout.addLayout(self.game_panel)
 
         # Launch button
         self.launch_button = QPushButton("Launch Game")
@@ -49,7 +79,7 @@ class MainWindow(QMainWindow):
 
         layout = QVBoxLayout()
         layout.addWidget(self.search_box)
-        layout.addWidget(self.game_list)
+        layout.addLayout(main_layout)
         layout.addWidget(self.launch_button)
 
         container = QWidget()
@@ -62,6 +92,15 @@ class MainWindow(QMainWindow):
     def launch_game(self):
         pass
 
+    def update_game_info(self):
+        selected_items = self.game_table.selectedItems()
+        if not selected_items:
+            self.game_info_label.setText("Select a game to see details here.")
+            return
+        selected_row = self.game_table.currentRow()
+
+        self.game_info_label.setText(f"{selected_row}")
+
     def load_games(self):
         conn = sqlite3.connect(self.DB_PATH)
         cursor = conn.cursor()
@@ -69,8 +108,9 @@ class MainWindow(QMainWindow):
         rows = cursor.fetchall()
         conn.close()
 
-        self.model.clear()
-        for title, year, genre in rows:
-            item = QStandardItem(f"{title} ({year}) - {genre}")
-            item.setData({"title": title, "release_year": year, "genre": genre})
-            self.model.appendRow(item)
+        self.game_table.setRowCount(len(rows))
+        for row_num, row in enumerate(rows):
+            self.game_table.setItem(row_num, 0, QTableWidgetItem(row[0]))
+            self.game_table.setItem(row_num, 1, QTableWidgetItem(str(row[1])))
+            self.game_table.setItem(row_num, 2, QTableWidgetItem(row[2]))
+        self.game_table.resizeColumnsToContents()
