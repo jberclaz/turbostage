@@ -69,6 +69,8 @@ class MainWindow(QMainWindow):
         self.game_table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.game_table.selectionModel().selectionChanged.connect(self.update_game_info)
         self.game_table.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
+        self.game_table.cellDoubleClicked.connect(self.launch_game)
+        self.game_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         main_layout.addWidget(self.game_table)
 
         # Right panel: Game info display
@@ -101,17 +103,24 @@ class MainWindow(QMainWindow):
 
         conn = sqlite3.connect(self.DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT config, archive FROM games WHERE title = ?", (game_name,))
+        cursor.execute("SELECT startup, archive, config FROM games WHERE title = ?", (game_name,))
         rows = cursor.fetchall()
         conn.close()
 
-        config, archive = rows[0]
+        startup, archive, config = rows[0]
         with tempfile.TemporaryDirectory() as temp_dir:
             archive_path = os.path.join(self.GAMES_PATH, archive)
             with zipfile.ZipFile(archive_path, "r") as zip_ref:
                 zip_ref.extractall(temp_dir)
-            command = os.path.join(temp_dir, config)
-            subprocess.run([self.DOSBOX_EXEC, "-conf", "conf/dosbox.conf", command])
+            dosbox_command = os.path.join(temp_dir, startup)
+            command = [self.DOSBOX_EXEC, "--noprimaryconf", "--conf", "conf/dosbox-staging.conf"]
+            with tempfile.NamedTemporaryFile() as conf_file:
+                if config:
+                    with open(conf_file.name, "wt") as f:
+                        f.write(config)
+                    command.extend(["--conf", conf_file.name])
+                command.append(dosbox_command)
+                subprocess.run(command)
 
     def update_game_info(self):
         selected_items = self.game_table.selectedItems()

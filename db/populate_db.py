@@ -6,39 +6,41 @@ GAME_DATA = [
         "title": "The Secret of Monkey Island",
         "release_year": 1990,
         "genre": "Adventure",
-        "config": "monkey/monkey.exe",
+        "startup": "monkey/monkey.exe",
         "archive": "monkey.zip",
+        "config": "",
     },
-    {"title": "Need for Speed", "release_year": 1994, "genre": "Racing", "config": "", "archive": ""},
-    {"title": "DOOM", "release_year": 1993, "genre": "Shooter", "config": "", "archive": ""},
-    {"title": "SimCity 2000", "release_year": 1993, "genre": "Simulation", "config": "", "archive": ""},
     {
         "title": "Prince of Persia",
         "release_year": 1989,
         "genre": "Platformer",
-        "config": "pop/PRINCE.EXE",
+        "startup": "pop/PRINCE.EXE",
         "archive": "pop.zip",
+        "config": "",
     },
     {
         "title": "Prince of Persia 2: The Shadow and the Flame",
         "release_year": 1993,
         "genre": "Platformer",
-        "config": "pop2/prince.exe",
+        "startup": "pop2/prince.exe",
         "archive": "pop2.zip",
+        "config": "",
     },
     {
         "title": "Comanche: Maximum Overkill",
         "release_year": 1992,
         "genre": "Simulation",
-        "config": "COMANCHE/c.exe",
+        "startup": "COMANCHE/c.exe",
         "archive": "comanche.zip",
+        "config": "mididevice = mt32\n",
     },
     {
         "title": "Power Drive",
         "release_year": 1994,
         "genre": "Racing",
-        "config": "pd/pdrive.exe",
+        "startup": "pd/pdrive.exe",
         "archive": "powerdrive.zip",
+        "config": "cpu_cycles = 12000\n",
     },
 ]
 
@@ -53,8 +55,9 @@ def initialize_database(db_path):
             title TEXT NOT NULL,
             release_year INTEGER,
             genre TEXT,
-            config TEXT,
-            archive TEXT
+            startup TEXT,
+            archive TEXT,
+            config TEXT
         )
     """
     )
@@ -69,10 +72,10 @@ def populate_database(db_path, games):
     for game in games:
         cursor.execute(
             """
-            INSERT INTO games (title, release_year, genre, config, archive)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO games (title, release_year, genre, startup, archive, config)
+            VALUES (?, ?, ?, ?, ?, ?)
         """,
-            (game["title"], game["release_year"], game["genre"], game["config"], game["archive"]),
+            (game["title"], game["release_year"], game["genre"], game["startup"], game["archive"], game["config"]),
         )
 
     conn.commit()
