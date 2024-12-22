@@ -32,7 +32,7 @@ GAME_DATA = [
         "genre": "Simulation",
         "startup": "COMANCHE/c.exe",
         "archive": "comanche.zip",
-        "config": "mididevice = mt32\n",
+        "config": "[midi]\nmididevice = mt32\n",
     },
     {
         "title": "Power Drive",
@@ -40,7 +40,7 @@ GAME_DATA = [
         "genre": "Racing",
         "startup": "pd/pdrive.exe",
         "archive": "powerdrive.zip",
-        "config": "cpu_cycles = 12000\n",
+        "config": "[cpu]\ncpu_cycles = 12000\n",
     },
 ]
 
