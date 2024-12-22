@@ -8,7 +8,7 @@ from PySide6.QtWidgets import QApplication, QSplashScreen
 
 def show_splash_screen():
     # Load an image for the splash screen
-    pixmap = QPixmap("content/turbostage.png")  # Replace with the path to your image
+    pixmap = QPixmap("content/turbostage.jpg")  # Replace with the path to your image
 
     # Create the splash screen with the image
     splash = QSplashScreen(pixmap, Qt.WindowStaysOnTopHint)
