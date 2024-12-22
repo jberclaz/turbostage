@@ -1,0 +1,6 @@
+[project]
+name = "turbo-stage"
+dependencies = [
+"pyside == 6.8.1",
+]
+requires-python = ">= 3.11"
