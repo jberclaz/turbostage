@@ -111,7 +111,7 @@ class MainWindow(QMainWindow):
             with zipfile.ZipFile(archive_path, "r") as zip_ref:
                 zip_ref.extractall(temp_dir)
             command = os.path.join(temp_dir, config)
-            subprocess.run([self.DOSBOX_EXEC, command])
+            subprocess.run([self.DOSBOX_EXEC, "-conf", "conf/dosbox.conf", command])
 
     def update_game_info(self):
         selected_items = self.game_table.selectedItems()

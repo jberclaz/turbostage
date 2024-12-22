@@ -2,7 +2,13 @@ import os
 import sqlite3
 
 GAME_DATA = [
-    {"title": "The Secret of Monkey Island", "release_year": 1990, "genre": "Adventure", "config": "", "archive": ""},
+    {
+        "title": "The Secret of Monkey Island",
+        "release_year": 1990,
+        "genre": "Adventure",
+        "config": "monkey/monkey.exe",
+        "archive": "monkey.zip",
+    },
     {"title": "Need for Speed", "release_year": 1994, "genre": "Racing", "config": "", "archive": ""},
     {"title": "DOOM", "release_year": 1993, "genre": "Shooter", "config": "", "archive": ""},
     {"title": "SimCity 2000", "release_year": 1993, "genre": "Simulation", "config": "", "archive": ""},
@@ -26,6 +32,13 @@ GAME_DATA = [
         "genre": "Simulation",
         "config": "COMANCHE/c.exe",
         "archive": "comanche.zip",
+    },
+    {
+        "title": "Power Drive",
+        "release_year": 1994,
+        "genre": "Racing",
+        "config": "pd/pdrive.exe",
+        "archive": "powerdrive.zip",
     },
 ]
 
