@@ -3,6 +3,7 @@ import sqlite3
 import subprocess
 import tempfile
 import zipfile
+from collections import Counter
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt
@@ -19,6 +20,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from turbostage import utils
 
 
 class MainWindow(QMainWindow):
@@ -43,6 +46,12 @@ class MainWindow(QMainWindow):
         exit_action.setShortcut(QKeySequence.Quit)
         exit_action.triggered.connect(self.close)
 
+        # Scan QAction
+        scan_action = QAction("Scan local games", self)
+        scan_action.triggered.connect(self.scan_local_games)
+
+        self.file_menu.addAction(scan_action)
+        self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
 
         # Status Bar
@@ -62,8 +71,8 @@ class MainWindow(QMainWindow):
 
         # Game table
         self.game_table = QTableWidget()
-        self.game_table.setColumnCount(3)
-        self.game_table.setHorizontalHeaderLabels(["Title", "Release Year", "Genre"])
+        self.game_table.setColumnCount(4)
+        self.game_table.setHorizontalHeaderLabels(["Title", "Release Year", "Genre", "Version"])
         self.game_table.setSortingEnabled(True)
         self.game_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.game_table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -103,7 +112,16 @@ class MainWindow(QMainWindow):
 
         conn = sqlite3.connect(self.DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT startup, archive, config FROM games WHERE title = ?", (game_name,))
+        cursor.execute(
+            """
+            SELECT v.executable, lv.archive, v.config
+            FROM games g
+            JOIN versions v ON g.id = v.game_id
+            JOIN local_versions lv ON v.id = lv.version_id
+            WHERE g.title = ?
+            """,
+            (game_name,),
+        )
         rows = cursor.fetchall()
         conn.close()
 
@@ -136,7 +154,14 @@ class MainWindow(QMainWindow):
     def load_games(self):
         conn = sqlite3.connect(self.DB_PATH)
         cursor = conn.cursor()
-        cursor.execute("SELECT title, release_year, genre FROM games ORDER BY title ASC")
+        cursor.execute(
+            """
+            SELECT g.title, g.release_year, g.genre, v.version
+            FROM games g
+            JOIN versions v ON g.id = v.game_id
+            JOIN local_versions lv ON v.id = lv.version_id;
+            """
+        )
         rows = cursor.fetchall()
         conn.close()
 
@@ -145,4 +170,43 @@ class MainWindow(QMainWindow):
             self.game_table.setItem(row_num, 0, QTableWidgetItem(row[0]))
             self.game_table.setItem(row_num, 1, QTableWidgetItem(str(row[1])))
             self.game_table.setItem(row_num, 2, QTableWidgetItem(row[2]))
+            self.game_table.setItem(row_num, 3, QTableWidgetItem(row[3]))
         self.game_table.resizeColumnsToContents()
+
+    def scan_local_games(self):
+        local_game_archives = [file for file in os.listdir(MainWindow.GAMES_PATH) if file.endswith(".zip")]
+        conn = sqlite3.connect(MainWindow.DB_PATH)
+        cursor = conn.cursor()
+        for game_archive in local_game_archives:
+            hashes = utils.compute_hash_for_largest_files_in_zip(os.path.join(MainWindow.GAMES_PATH, game_archive), 4)
+            version_id = self.search_hashes([h[2] for h in hashes])
+            if version_id is not None:
+                cursor.execute(
+                    "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive)
+                )
+        conn.commit()
+        conn.close()
+
+        self.load_games()
+
+    def search_hashes(self, hash_list):
+        conn = sqlite3.connect(MainWindow.DB_PATH)
+        cursor = conn.cursor()
+
+        placeholders = ", ".join("?" for _ in hash_list)
+        query = f"SELECT version_id, hash FROM hashes WHERE hash IN ({placeholders})"
+        cursor.execute(query, hash_list)
+        matches = cursor.fetchall()
+        conn.close()
+
+        if len(matches) == 0:
+            return None
+
+        versions = [version for version, _ in matches]
+        version_counts = Counter(versions)
+        num_versions = len(version_counts)
+        if num_versions == 1:
+            return versions[0]
+        # Find the most common version
+        most_common_version, _ = version_counts.most_common(1)[0]
+        return most_common_version

@@ -174,3 +174,4 @@ cython_debug/
 
 db/*.db
 games/
+roms/
