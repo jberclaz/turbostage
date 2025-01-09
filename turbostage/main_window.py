@@ -6,7 +6,7 @@ import zipfile
 from collections import Counter
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QProgressDialog,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -22,6 +23,34 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import utils
+
+
+class ScanningThread(QThread):
+    progress = Signal(int)
+
+    def __init__(self, local_game_archives: list[str], main_window):
+        super().__init__()
+        self._local_game_archives = local_game_archives
+        self._main_window = main_window
+
+    def run(self):
+        conn = sqlite3.connect(MainWindow.DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM local_versions")
+
+        for index, game_archive in enumerate(self._local_game_archives):
+            hashes = utils.compute_hash_for_largest_files_in_zip(os.path.join(MainWindow.GAMES_PATH, game_archive), 4)
+            version_id = self._main_window.search_hashes([h[2] for h in hashes])
+            if version_id is not None:
+                cursor.execute(
+                    "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive)
+                )
+            self.progress.emit(index + 1)
+
+        conn.commit()
+        conn.close()
+
+        self._main_window.load_games()
 
 
 class MainWindow(QMainWindow):
@@ -175,19 +204,30 @@ class MainWindow(QMainWindow):
 
     def scan_local_games(self):
         local_game_archives = [file for file in os.listdir(MainWindow.GAMES_PATH) if file.endswith(".zip")]
-        conn = sqlite3.connect(MainWindow.DB_PATH)
-        cursor = conn.cursor()
-        for game_archive in local_game_archives:
-            hashes = utils.compute_hash_for_largest_files_in_zip(os.path.join(MainWindow.GAMES_PATH, game_archive), 4)
-            version_id = self.search_hashes([h[2] for h in hashes])
-            if version_id is not None:
-                cursor.execute(
-                    "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive)
-                )
-        conn.commit()
-        conn.close()
 
-        self.load_games()
+        self.scan_progress_dialog = QProgressDialog(
+            "Scanning local games...", "Cancel", 0, len(local_game_archives), self
+        )
+        self.scan_progress_dialog.setWindowTitle("Please Wait")
+        self.scan_progress_dialog.setWindowModality(Qt.WindowModal)
+        self.scan_progress_dialog.setMinimumDuration(0)
+        self.scan_progress_dialog.setValue(0)
+
+        # Start the worker thread
+        self.scan_worker = ScanningThread(local_game_archives, self)
+        self.scan_worker.progress.connect(self.update_scan_progress)
+        self.scan_worker.start()
+
+        # Handle cancellation
+        self.scan_progress_dialog.canceled.connect(self.cancel_scan)
+
+    def update_scan_progress(self, value):
+        self.scan_progress_dialog.setValue(value)
+
+    def cancel_scan(self):
+        if self.scan_worker.isRunning():
+            self.scan_worker.terminate()  # Forcefully stop the worker thread
+        self.scan_progress_dialog.close()
 
     def search_hashes(self, hash_list):
         conn = sqlite3.connect(MainWindow.DB_PATH)
