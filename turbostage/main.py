@@ -1,9 +1,10 @@
 import sys
 
-from main_window import MainWindow
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen
+
+from turbostage.main_window import MainWindow
 
 
 def show_splash_screen():

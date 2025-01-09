@@ -18,5 +18,8 @@ venv/.done: requirements.txt requirements-dev.txt
 	)
 	touch venv/.done
 
+build:
+	poetry build
+
 clean:
 	${RM} -rf venv *~

@@ -1,6 +1,24 @@
-[project]
-name = "turbo-stage"
-dependencies = [
-"pyside == 6.8.1",
+[tool.poetry]
+name = "turbostage"
+version = "0.1.0"
+description = "A DosBox Staging Frontend"
+authors = ["Jerome"]
+license = "Apache 2.0"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent"
 ]
-requires-python = ">= 3.11"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pyside6 = "==6.8.1"
+
+[tool.poetry.dev-dependencies]
+# Add development dependencies here if needed.
+
+[tool.poetry.scripts]
+turbostage = "turbostage.main:main"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
