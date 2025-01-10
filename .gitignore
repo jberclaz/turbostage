@@ -175,3 +175,5 @@ cython_debug/
 db/*.db
 games/
 roms/
+.idea/
+conf/shell_history.txt

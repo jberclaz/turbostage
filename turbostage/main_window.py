@@ -3,7 +3,6 @@ import sqlite3
 import subprocess
 import tempfile
 import zipfile
-from collections import Counter
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt, QThread, Signal
@@ -23,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import utils
+from turbostage.utils import find_game_for_hashes
 
 
 class ScanningThread(QThread):
@@ -40,11 +40,12 @@ class ScanningThread(QThread):
 
         for index, game_archive in enumerate(self._local_game_archives):
             hashes = utils.compute_hash_for_largest_files_in_zip(os.path.join(MainWindow.GAMES_PATH, game_archive), 4)
-            version_id = self._main_window.search_hashes([h[2] for h in hashes])
+            version_id = find_game_for_hashes([h[2] for h in hashes], MainWindow.DB_PATH)
             if version_id is not None:
                 cursor.execute(
                     "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive)
                 )
+            self.sleep(1)
             self.progress.emit(index + 1)
 
         conn.commit()
@@ -79,6 +80,11 @@ class MainWindow(QMainWindow):
         scan_action = QAction("Scan local games", self)
         scan_action.triggered.connect(self.scan_local_games)
 
+        # Add new game
+        add_action = QAction("Add new game", self)
+        add_action.triggered.connect(self.add_new_game)
+
+        self.file_menu.addAction(add_action)
         self.file_menu.addAction(scan_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
@@ -229,24 +235,5 @@ class MainWindow(QMainWindow):
             self.scan_worker.terminate()  # Forcefully stop the worker thread
         self.scan_progress_dialog.close()
 
-    def search_hashes(self, hash_list):
-        conn = sqlite3.connect(MainWindow.DB_PATH)
-        cursor = conn.cursor()
-
-        placeholders = ", ".join("?" for _ in hash_list)
-        query = f"SELECT version_id, hash FROM hashes WHERE hash IN ({placeholders})"
-        cursor.execute(query, hash_list)
-        matches = cursor.fetchall()
-        conn.close()
-
-        if len(matches) == 0:
-            return None
-
-        versions = [version for version, _ in matches]
-        version_counts = Counter(versions)
-        num_versions = len(version_counts)
-        if num_versions == 1:
-            return versions[0]
-        # Find the most common version
-        most_common_version, _ = version_counts.most_common(1)[0]
-        return most_common_version
+    def add_new_game(self):
+        pass
