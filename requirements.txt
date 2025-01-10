@@ -1,1 +1,2 @@
 pyside6==6.8.1
+requests
