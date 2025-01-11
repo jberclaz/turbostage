@@ -88,7 +88,7 @@ def initialize_database(db_path):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             release_year INTEGER,
-            genre TEXT
+            genre TEXT,
             igdb_id INTEGER
         );
         """
@@ -134,10 +134,10 @@ def populate_database(db_path, games):
     for game in games:
         cursor.execute(
             """
-            INSERT INTO games (title, release_year, genre)
-            VALUES (?, ?, ?)
+            INSERT INTO games (title, release_year, genre, igdb_id)
+            VALUES (?, ?, ?, ?)
         """,
-            (game["title"], game["release_year"], game["genre"]),
+            (game["title"], game["release_year"], game["genre"], game["igdb_id"]),
         )
         game_id = cursor.lastrowid
         for version in game["versions"]:

@@ -6,17 +6,17 @@ from igdb.wrapper import IGDBWrapper
 
 # API documentation: https://api-docs.igdb.com/#authentication
 
-class Igdb:
+class IgdbClient:
     CLIENT_ID = "finu9rpxtjmau9p7gv6tmt5rejv3qz"
     CLIENT_SECRET = "mxp3b0ihmkza3lxihsu6vpm9otrq5v"
     DOS_PLATFORM_ID = 13
 
     def __init__(self):
         self._auth_token = self._get_auth()
-        self._wrapper = IGDBWrapper(Igdb.CLIENT_ID, self._auth_token)
+        self._wrapper = IGDBWrapper(IgdbClient.CLIENT_ID, self._auth_token)
 
     def _get_auth(self):
-        request_url = f"https://id.twitch.tv/oauth2/token?client_id={Igdb.CLIENT_ID}&client_secret={Igdb.CLIENT_SECRET}&grant_type=client_credentials"
+        request_url = f"https://id.twitch.tv/oauth2/token?client_id={IgdbClient.CLIENT_ID}&client_secret={IgdbClient.CLIENT_SECRET}&grant_type=client_credentials"
         response = requests.post(request_url)
         if response.status_code != 200:
             raise RuntimeError("Unable to authenticate to IGDB.com")

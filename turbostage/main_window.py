@@ -5,7 +5,7 @@ import tempfile
 import zipfile
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThreadPool
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -21,37 +21,10 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from turbostage import utils
-from turbostage.igdb import Igdb
-from turbostage.utils import find_game_for_hashes
-
-
-class ScanningThread(QThread):
-    progress = Signal(int)
-
-    def __init__(self, local_game_archives: list[str], main_window):
-        super().__init__()
-        self._local_game_archives = local_game_archives
-        self._main_window = main_window
-
-    def run(self):
-        conn = sqlite3.connect(MainWindow.DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM local_versions")
-
-        for index, game_archive in enumerate(self._local_game_archives):
-            hashes = utils.compute_hash_for_largest_files_in_zip(os.path.join(MainWindow.GAMES_PATH, game_archive), 4)
-            version_id = find_game_for_hashes([h[2] for h in hashes], MainWindow.DB_PATH)
-            if version_id is not None:
-                cursor.execute(
-                    "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive)
-                )
-            self.progress.emit(index + 1)
-
-        conn.commit()
-        conn.close()
-
-        self._main_window.load_games()
+from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
+from turbostage.igdb_client import IgdbClient
+from turbostage.scanning_thread import ScanningThread
+from turbostage.utils import CancellationFlag
 
 
 class MainWindow(QMainWindow):
@@ -63,7 +36,9 @@ class MainWindow(QMainWindow):
         QMainWindow.__init__(self)
         self._init_ui()
         self.load_games()
-        self._igdb_client = Igdb()
+        self._igdb_client = IgdbClient()
+        self._current_fetch_cancel_flag = None
+        self._thread_pool = QThreadPool()
 
     def _init_ui(self):
         self.setWindowTitle("TurboStage")
@@ -187,17 +162,32 @@ class MainWindow(QMainWindow):
             self.game_info_label.setText("Select a game to see details here.")
             self.launch_button.setEnabled(False)
             return
-        selected_row = self.game_table.currentRow()
-        game_name = self.game_table.item(selected_row, 0).text()
+        if len(selected_items) != 4:
+            raise RuntimeError("Invalid game selection")
+        if self._current_fetch_cancel_flag is not None:
+            self._current_fetch_cancel_flag.cancelled = True
+
+        name_row = selected_items[0]
+        game_id = name_row.data(Qt.UserRole)
+        game_name = name_row.text()
         self.game_info_label.setText(f"{game_name}")
         self.launch_button.setEnabled(True)
+        cancel_flag = CancellationFlag()
+        fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, cancel_flag)
+        self._current_fetch_cancel_flag = cancel_flag
+        fetch_worker.finished.connect(self.update_extra_game_info)
+        fetch_task = FetchGameInfoTask(fetch_worker)
+        self._thread_pool.start(fetch_task)
+
+    def update_extra_game_info(self, cover_url: str):
+        pass
 
     def load_games(self):
         conn = sqlite3.connect(self.DB_PATH)
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT g.title, g.release_year, g.genre, v.version
+            SELECT g.title, g.release_year, g.genre, v.version, g.igdb_id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id;
@@ -208,7 +198,9 @@ class MainWindow(QMainWindow):
 
         self.game_table.setRowCount(len(rows))
         for row_num, row in enumerate(rows):
-            self.game_table.setItem(row_num, 0, QTableWidgetItem(row[0]))
+            game_name = QTableWidgetItem(row[0])
+            game_name.setData(Qt.UserRole, row[4])
+            self.game_table.setItem(row_num, 0, game_name)
             self.game_table.setItem(row_num, 1, QTableWidgetItem(str(row[1])))
             self.game_table.setItem(row_num, 2, QTableWidgetItem(row[2]))
             self.game_table.setItem(row_num, 3, QTableWidgetItem(row[3]))
@@ -226,8 +218,9 @@ class MainWindow(QMainWindow):
         self.scan_progress_dialog.setValue(0)
 
         # Start the worker thread
-        self.scan_worker = ScanningThread(local_game_archives, self)
+        self.scan_worker = ScanningThread(local_game_archives, self.DB_PATH, self.GAMES_PATH)
         self.scan_worker.progress.connect(self.update_scan_progress)
+        self.scan_worker.load_games.connect(self.load_games)
         self.scan_worker.start()
 
         # Handle cancellation
