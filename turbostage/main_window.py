@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import utils
+from turbostage.igdb import Igdb
 from turbostage.utils import find_game_for_hashes
 
 
@@ -45,7 +46,6 @@ class ScanningThread(QThread):
                 cursor.execute(
                     "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive)
                 )
-            self.sleep(1)
             self.progress.emit(index + 1)
 
         conn.commit()
@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
         QMainWindow.__init__(self)
         self._init_ui()
         self.load_games()
+        self._igdb_client = Igdb()
 
     def _init_ui(self):
         self.setWindowTitle("TurboStage")
@@ -84,8 +85,13 @@ class MainWindow(QMainWindow):
         add_action = QAction("Add new game", self)
         add_action.triggered.connect(self.add_new_game)
 
+        # Settings
+        settings_action = QAction("Settings", self)
+        settings_action.triggered.connect(self.settings_dialog)
+
         self.file_menu.addAction(add_action)
         self.file_menu.addAction(scan_action)
+        self.file_menu.addAction(settings_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
 
@@ -236,4 +242,7 @@ class MainWindow(QMainWindow):
         self.scan_progress_dialog.close()
 
     def add_new_game(self):
+        pass
+
+    def settings_dialog(self):
         pass

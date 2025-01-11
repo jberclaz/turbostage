@@ -18,6 +18,7 @@ GAME_DATA = [
                 "config": "",
             }
         ],
+        "igdb_id": 60,
     },
     {
         "title": "Prince of Persia",
@@ -31,6 +32,7 @@ GAME_DATA = [
                 "config": "",
             }
         ],
+        "igdb_id": 284766,
     },
     {
         "title": "Prince of Persia 2: The Shadow and the Flame",
@@ -44,6 +46,7 @@ GAME_DATA = [
                 "config": "",
             }
         ],
+        "igdb_id": 3164,
     },
     {
         "title": "Comanche: Maximum Overkill",
@@ -57,6 +60,7 @@ GAME_DATA = [
                 "config": "[midi]\nmididevice = mt32\n",
             }
         ],
+        "igdb_id": 7494,
     },
     {
         "title": "Power Drive",
@@ -70,6 +74,7 @@ GAME_DATA = [
                 "config": "[cpu]\ncpu_cycles = 12000\n",
             }
         ],
+        "igdb_id": 12720,
     },
 ]
 
@@ -84,6 +89,7 @@ def initialize_database(db_path):
             title TEXT NOT NULL,
             release_year INTEGER,
             genre TEXT
+            igdb_id INTEGER
         );
         """
     )
