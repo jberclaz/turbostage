@@ -19,16 +19,17 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QMessageBox,
+    QWidget, QMessageBox, QFileDialog,
 )
 
+from turbostage.add_new_game_dialog import AddNewGameDialog
 from turbostage.db.populate_db import initialize_database
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_info_widget import GameInfoWidget
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
 from turbostage.settings_dialog import SettingsDialog
-from turbostage.utils import CancellationFlag
+from turbostage import utils
 
 
 class MainWindow(QMainWindow):
@@ -191,7 +192,7 @@ class MainWindow(QMainWindow):
         game_name = name_row.text()
         self.game_info_panel.set_game_name(game_name)
         self.launch_button.setEnabled(True)
-        cancel_flag = CancellationFlag()
+        cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
         fetch_worker.finished.connect(self.game_info_panel.set_game_info)
@@ -256,7 +257,14 @@ class MainWindow(QMainWindow):
         self.scan_progress_dialog.close()
 
     def add_new_game(self):
-        pass
+        game_path, _ = QFileDialog.getOpenFileName(self, "Select DosBox Staging binary", "", "Game archives (*.zip)")
+        hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
+        version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
+        if version_id is not None:
+            QMessageBox.warning(self, "Game already in database", "It looks like this game is already known from the game database. To add it, simply run Scan Local Games option from the main menu.")
+            return
+        new_game_dialog = AddNewGameDialog()
+        new_game_dialog.exec()
 
     def settings_dialog(self):
         dialog = SettingsDialog()
@@ -276,6 +284,8 @@ class MainWindow(QMainWindow):
             return
 
         online_version = json.loads(response.content)["version"]
+
+        # TODO: properly compare versions
 
         if version == online_version:
             QMessageBox.information(self, "Database up to date",
