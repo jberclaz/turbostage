@@ -1,3 +1,4 @@
+import importlib
 import sys
 
 from PySide6.QtCore import Qt, QTimer
@@ -9,7 +10,9 @@ from turbostage.main_window import MainWindow
 
 def show_splash_screen():
     # Load an image for the splash screen
-    pixmap = QPixmap("content/turbostage.jpg")  # Replace with the path to your image
+    with importlib.resources.files('turbostage').joinpath('content/splash.jpg').open('rb') as file:
+        pixmap = QPixmap()
+        pixmap.loadFromData(file.read())
 
     # Create the splash screen with the image
     splash = QSplashScreen(pixmap, Qt.WindowStaysOnTopHint)

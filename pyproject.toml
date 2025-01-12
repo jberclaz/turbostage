@@ -9,9 +9,15 @@ classifiers = [
 ]
 version = "0.0.0"  # Placeholder
 
+include = [
+    "content/splash.jpg"
+]
+
 [tool.poetry.dependencies]
 python = "^3.11"
 pyside6 = "==6.8.1"
+requests = "==2.32.3"
+igdb-api-v4 = "==0.3.3"
 
 [tool.poetry.scripts]
 turbostage = "turbostage.main:main"
