@@ -10,7 +10,6 @@ from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QMainWindow,
     QProgressDialog,
@@ -22,6 +21,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
+from turbostage.game_info_widget import GameInfoWidget
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
 from turbostage.utils import CancellationFlag
@@ -99,11 +99,8 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.game_table)
 
         # Right panel: Game info display
-        self.game_panel = QVBoxLayout()
-        self.game_info_label = QLabel("Select a game to see details here.")
-        self.game_info_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.game_panel.addWidget(self.game_info_label)
-        main_layout.addLayout(self.game_panel)
+        self.game_info_panel = GameInfoWidget()
+        main_layout.addWidget(self.game_info_panel)
 
         # Launch button
         self.launch_button = QPushButton("Launch Game")
@@ -170,17 +167,14 @@ class MainWindow(QMainWindow):
         name_row = selected_items[0]
         game_id = name_row.data(Qt.UserRole)
         game_name = name_row.text()
-        self.game_info_label.setText(f"{game_name}")
+        self.game_info_panel.set_game_name(game_name)
         self.launch_button.setEnabled(True)
         cancel_flag = CancellationFlag()
         fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
-        fetch_worker.finished.connect(self.update_extra_game_info)
+        fetch_worker.finished.connect(self.game_info_panel.set_game_info)
         fetch_task = FetchGameInfoTask(fetch_worker)
         self._thread_pool.start(fetch_task)
-
-    def update_extra_game_info(self, cover_url: str):
-        pass
 
     def load_games(self):
         conn = sqlite3.connect(self.DB_PATH)
