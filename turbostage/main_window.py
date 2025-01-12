@@ -5,7 +5,7 @@ import tempfile
 import zipfile
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, QThreadPool
+from PySide6.QtCore import Qt, QThreadPool, QSettings
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -17,13 +17,14 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget,
+    QWidget, QDialog,
 )
 
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_info_widget import GameInfoWidget
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
+from turbostage.settings_dialog import SettingsDialog
 from turbostage.utils import CancellationFlag
 
 
@@ -138,6 +139,9 @@ class MainWindow(QMainWindow):
         rows = cursor.fetchall()
         conn.close()
 
+        settings = QSettings("jberclaz", "TurboStage")
+        full_screen = settings.value("app/full_screen", False)
+
         startup, archive, config = rows[0]
         with tempfile.TemporaryDirectory() as temp_dir:
             archive_path = os.path.join(self.GAMES_PATH, archive)
@@ -145,6 +149,8 @@ class MainWindow(QMainWindow):
                 zip_ref.extractall(temp_dir)
             dosbox_command = os.path.join(temp_dir, startup)
             command = [self.DOSBOX_EXEC, "--noprimaryconf", "--conf", "conf/dosbox-staging.conf"]
+            if full_screen:
+                command.append("--fullscreen")
             with tempfile.NamedTemporaryFile() as conf_file:
                 if config:
                     with open(conf_file.name, "wt") as f:
@@ -232,4 +238,6 @@ class MainWindow(QMainWindow):
         pass
 
     def settings_dialog(self):
-        pass
+        dialog = SettingsDialog()
+        if dialog.exec() == QDialog.Accepted:
+            pass
