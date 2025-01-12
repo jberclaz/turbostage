@@ -1,9 +1,11 @@
+import json
 import os
 import sqlite3
 import subprocess
 import tempfile
 import zipfile
 
+import requests
 from PySide6 import QtWidgets
 from PySide6.QtCore import Qt, QThreadPool, QSettings, QStandardPaths
 from PySide6.QtGui import QAction, QKeySequence
@@ -17,9 +19,10 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QDialog, QMessageBox,
+    QWidget, QMessageBox,
 )
 
+from turbostage.db.populate_db import initialize_database
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_info_widget import GameInfoWidget
 from turbostage.igdb_client import IgdbClient
@@ -30,6 +33,8 @@ from turbostage.utils import CancellationFlag
 
 class MainWindow(QMainWindow):
     DB_FILE = "turbostage.db"
+    ONLINE_DB_URL = "https://github.com/jberclaz/turbostage_data/raw/refs/heads/master/turbostage.db"
+    ONLINE_DB_VERSION_URL = "https://raw.githubusercontent.com/jberclaz/turbostage_data/refs/heads/master/version.json"
 
     def __init__(self):
         QMainWindow.__init__(self)
@@ -61,12 +66,18 @@ class MainWindow(QMainWindow):
         add_action = QAction("Add new game", self)
         add_action.triggered.connect(self.add_new_game)
 
+        # Update game database
+        update_db_action = QAction("Update game database", self)
+        update_db_action.triggered.connect(self.update_game_database)
+
         # Settings
         settings_action = QAction("Settings", self)
         settings_action.triggered.connect(self.settings_dialog)
 
         self.file_menu.addAction(add_action)
         self.file_menu.addAction(scan_action)
+        self.file_menu.addAction(update_db_action)
+        self.file_menu.addSeparator()
         self.file_menu.addAction(settings_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
@@ -249,9 +260,40 @@ class MainWindow(QMainWindow):
 
     def settings_dialog(self):
         dialog = SettingsDialog()
-        if dialog.exec() == QDialog.Accepted:
-            pass
+        dialog.exec()
+
+    def update_game_database(self):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT version FROM db_version")
+        rows = cursor.fetchall()
+        conn.close()
+        version = rows[0][0]
+
+        response = requests.get(self.ONLINE_DB_VERSION_URL)
+        if response.status_code != 200:
+            QMessageBox.critical(self, "Online database unavailable", "Unable to access online database. Please retry in a few minutes.", QMessageBox.Ok)
+            return
+
+        online_version = json.loads(response.content)["version"]
+
+        if version == online_version:
+            QMessageBox.information(self, "Database up to date",
+                                 "The game database is already up to date.", QMessageBox.Ok)
+            return
+
+        response = requests.get(self.ONLINE_DB_URL)
+        if response.status_code != 200:
+            QMessageBox.critical(self, "Online database unavailable",
+                                 "Unable to access online database. Please retry in a few minutes.", QMessageBox.Ok)
+        with open(self.db_path, "wb") as database_file:
+            database_file.write(response.content)
+        QMessageBox.information(self, "Database updated",
+                                "The game database has been updated to the latest version.", QMessageBox.Ok)
 
     @property
     def db_path(self):
-        return os.path.join(self._app_data_folder, self.DB_FILE)
+        p = os.path.join(self._app_data_folder, self.DB_FILE)
+        if not os.path.isfile(p):
+            initialize_database(p)
+        return p
