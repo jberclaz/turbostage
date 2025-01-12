@@ -270,9 +270,18 @@ class MainWindow(QMainWindow):
         if new_game_dialog.exec() != QDialog.Accepted:
             return
         game_name, game_id = new_game_dialog.selected_game
-        configure_dialog = ConfigureGameDialog(game_name, game_id)
+        configure_dialog = ConfigureGameDialog(game_name, game_id, game_path)
         if configure_dialog.exec() != QDialog.Accepted:
             return
+        binary = configure_dialog.selected_binary
+        version = configure_dialog.version_name.text()
+        config = configure_dialog.dosbox_config_text.toPlainText()
+        try:
+            utils.add_new_game_version(game_name, version, game_id, game_path, binary, config, self.db_path)
+        except RuntimeError as e:
+            QMessageBox.critical("Error", "Unable to add new game")
+            return
+        self.load_games()
 
     def settings_dialog(self):
         dialog = SettingsDialog()

@@ -1,7 +1,10 @@
 import hashlib
+import os.path
 import sqlite3
 import zipfile
 from collections import Counter
+
+from turbostage import utils
 
 
 def compute_md5_from_zip(zip_archive, file_name):
@@ -48,6 +51,57 @@ def find_game_for_hashes(hash_list: list[str], db_path: str):
     # Find the most common version
     most_common_version, _ = version_counts.most_common(1)[0]
     return most_common_version
+
+
+def add_new_game_version(game_name: str, version_name: str, igdb_id: int, game_archive: str, binary: str, config: str,
+                         db_path: str):
+    # 1. check if game exists in db
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    query = "SELECT count(*) FROM games WHERE igdb_id = ?"
+    cursor.execute(query, (igdb_id,))
+    count = cursor.fetchall()[0][0]
+    if count > 0:
+        cursor.execute("SELECT id FROM games WHERE igdb_id = ?", (igdb_id,))
+        game_id = cursor.fetchall()[0][0]
+    else:
+        # 2. add game entry in games table
+        cursor.execute(
+            """
+            INSERT INTO games (title, release_year, genre, igdb_id)
+            VALUES (?, ?, ?, ?)
+        """,
+            (game_name, "", "", igdb_id),
+        )
+        game_id = cursor.lastrowid
+    # 2.5 TODO: check that this version does not already exist.
+    # 3. add game version in version table
+    cursor.execute(
+        """
+        INSERT INTO versions (game_id, version, executable, archive, config)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (game_id, version_name, binary, os.path.basename(game_archive), config),
+    )
+    version_id = cursor.lastrowid
+    hashes = utils.compute_hash_for_largest_files_in_zip(game_archive, n=4)
+    if not binary in [h[0] for h in hashes]:
+        with zipfile.ZipFile(game_archive, "r") as zf:
+            h = utils.compute_md5_from_zip(zf, binary)
+            hashes.append((binary, 0, h))
+    for h in hashes:
+                cursor.execute(
+                    """
+                    INSERT INTO hashes (version_id, file_name, hash)
+                    VALUES (?, ?, ?)""",
+                    (version_id, h[0], h[2]),
+                )
+
+    cursor.execute(
+                    "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, os.path.basename(game_archive))
+                )
+    conn.commit()
+    conn.close()
 
 class CancellationFlag:
     def __init__(self):
