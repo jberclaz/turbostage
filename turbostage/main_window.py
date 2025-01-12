@@ -19,10 +19,11 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QMessageBox, QFileDialog,
+    QWidget, QMessageBox, QFileDialog, QDialog,
 )
 
 from turbostage.add_new_game_dialog import AddNewGameDialog
+from turbostage.configure_game_dialog import ConfigureGameDialog
 from turbostage.db.populate_db import initialize_database
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_info_widget import GameInfoWidget
@@ -257,14 +258,21 @@ class MainWindow(QMainWindow):
         self.scan_progress_dialog.close()
 
     def add_new_game(self):
-        game_path, _ = QFileDialog.getOpenFileName(self, "Select DosBox Staging binary", "", "Game archives (*.zip)")
+        settings = QSettings("jberclaz", "TurboStage")
+        games_path = settings.value("app/games_path", "")
+        game_path, _ = QFileDialog.getOpenFileName(self, "Select DosBox Staging binary", games_path, "Game archives (*.zip)")
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
         version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
         if version_id is not None:
             QMessageBox.warning(self, "Game already in database", "It looks like this game is already known from the game database. To add it, simply run Scan Local Games option from the main menu.")
             return
-        new_game_dialog = AddNewGameDialog()
-        new_game_dialog.exec()
+        new_game_dialog = AddNewGameDialog(self._igdb_client)
+        if new_game_dialog.exec() != QDialog.Accepted:
+            return
+        game_name, game_id = new_game_dialog.selected_game
+        configure_dialog = ConfigureGameDialog(game_name, game_id)
+        if configure_dialog.exec() != QDialog.Accepted:
+            return
 
     def settings_dialog(self):
         dialog = SettingsDialog()
