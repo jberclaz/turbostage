@@ -3,6 +3,7 @@ import os.path
 import sqlite3
 import zipfile
 from collections import Counter
+from datetime import datetime
 
 from turbostage import utils
 
@@ -54,7 +55,7 @@ def find_game_for_hashes(hash_list: list[str], db_path: str):
 
 
 def add_new_game_version(game_name: str, version_name: str, igdb_id: int, game_archive: str, binary: str, config: str,
-                         db_path: str):
+                         db_path: str, igdb_client):
     # 1. check if game exists in db
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -65,13 +66,25 @@ def add_new_game_version(game_name: str, version_name: str, igdb_id: int, game_a
         cursor.execute("SELECT id FROM games WHERE igdb_id = ?", (igdb_id,))
         game_id = cursor.fetchall()[0][0]
     else:
-        # 2. add game entry in games table
+        # 2.1 query IGDB for extra info
+        result = igdb_client.query("games", ["release_dates", "genres"], f"id={igdb_id}")
+        details = result[0]
+        dates_result = igdb_client.query("release_dates", ["date"], f"platform=13&id=({",".join([str(d) for d in details['release_dates']])})")
+        if len(dates_result) == 0:
+            release_date = ""
+        else:
+            epoch = dates_result[0]["date"]
+            date_time = datetime.utcfromtimestamp(epoch)
+            release_date = date_time.year
+        genre_result = igdb_client.query("genres", ["name"], f"id=({",".join([str(i) for i in details['genres']])})")
+        genre_string = ", ".join(g["name"] for g in genre_result)
+        # 2.2 add game entry in games table
         cursor.execute(
             """
             INSERT INTO games (title, release_year, genre, igdb_id)
             VALUES (?, ?, ?, ?)
         """,
-            (game_name, "", "", igdb_id),
+            (game_name, release_date, genre_string, igdb_id),
         )
         game_id = cursor.lastrowid
     # 2.5 TODO: check that this version does not already exist.
@@ -84,6 +97,7 @@ def add_new_game_version(game_name: str, version_name: str, igdb_id: int, game_a
         (game_id, version_name, binary, os.path.basename(game_archive), config),
     )
     version_id = cursor.lastrowid
+    # 4. add hashes
     hashes = utils.compute_hash_for_largest_files_in_zip(game_archive, n=4)
     if not binary in [h[0] for h in hashes]:
         with zipfile.ZipFile(game_archive, "r") as zf:
@@ -96,7 +110,7 @@ def add_new_game_version(game_name: str, version_name: str, igdb_id: int, game_a
                     VALUES (?, ?, ?)""",
                     (version_id, h[0], h[2]),
                 )
-
+    # 5. add local version
     cursor.execute(
                     "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, os.path.basename(game_archive))
                 )

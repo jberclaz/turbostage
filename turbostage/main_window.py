@@ -277,7 +277,7 @@ class MainWindow(QMainWindow):
         version = configure_dialog.version_name.text()
         config = configure_dialog.dosbox_config_text.toPlainText()
         try:
-            utils.add_new_game_version(game_name, version, game_id, game_path, binary, config, self.db_path)
+            utils.add_new_game_version(game_name, version, game_id, game_path, binary, config, self.db_path, self._igdb_client)
         except RuntimeError as e:
             QMessageBox.critical("Error", "Unable to add new game")
             return

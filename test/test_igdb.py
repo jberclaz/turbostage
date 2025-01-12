@@ -25,5 +25,10 @@ class TestIgdb(TestCase):
         client = IgdbClient()
         result = client.query("games", ["name", "summary", "storyline", "screenshots", "rating", "release_dates", "involved_companies", "genres", "cover"], "id=60")
         self.assertEqual(1, len(result))
-        result = client.query("covers", ["url"], f"id={result[0]['cover']}")
+        details = result[0]
+        result = client.query("covers", ["url"], f"id={details['cover']}")
         self.assertEqual(1, len(result))
+        result = client.query("release_dates", ["date"], f"platform=13&id=({",".join([str(d) for d in details['release_dates']])})")
+        self.assertEqual(1, len(result))
+        result = client.query("genres", ["name"], f"id=({",".join([str(i) for i in details['genres']])})")
+        self.assertEqual(3, len(result))
