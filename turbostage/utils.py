@@ -48,3 +48,10 @@ def find_game_for_hashes(hash_list: list[str], db_path: str):
     # Find the most common version
     most_common_version, _ = version_counts.most_common(1)[0]
     return most_common_version
+
+class CancellationFlag:
+    def __init__(self):
+        self.cancelled = False
+
+    def __call__(self):
+        return self.cancelled

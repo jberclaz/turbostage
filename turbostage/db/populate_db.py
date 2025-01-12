@@ -18,6 +18,7 @@ GAME_DATA = [
                 "config": "",
             }
         ],
+        "igdb_id": 60,
     },
     {
         "title": "Prince of Persia",
@@ -31,6 +32,7 @@ GAME_DATA = [
                 "config": "",
             }
         ],
+        "igdb_id": 284766,
     },
     {
         "title": "Prince of Persia 2: The Shadow and the Flame",
@@ -44,6 +46,7 @@ GAME_DATA = [
                 "config": "",
             }
         ],
+        "igdb_id": 3164,
     },
     {
         "title": "Comanche: Maximum Overkill",
@@ -57,6 +60,7 @@ GAME_DATA = [
                 "config": "[midi]\nmididevice = mt32\n",
             }
         ],
+        "igdb_id": 7494,
     },
     {
         "title": "Power Drive",
@@ -70,6 +74,7 @@ GAME_DATA = [
                 "config": "[cpu]\ncpu_cycles = 12000\n",
             }
         ],
+        "igdb_id": 12720,
     },
 ]
 
@@ -83,7 +88,8 @@ def initialize_database(db_path):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
             release_year INTEGER,
-            genre TEXT
+            genre TEXT,
+            igdb_id INTEGER
         );
         """
     )
@@ -128,10 +134,10 @@ def populate_database(db_path, games):
     for game in games:
         cursor.execute(
             """
-            INSERT INTO games (title, release_year, genre)
-            VALUES (?, ?, ?)
+            INSERT INTO games (title, release_year, genre, igdb_id)
+            VALUES (?, ?, ?, ?)
         """,
-            (game["title"], game["release_year"], game["genre"]),
+            (game["title"], game["release_year"], game["genre"], game["igdb_id"]),
         )
         game_id = cursor.lastrowid
         for version in game["versions"]:

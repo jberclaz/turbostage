@@ -5,12 +5,11 @@ import tempfile
 import zipfile
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtCore import Qt, QThreadPool, QSettings, QStandardPaths
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHBoxLayout,
-    QLabel,
     QLineEdit,
     QMainWindow,
     QProgressDialog,
@@ -18,49 +17,27 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget,
+    QWidget, QDialog, QMessageBox,
 )
 
-from turbostage import utils
-from turbostage.utils import find_game_for_hashes
-
-
-class ScanningThread(QThread):
-    progress = Signal(int)
-
-    def __init__(self, local_game_archives: list[str], main_window):
-        super().__init__()
-        self._local_game_archives = local_game_archives
-        self._main_window = main_window
-
-    def run(self):
-        conn = sqlite3.connect(MainWindow.DB_PATH)
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM local_versions")
-
-        for index, game_archive in enumerate(self._local_game_archives):
-            hashes = utils.compute_hash_for_largest_files_in_zip(os.path.join(MainWindow.GAMES_PATH, game_archive), 4)
-            version_id = find_game_for_hashes([h[2] for h in hashes], MainWindow.DB_PATH)
-            if version_id is not None:
-                cursor.execute(
-                    "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive)
-                )
-            self.sleep(1)
-            self.progress.emit(index + 1)
-
-        conn.commit()
-        conn.close()
-
-        self._main_window.load_games()
+from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
+from turbostage.game_info_widget import GameInfoWidget
+from turbostage.igdb_client import IgdbClient
+from turbostage.scanning_thread import ScanningThread
+from turbostage.settings_dialog import SettingsDialog
+from turbostage.utils import CancellationFlag
 
 
 class MainWindow(QMainWindow):
-    DB_PATH = "db/games.db"
-    GAMES_PATH = "games"
-    DOSBOX_EXEC = "/home/jrb/downloads/dosbox-staging-linux-x86_64-0.82.0-9df43/dosbox"
+    DB_FILE = "turbostage.db"
 
     def __init__(self):
         QMainWindow.__init__(self)
+        self._igdb_client = IgdbClient()
+        self._current_fetch_cancel_flag = None
+        self._thread_pool = QThreadPool()
+        self._app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+
         self._init_ui()
         self.load_games()
 
@@ -84,8 +61,13 @@ class MainWindow(QMainWindow):
         add_action = QAction("Add new game", self)
         add_action.triggered.connect(self.add_new_game)
 
+        # Settings
+        settings_action = QAction("Settings", self)
+        settings_action.triggered.connect(self.settings_dialog)
+
         self.file_menu.addAction(add_action)
         self.file_menu.addAction(scan_action)
+        self.file_menu.addAction(settings_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
 
@@ -118,11 +100,8 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.game_table)
 
         # Right panel: Game info display
-        self.game_panel = QVBoxLayout()
-        self.game_info_label = QLabel("Select a game to see details here.")
-        self.game_info_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
-        self.game_panel.addWidget(self.game_info_label)
-        main_layout.addLayout(self.game_panel)
+        self.game_info_panel = GameInfoWidget()
+        main_layout.addWidget(self.game_info_panel)
 
         # Launch button
         self.launch_button = QPushButton("Launch Game")
@@ -145,7 +124,7 @@ class MainWindow(QMainWindow):
         selected_row = self.game_table.currentRow()
         game_name = self.game_table.item(selected_row, 0).text()
 
-        conn = sqlite3.connect(self.DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -160,13 +139,23 @@ class MainWindow(QMainWindow):
         rows = cursor.fetchall()
         conn.close()
 
+        settings = QSettings("jberclaz", "TurboStage")
+        full_screen = settings.value("app/full_screen", False)
+        dosbox_exec = settings.value("app/emulator_path", "")
+        games_path = settings.value("app/games_path", "")
+        if not dosbox_exec:
+            QMessageBox.critical(self, "DosBox binary not specified", "Cannot start game, because the DosBox Staging binary has not been specified. Use the Settings dialog to set it up or download DosBox Staging", QMessageBox.Ok)
+            return
+
         startup, archive, config = rows[0]
         with tempfile.TemporaryDirectory() as temp_dir:
-            archive_path = os.path.join(self.GAMES_PATH, archive)
+            archive_path = os.path.join(games_path, archive)
             with zipfile.ZipFile(archive_path, "r") as zip_ref:
                 zip_ref.extractall(temp_dir)
             dosbox_command = os.path.join(temp_dir, startup)
-            command = [self.DOSBOX_EXEC, "--noprimaryconf", "--conf", "conf/dosbox-staging.conf"]
+            command = [dosbox_exec, "--noprimaryconf", "--conf", "conf/dosbox-staging.conf"]
+            if full_screen:
+                command.append("--fullscreen")
             with tempfile.NamedTemporaryFile() as conf_file:
                 if config:
                     with open(conf_file.name, "wt") as f:
@@ -181,17 +170,29 @@ class MainWindow(QMainWindow):
             self.game_info_label.setText("Select a game to see details here.")
             self.launch_button.setEnabled(False)
             return
-        selected_row = self.game_table.currentRow()
-        game_name = self.game_table.item(selected_row, 0).text()
-        self.game_info_label.setText(f"{game_name}")
+        if len(selected_items) != 4:
+            raise RuntimeError("Invalid game selection")
+        if self._current_fetch_cancel_flag is not None:
+            self._current_fetch_cancel_flag.cancelled = True
+
+        name_row = selected_items[0]
+        game_id = name_row.data(Qt.UserRole)
+        game_name = name_row.text()
+        self.game_info_panel.set_game_name(game_name)
         self.launch_button.setEnabled(True)
+        cancel_flag = CancellationFlag()
+        fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, cancel_flag)
+        self._current_fetch_cancel_flag = cancel_flag
+        fetch_worker.finished.connect(self.game_info_panel.set_game_info)
+        fetch_task = FetchGameInfoTask(fetch_worker)
+        self._thread_pool.start(fetch_task)
 
     def load_games(self):
-        conn = sqlite3.connect(self.DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT g.title, g.release_year, g.genre, v.version
+            SELECT g.title, g.release_year, g.genre, v.version, g.igdb_id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id;
@@ -202,14 +203,21 @@ class MainWindow(QMainWindow):
 
         self.game_table.setRowCount(len(rows))
         for row_num, row in enumerate(rows):
-            self.game_table.setItem(row_num, 0, QTableWidgetItem(row[0]))
+            game_name = QTableWidgetItem(row[0])
+            game_name.setData(Qt.UserRole, row[4])
+            self.game_table.setItem(row_num, 0, game_name)
             self.game_table.setItem(row_num, 1, QTableWidgetItem(str(row[1])))
             self.game_table.setItem(row_num, 2, QTableWidgetItem(row[2]))
             self.game_table.setItem(row_num, 3, QTableWidgetItem(row[3]))
         self.game_table.resizeColumnsToContents()
 
     def scan_local_games(self):
-        local_game_archives = [file for file in os.listdir(MainWindow.GAMES_PATH) if file.endswith(".zip")]
+        settings = QSettings("jberclaz", "TurboStage")
+        games_path = settings.value("app/games_path", "")
+        if not games_path:
+            QMessageBox.critical(self, "Games folder not specified", "Cannot scan local games, because the games folder has not been specified. Use the Settings dialog to set it up.", QMessageBox.Ok)
+            return
+        local_game_archives = [file for file in os.listdir(games_path) if file.endswith(".zip")]
 
         self.scan_progress_dialog = QProgressDialog(
             "Scanning local games...", "Cancel", 0, len(local_game_archives), self
@@ -220,8 +228,9 @@ class MainWindow(QMainWindow):
         self.scan_progress_dialog.setValue(0)
 
         # Start the worker thread
-        self.scan_worker = ScanningThread(local_game_archives, self)
+        self.scan_worker = ScanningThread(local_game_archives, self.db_path, games_path)
         self.scan_worker.progress.connect(self.update_scan_progress)
+        self.scan_worker.load_games.connect(self.load_games)
         self.scan_worker.start()
 
         # Handle cancellation
@@ -237,3 +246,12 @@ class MainWindow(QMainWindow):
 
     def add_new_game(self):
         pass
+
+    def settings_dialog(self):
+        dialog = SettingsDialog()
+        if dialog.exec() == QDialog.Accepted:
+            pass
+
+    @property
+    def db_path(self):
+        return os.path.join(self._app_data_folder, self.DB_FILE)
