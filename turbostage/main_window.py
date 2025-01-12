@@ -29,7 +29,7 @@ from turbostage.game_info_widget import GameInfoWidget
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
 from turbostage.settings_dialog import SettingsDialog
-from turbostage import utils
+from turbostage import utils, __version__
 
 
 class MainWindow(QMainWindow):
@@ -48,7 +48,7 @@ class MainWindow(QMainWindow):
         self.load_games()
 
     def _init_ui(self):
-        self.setWindowTitle("TurboStage")
+        self.setWindowTitle(f"TurboStage {__version__}")
 
         # Menu
         self.menu = self.menuBar()

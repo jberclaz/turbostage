@@ -21,5 +21,10 @@ venv/.done: requirements.txt requirements-dev.txt
 build:
 	poetry build
 
+package:
+	poetry-dynamic-versioning
+	version=`grep "__version__" turbostage/__init__.py | sed -e 's/^__version__ = "\(.*\)"$$/\1/'`
+	pyinstaller --onefile --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py
+
 clean:
 	${RM} -rf venv *~
