@@ -5,7 +5,7 @@ import tempfile
 import zipfile
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, QThreadPool, QSettings
+from PySide6.QtCore import Qt, QThreadPool, QSettings, QStandardPaths
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QDialog,
+    QWidget, QDialog, QMessageBox,
 )
 
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
@@ -29,17 +29,17 @@ from turbostage.utils import CancellationFlag
 
 
 class MainWindow(QMainWindow):
-    DB_PATH = "db/games.db"
-    GAMES_PATH = "games"
-    DOSBOX_EXEC = "/home/jrb/downloads/dosbox-staging-linux-x86_64-0.82.0-9df43/dosbox"
+    DB_FILE = "turbostage.db"
 
     def __init__(self):
         QMainWindow.__init__(self)
-        self._init_ui()
-        self.load_games()
         self._igdb_client = IgdbClient()
         self._current_fetch_cancel_flag = None
         self._thread_pool = QThreadPool()
+        self._app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+
+        self._init_ui()
+        self.load_games()
 
     def _init_ui(self):
         self.setWindowTitle("TurboStage")
@@ -124,7 +124,7 @@ class MainWindow(QMainWindow):
         selected_row = self.game_table.currentRow()
         game_name = self.game_table.item(selected_row, 0).text()
 
-        conn = sqlite3.connect(self.DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -141,14 +141,19 @@ class MainWindow(QMainWindow):
 
         settings = QSettings("jberclaz", "TurboStage")
         full_screen = settings.value("app/full_screen", False)
+        dosbox_exec = settings.value("app/emulator_path", "")
+        games_path = settings.value("app/games_path", "")
+        if not dosbox_exec:
+            QMessageBox.critical(self, "DosBox binary not specified", "Cannot start game, because the DosBox Staging binary has not been specified. Use the Settings dialog to set it up or download DosBox Staging", QMessageBox.Ok)
+            return
 
         startup, archive, config = rows[0]
         with tempfile.TemporaryDirectory() as temp_dir:
-            archive_path = os.path.join(self.GAMES_PATH, archive)
+            archive_path = os.path.join(games_path, archive)
             with zipfile.ZipFile(archive_path, "r") as zip_ref:
                 zip_ref.extractall(temp_dir)
             dosbox_command = os.path.join(temp_dir, startup)
-            command = [self.DOSBOX_EXEC, "--noprimaryconf", "--conf", "conf/dosbox-staging.conf"]
+            command = [dosbox_exec, "--noprimaryconf", "--conf", "conf/dosbox-staging.conf"]
             if full_screen:
                 command.append("--fullscreen")
             with tempfile.NamedTemporaryFile() as conf_file:
@@ -183,7 +188,7 @@ class MainWindow(QMainWindow):
         self._thread_pool.start(fetch_task)
 
     def load_games(self):
-        conn = sqlite3.connect(self.DB_PATH)
+        conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
             """
@@ -207,7 +212,12 @@ class MainWindow(QMainWindow):
         self.game_table.resizeColumnsToContents()
 
     def scan_local_games(self):
-        local_game_archives = [file for file in os.listdir(MainWindow.GAMES_PATH) if file.endswith(".zip")]
+        settings = QSettings("jberclaz", "TurboStage")
+        games_path = settings.value("app/games_path", "")
+        if not games_path:
+            QMessageBox.critical(self, "Games folder not specified", "Cannot scan local games, because the games folder has not been specified. Use the Settings dialog to set it up.", QMessageBox.Ok)
+            return
+        local_game_archives = [file for file in os.listdir(games_path) if file.endswith(".zip")]
 
         self.scan_progress_dialog = QProgressDialog(
             "Scanning local games...", "Cancel", 0, len(local_game_archives), self
@@ -218,7 +228,7 @@ class MainWindow(QMainWindow):
         self.scan_progress_dialog.setValue(0)
 
         # Start the worker thread
-        self.scan_worker = ScanningThread(local_game_archives, self.DB_PATH, self.GAMES_PATH)
+        self.scan_worker = ScanningThread(local_game_archives, self.db_path, games_path)
         self.scan_worker.progress.connect(self.update_scan_progress)
         self.scan_worker.load_games.connect(self.load_games)
         self.scan_worker.start()
@@ -241,3 +251,7 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog()
         if dialog.exec() == QDialog.Accepted:
             pass
+
+    @property
+    def db_path(self):
+        return os.path.join(self._app_data_folder, self.DB_FILE)
