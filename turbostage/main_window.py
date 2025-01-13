@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QMessageBox, QFileDialog, QDialog,
+    QWidget, QMessageBox, QFileDialog, QDialog, QMenu,
 )
 
 from turbostage.add_new_game_dialog import AddNewGameDialog
@@ -109,6 +109,8 @@ class MainWindow(QMainWindow):
         self.game_table.selectionModel().selectionChanged.connect(self.update_game_info)
         self.game_table.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         self.game_table.cellDoubleClicked.connect(self.launch_game)
+        self.game_table.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.game_table.customContextMenuRequested.connect(self.show_context_menu)
         self.game_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         main_layout.addWidget(self.game_table)
 
@@ -317,6 +319,60 @@ class MainWindow(QMainWindow):
             database_file.write(response.content)
         QMessageBox.information(self, "Database updated",
                                 "The game database has been updated to the latest version.", QMessageBox.Ok)
+
+    def show_context_menu(self, pos):
+        context_menu = QMenu(self)
+
+        edit_action = QAction("Edit Game", self)
+        edit_action.triggered.connect(self.edit_selected_game)
+        context_menu.addAction(edit_action)
+
+        delete_action = QAction("Delete Game", self)
+        delete_action.triggered.connect(self.delete_selected_game)
+        context_menu.addAction(delete_action)
+
+        context_menu.exec(self.game_table.mapToGlobal(pos))
+
+    def delete_selected_game(self):
+        reply = QMessageBox.question(self, 'Confirm Deletion',
+                                     'Are you sure you want to remove this game?',
+                                     QMessageBox.Yes | QMessageBox.No,
+                                     QMessageBox.No)
+
+        if reply == QMessageBox.Yes:
+            pass
+
+    def edit_selected_game(self):
+        selected_items = self.game_table.selectedItems()
+        if len(selected_items) != 4:
+            raise RuntimeError("Invalid game selection")
+        name_row = selected_items[0]
+        game_id = name_row.data(Qt.UserRole)
+        game_name = name_row.text()
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT v.executable, lv.archive, v.config, v.version
+            FROM games g
+            JOIN versions v ON g.id = v.game_id
+            JOIN local_versions lv ON v.id = lv.version_id
+            WHERE g.title = ?
+            """,
+            (game_name,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        settings = QSettings("jberclaz", "TurboStage")
+        games_path = settings.value("app/games_path", "")
+
+        game_path = os.path.join(games_path, rows[0][1])
+
+        configure_dialog = ConfigureGameDialog(game_name, game_id, game_path, version = rows[0][3], config=rows[0][2], binary=rows[0][0], add=False)
+        if configure_dialog.exec() != QDialog.Accepted:
+            pass
 
     @property
     def db_path(self):

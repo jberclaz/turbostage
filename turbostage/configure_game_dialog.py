@@ -1,7 +1,7 @@
 import os
 import zipfile
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QItemSelectionModel
 from PySide6.QtWidgets import QDialog, QVBoxLayout, QListView, QLabel, QPushButton, QTextEdit, QSpacerItem, QSizePolicy, \
     QLineEdit
 
@@ -24,7 +24,7 @@ class BinaryListModel(QAbstractListModel):
         self.endResetModel()
 
 class ConfigureGameDialog(QDialog):
-    def __init__(self, game_name: str, game_id: int, game_archive: str):
+    def __init__(self, game_name: str, game_id: int, game_archive: str, version: str | None = None, binary: str | None = None, config: str | None = None, add: bool = True):
         super().__init__()
         self._game_name = game_name
         self._game_id = game_id
@@ -38,6 +38,8 @@ class ConfigureGameDialog(QDialog):
         self.version_label = QLabel("Version name")
         self.version_name = QLineEdit(self)
         self.version_name.setPlaceholderText("Eg: 'vga', 'en', '1.2, ...")
+        if version is not None:
+            self.version_name.setText(version)
         self.version_name.textChanged.connect(self._on_version_change)
         self.layout.addWidget(self.version_label)
         self.layout.addWidget(self.version_name)
@@ -50,6 +52,14 @@ class ConfigureGameDialog(QDialog):
         self.binary_list_model = BinaryListModel()
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
+        self._populates_binary_list(game_archive)
+        if binary is not None:
+            for row in range(self.binary_list_model.rowCount()):
+                index = self.binary_list_model.index(row, 0)
+                item_data = self.binary_list_model.data(index, Qt.DisplayRole)
+                if item_data == binary:
+                    self.binary_list_view.selectionModel().select(index, QItemSelectionModel.Select)
+                    break
         self.binary_list_view.selectionModel().selectionChanged.connect(self._on_selection_change)
         self.layout.addWidget(self.binary_list_view)
 
@@ -59,14 +69,17 @@ class ConfigureGameDialog(QDialog):
         self.layout.addWidget(self.config_label)
         self.dosbox_config_text = QTextEdit(self)
         self.dosbox_config_text.setPlaceholderText("Enter custom DOSBox configuration here...")
+        if config is not None:
+            self.dosbox_config_text.setText(config)
         self.layout.addWidget(self.dosbox_config_text)
 
         self.add_button = QPushButton("Add game")
-        self.add_button.setEnabled(False)
+        if not add:
+            self.add_button.setText("Update game")
+        self.add_button.setEnabled(not add)
         self.add_button.clicked.connect(self._on_add_game)
         self.layout.addWidget(self.add_button)
 
-        self._populates_binary_list(game_archive)
         self.selected_binary = None
 
     def _populates_binary_list(self, game_archive: str):
