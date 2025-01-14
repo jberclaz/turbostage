@@ -18,7 +18,7 @@ class GameInfoWidget(QWidget):
         self.details_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
         self.layout.addWidget(self.details_label)
 
-        self.info_layout = QHBoxLayout(self)
+        self.info_layout = QHBoxLayout()
 
         self.summary = QLabel(self)
         self.summary.setWordWrap(True)
@@ -37,20 +37,20 @@ class GameInfoWidget(QWidget):
     def set_game_info(
         self, summary: str, cover_url: str, release_date: str = None, genres: str = None, publisher: str = None
     ):
-        html_content = """
+        html_content = f"""
         <div style="font-family: Arial, sans-serif; font-size: 14px;">
             <table style="width: 100%; border-collapse: collapse;">
                 <tr>
                     <td style="font-weight: bold; text-align: left; padding: 5px;">Release Date:</td>
-                    <td style="text-align: left; padding: 5px;">January 1, 2025</td>
+                    <td style="text-align: left; padding: 5px;">{release_date}</td>
                 </tr>
                 <tr>
                     <td style="font-weight: bold; text-align: left; padding: 5px;">Genre:</td>
-                    <td style="text-align: left; padding: 5px;">Action, Adventure</td>
+                    <td style="text-align: left; padding: 5px;">{genres}</td>
                 </tr>
                 <tr>
                     <td style="font-weight: bold; text-align: left; padding: 5px;">Publisher:</td>
-                    <td style="text-align: left; padding: 5px;">Game Studio Inc.</td>
+                    <td style="text-align: left; padding: 5px;">{publisher}</td>
                 </tr>
             </table>
         </div>
