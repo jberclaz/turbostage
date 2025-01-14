@@ -7,7 +7,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent"
 ]
-version = "0.3.0"  # Placeholder
+version = "0.3.0.post4.dev0+44cc98d"  # Placeholder
 
 include = [
     "content/splash.jpg"

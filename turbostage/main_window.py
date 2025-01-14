@@ -7,21 +7,27 @@ import zipfile
 
 import requests
 from PySide6 import QtWidgets
-from PySide6.QtCore import Qt, QThreadPool, QSettings, QStandardPaths
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
 from PySide6.QtGui import QAction, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QDialog,
+    QFileDialog,
     QHBoxLayout,
     QLineEdit,
     QMainWindow,
+    QMenu,
+    QMessageBox,
     QProgressDialog,
     QPushButton,
+    QSplitter,
     QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
-    QWidget, QMessageBox, QFileDialog, QDialog, QMenu,
+    QWidget,
 )
 
+from turbostage import __version__, utils
 from turbostage.add_new_game_dialog import AddNewGameDialog
 from turbostage.configure_game_dialog import ConfigureGameDialog
 from turbostage.db.populate_db import initialize_database
@@ -30,7 +36,6 @@ from turbostage.game_info_widget import GameInfoWidget
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
 from turbostage.settings_dialog import SettingsDialog
-from turbostage import utils, __version__
 
 
 class MainWindow(QMainWindow):
@@ -97,7 +102,7 @@ class MainWindow(QMainWindow):
         self.search_box.setPlaceholderText("Search for a game...")
         self.search_box.textChanged.connect(self.filter_games)
 
-        main_layout = QHBoxLayout()
+        self.splitter = QSplitter(Qt.Horizontal)
 
         # Game table
         self.game_table = QTableWidget()
@@ -112,11 +117,11 @@ class MainWindow(QMainWindow):
         self.game_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.game_table.customContextMenuRequested.connect(self.show_context_menu)
         self.game_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        main_layout.addWidget(self.game_table)
+        self.splitter.addWidget(self.game_table)
 
         # Right panel: Game info display
         self.game_info_panel = GameInfoWidget()
-        main_layout.addWidget(self.game_info_panel)
+        self.splitter.addWidget(self.game_info_panel)
 
         # Launch button
         self.launch_button = QPushButton("Launch Game")
@@ -125,7 +130,7 @@ class MainWindow(QMainWindow):
 
         layout = QVBoxLayout()
         layout.addWidget(self.search_box)
-        layout.addLayout(main_layout)
+        layout.addWidget(self.splitter)
         layout.addWidget(self.launch_button)
 
         container = QWidget()
@@ -159,7 +164,12 @@ class MainWindow(QMainWindow):
         dosbox_exec = settings.value("app/emulator_path", "")
         games_path = settings.value("app/games_path", "")
         if not dosbox_exec:
-            QMessageBox.critical(self, "DosBox binary not specified", "Cannot start game, because the DosBox Staging binary has not been specified. Use the Settings dialog to set it up or download DosBox Staging", QMessageBox.Ok)
+            QMessageBox.critical(
+                self,
+                "DosBox binary not specified",
+                "Cannot start game, because the DosBox Staging binary has not been specified. Use the Settings dialog to set it up or download DosBox Staging",
+                QMessageBox.Ok,
+            )
             return
 
         startup, archive, config = rows[0]
@@ -230,7 +240,12 @@ class MainWindow(QMainWindow):
         settings = QSettings("jberclaz", "TurboStage")
         games_path = settings.value("app/games_path", "")
         if not games_path:
-            QMessageBox.critical(self, "Games folder not specified", "Cannot scan local games, because the games folder has not been specified. Use the Settings dialog to set it up.", QMessageBox.Ok)
+            QMessageBox.critical(
+                self,
+                "Games folder not specified",
+                "Cannot scan local games, because the games folder has not been specified. Use the Settings dialog to set it up.",
+                QMessageBox.Ok,
+            )
             return
         local_game_archives = [file for file in os.listdir(games_path) if file.endswith(".zip")]
 
@@ -262,11 +277,17 @@ class MainWindow(QMainWindow):
     def add_new_game(self):
         settings = QSettings("jberclaz", "TurboStage")
         games_path = settings.value("app/games_path", "")
-        game_path, _ = QFileDialog.getOpenFileName(self, "Select DosBox Staging binary", games_path, "Game archives (*.zip)")
+        game_path, _ = QFileDialog.getOpenFileName(
+            self, "Select DosBox Staging binary", games_path, "Game archives (*.zip)"
+        )
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
         version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
         if version_id is not None:
-            QMessageBox.warning(self, "Game already in database", "It looks like this game is already known from the game database. To add it, simply run Scan Local Games option from the main menu.")
+            QMessageBox.warning(
+                self,
+                "Game already in database",
+                "It looks like this game is already known from the game database. To add it, simply run Scan Local Games option from the main menu.",
+            )
             return
         new_game_dialog = AddNewGameDialog(self._igdb_client)
         if new_game_dialog.exec() != QDialog.Accepted:
@@ -279,7 +300,9 @@ class MainWindow(QMainWindow):
         version = configure_dialog.version_name.text()
         config = configure_dialog.dosbox_config_text.toPlainText()
         try:
-            utils.add_new_game_version(game_name, version, game_id, game_path, binary, config, self.db_path, self._igdb_client)
+            utils.add_new_game_version(
+                game_name, version, game_id, game_path, binary, config, self.db_path, self._igdb_client
+            )
         except RuntimeError as e:
             QMessageBox.critical("Error", "Unable to add new game")
             return
@@ -299,7 +322,12 @@ class MainWindow(QMainWindow):
 
         response = requests.get(self.ONLINE_DB_VERSION_URL)
         if response.status_code != 200:
-            QMessageBox.critical(self, "Online database unavailable", "Unable to access online database. Please retry in a few minutes.", QMessageBox.Ok)
+            QMessageBox.critical(
+                self,
+                "Online database unavailable",
+                "Unable to access online database. Please retry in a few minutes.",
+                QMessageBox.Ok,
+            )
             return
 
         online_version = json.loads(response.content)["version"]
@@ -307,18 +335,24 @@ class MainWindow(QMainWindow):
         # TODO: properly compare versions
 
         if version == online_version:
-            QMessageBox.information(self, "Database up to date",
-                                 "The game database is already up to date.", QMessageBox.Ok)
+            QMessageBox.information(
+                self, "Database up to date", "The game database is already up to date.", QMessageBox.Ok
+            )
             return
 
         response = requests.get(self.ONLINE_DB_URL)
         if response.status_code != 200:
-            QMessageBox.critical(self, "Online database unavailable",
-                                 "Unable to access online database. Please retry in a few minutes.", QMessageBox.Ok)
+            QMessageBox.critical(
+                self,
+                "Online database unavailable",
+                "Unable to access online database. Please retry in a few minutes.",
+                QMessageBox.Ok,
+            )
         with open(self.db_path, "wb") as database_file:
             database_file.write(response.content)
-        QMessageBox.information(self, "Database updated",
-                                "The game database has been updated to the latest version.", QMessageBox.Ok)
+        QMessageBox.information(
+            self, "Database updated", "The game database has been updated to the latest version.", QMessageBox.Ok
+        )
 
     def show_context_menu(self, pos):
         context_menu = QMenu(self)
@@ -334,10 +368,13 @@ class MainWindow(QMainWindow):
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
     def delete_selected_game(self):
-        reply = QMessageBox.question(self, 'Confirm Deletion',
-                                     'Are you sure you want to remove this game?',
-                                     QMessageBox.Yes | QMessageBox.No,
-                                     QMessageBox.No)
+        reply = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            "Are you sure you want to remove this game?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
 
         if reply == QMessageBox.Yes:
             pass
@@ -370,7 +407,9 @@ class MainWindow(QMainWindow):
 
         game_path = os.path.join(games_path, rows[0][1])
 
-        configure_dialog = ConfigureGameDialog(game_name, game_id, game_path, version = rows[0][3], config=rows[0][2], binary=rows[0][0], add=False)
+        configure_dialog = ConfigureGameDialog(
+            game_name, game_id, game_path, version=rows[0][3], config=rows[0][2], binary=rows[0][0], add=False
+        )
         if configure_dialog.exec() != QDialog.Accepted:
             pass
 

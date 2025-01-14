@@ -18,13 +18,21 @@ venv/.done: requirements.txt requirements-dev.txt
 	)
 	touch venv/.done
 
-build:
-	poetry build
+build: venv
+	( \
+	. venv/bin/activate; \
+	poetry build; \
+	deactivate;
+	)
 
-package:
-	poetry-dynamic-versioning
-	version=`grep "__version__" turbostage/__init__.py | sed -e 's/^__version__ = "\(.*\)"$$/\1/'`
-	pyinstaller --onefile --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py
+package: venv
+	( \
+	. venv/bin/activate; \
+	poetry-dynamic-versioning; \
+	version=`grep "__version__" turbostage/__init__.py | sed -e 's/^__version__ = "\(.*\)"$$/\1/'`; \
+	pyinstaller --onefile --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py; \
+	deactivate; \
+	)
 
 clean:
 	${RM} -rf venv *~
