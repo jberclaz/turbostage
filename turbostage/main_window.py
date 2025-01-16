@@ -4,6 +4,7 @@ import sqlite3
 import subprocess
 import tempfile
 import zipfile
+from datetime import datetime
 
 import requests
 from PySide6 import QtWidgets
@@ -107,7 +108,7 @@ class MainWindow(QMainWindow):
         # Game table
         self.game_table = QTableWidget()
         self.game_table.setColumnCount(4)
-        self.game_table.setHorizontalHeaderLabels(["Title", "Release Year", "Genre", "Version"])
+        self.game_table.setHorizontalHeaderLabels(["Title", "Release", "Genre", "Version"])
         self.game_table.setSortingEnabled(True)
         self.game_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.game_table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -217,7 +218,7 @@ class MainWindow(QMainWindow):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT g.title, g.release_year, g.genre, v.version, g.igdb_id
+            SELECT g.title, g.release_date, g.genre, v.version, g.igdb_id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id;
@@ -230,8 +231,11 @@ class MainWindow(QMainWindow):
         for row_num, row in enumerate(rows):
             game_name = QTableWidgetItem(row[0])
             game_name.setData(Qt.UserRole, row[4])
+            dt_object = datetime.utcfromtimestamp(row[1])
+            release_date = dt_object.strftime("%Y-%m-%d")
+
             self.game_table.setItem(row_num, 0, game_name)
-            self.game_table.setItem(row_num, 1, QTableWidgetItem(str(row[1])))
+            self.game_table.setItem(row_num, 1, QTableWidgetItem(release_date))
             self.game_table.setItem(row_num, 2, QTableWidgetItem(row[2]))
             self.game_table.setItem(row_num, 3, QTableWidgetItem(row[3]))
         self.game_table.resizeColumnsToContents()

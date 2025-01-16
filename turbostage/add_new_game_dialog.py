@@ -1,5 +1,5 @@
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QLineEdit, QListView, QPushButton
+from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QListView, QPushButton, QVBoxLayout
 
 from turbostage.igdb_client import IgdbClient
 
@@ -20,6 +20,7 @@ class GameListModel(QAbstractListModel):
         self.beginResetModel()
         self.games = games
         self.endResetModel()
+
 
 class AddNewGameDialog(QDialog):
     def __init__(self, igdb_client):
@@ -50,9 +51,10 @@ class AddNewGameDialog(QDialog):
 
         self.selected_game = None
 
-
     def _search_games(self):
-        response = self._igdb_client.search("games", ["name"], self.game_name_search_query.text(), f"platforms=({IgdbClient.DOS_PLATFORM_ID})")
+        response = self._igdb_client.search(
+            "games", ["name"], self.game_name_search_query.text(), f"platforms=({IgdbClient.DOS_PLATFORM_ID})"
+        )
         game_names = [(row["name"], row["id"]) for row in response]
         self.game_list_model.set_games(game_names)
         self.game_list_view.clearSelection()

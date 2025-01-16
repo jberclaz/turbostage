@@ -1,5 +1,5 @@
 from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QFormLayout, QCheckBox, QDialogButtonBox, QLineEdit, QFileDialog
+from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QLineEdit, QVBoxLayout
 
 from turbostage.clickable_line_edit import ClickableLineEdit
 
@@ -46,7 +46,9 @@ class SettingsDialog(QDialog):
         super().reject()
 
     def _select_emulator(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select DosBox Staging binary", "", "Executable Files (dosbox);;All Files (*)")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select DosBox Staging binary", "", "Executable Files (dosbox);;All Files (*)"
+        )
         if file_path:
             self.emulator_path_input.setText(file_path)
             # TODO: test and validate version

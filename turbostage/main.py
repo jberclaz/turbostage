@@ -10,7 +10,7 @@ from turbostage.main_window import MainWindow
 
 def show_splash_screen():
     # Load an image for the splash screen
-    with importlib.resources.files('turbostage').joinpath('content/splash.jpg').open('rb') as file:
+    with importlib.resources.files("turbostage").joinpath("content/splash.jpg").open("rb") as file:
         pixmap = QPixmap()
         pixmap.loadFromData(file.read())
 

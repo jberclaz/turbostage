@@ -6,12 +6,9 @@ from PySide6.QtCore import QStandardPaths
 
 from turbostage import utils
 
-
 GAME_DATA = [
     {
         "title": "The Secret of Monkey Island",
-        "release_year": 1990,
-        "genre": "Adventure",
         "versions": [
             {
                 "version": "vga",
@@ -24,8 +21,6 @@ GAME_DATA = [
     },
     {
         "title": "Prince of Persia",
-        "release_year": 1989,
-        "genre": "Platformer",
         "versions": [
             {
                 "version": "v1.4",
@@ -38,8 +33,6 @@ GAME_DATA = [
     },
     {
         "title": "Prince of Persia 2: The Shadow and the Flame",
-        "release_year": 1993,
-        "genre": "Platformer",
         "versions": [
             {
                 "version": "en",
@@ -52,8 +45,6 @@ GAME_DATA = [
     },
     {
         "title": "Comanche: Maximum Overkill",
-        "release_year": 1992,
-        "genre": "Simulation",
         "versions": [
             {
                 "version": "en",
@@ -66,8 +57,6 @@ GAME_DATA = [
     },
     {
         "title": "Power Drive",
-        "release_year": 1994,
-        "genre": "Racing",
         "versions": [
             {
                 "version": "en",
@@ -89,8 +78,10 @@ def initialize_database(db_path):
         CREATE TABLE IF NOT EXISTS games (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             title TEXT NOT NULL,
-            release_year INTEGER,
+            release_date INTEGER,
             genre TEXT,
+            summary TEXT,
+            publisher TEXT,
             igdb_id INTEGER
         );
         """
@@ -151,10 +142,10 @@ def populate_database(db_path, games):
     for game in games:
         cursor.execute(
             """
-            INSERT INTO games (title, release_year, genre, igdb_id)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO games (title, igdb_id)
+            VALUES (?, ?)
         """,
-            (game["title"], game["release_year"], game["genre"], game["igdb_id"]),
+            (game["title"], game["igdb_id"]),
         )
         game_id = cursor.lastrowid
         for version in game["versions"]:
@@ -167,6 +158,9 @@ def populate_database(db_path, games):
             )
             version_id = cursor.lastrowid
             game_archive = os.path.join("games", version["archive"])
+            if not os.path.isfile(game_archive):
+                print(f"Game {game['title']} not found on disk")
+                continue
             hashes = utils.compute_hash_for_largest_files_in_zip(game_archive, n=4)
             if not version["executable"] in [h[0] for h in hashes]:
                 with zipfile.ZipFile(game_archive, "r") as zf:
