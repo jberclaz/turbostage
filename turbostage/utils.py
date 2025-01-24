@@ -9,6 +9,11 @@ from turbostage import utils
 from turbostage.igdb_client import IgdbClient
 
 
+def epoch_to_formatted_date(epoch_s: int) -> str:
+    dt = datetime.fromtimestamp(epoch_s)
+    return dt.strftime("%B %d, %Y")
+
+
 def compute_md5_from_zip(zip_archive, file_name):
     """Compute the MD5 hash of a file inside a ZIP archive."""
     hash_md5 = hashlib.md5()
@@ -80,10 +85,18 @@ def add_new_game_version(
         # 2.2 add game entry in games table
         cursor.execute(
             """
-            INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-            (game_name, details["summary"], details["release_date"], details["genres"], details["publisher"], igdb_id),
+            (
+                game_name,
+                details["summary"],
+                details["release_date"],
+                details["genres"],
+                details["publisher"],
+                igdb_id,
+                details["cover"],
+            ),
         )
         game_id = cursor.lastrowid
     # 2.5 TODO: check that this version does not already exist.
@@ -118,7 +131,9 @@ def add_new_game_version(
 
 
 def fetch_game_details(igdb_client, igdb_id) -> dict:
-    result = igdb_client.query("games", ["release_dates", "genres", "summary", "involved_companies"], f"id={igdb_id}")
+    result = igdb_client.query(
+        "games", ["release_dates", "genres", "summary", "involved_companies", "cover"], f"id={igdb_id}"
+    )
     details = result[0]
 
     response = igdb_client.query("genres", ["name"], f"id=({','.join([str(i) for i in details['genres']])})")
@@ -141,11 +156,16 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
     response = igdb_client.query("companies", ["name"], f"id=({','.join(str(i) for i in company_ids)})")
     companies = ", ".join(r["name"] for r in response)
 
+    response = igdb_client.query("covers", ["url"], f"id={details['cover']}")
+    assert len(response) == 1
+    cover_info = response[0]
+
     return {
         "summary": details["summary"],
         "genres": genres_string,
         "release_date": release_epoch,
         "publisher": companies,
+        "cover": cover_info["url"],
     }
 
 

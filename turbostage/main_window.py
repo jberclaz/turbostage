@@ -207,7 +207,7 @@ class MainWindow(QMainWindow):
         self.game_info_panel.set_game_name(game_name)
         self.launch_button.setEnabled(True)
         cancel_flag = utils.CancellationFlag()
-        fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, cancel_flag)
+        fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, self.db_path, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
         fetch_worker.finished.connect(self.game_info_panel.set_game_info)
         fetch_task = FetchGameInfoTask(fetch_worker)

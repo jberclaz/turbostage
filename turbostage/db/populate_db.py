@@ -82,7 +82,8 @@ def initialize_database(db_path):
             genre TEXT,
             summary TEXT,
             publisher TEXT,
-            igdb_id INTEGER
+            igdb_id INTEGER,
+            cover_url TEXT
         );
         """
     )
