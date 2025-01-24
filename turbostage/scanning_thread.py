@@ -1,7 +1,7 @@
 import os
 import sqlite3
 
-from PySide6.QtCore import Signal, QThread
+from PySide6.QtCore import QThread, Signal
 
 from turbostage import utils
 

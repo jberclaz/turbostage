@@ -6,6 +6,12 @@ from collections import Counter
 from datetime import datetime
 
 from turbostage import utils
+from turbostage.igdb_client import IgdbClient
+
+
+def epoch_to_formatted_date(epoch_s: int) -> str:
+    dt = datetime.fromtimestamp(epoch_s)
+    return dt.strftime("%B %d, %Y")
 
 
 def compute_md5_from_zip(zip_archive, file_name):
@@ -54,8 +60,16 @@ def find_game_for_hashes(hash_list: list[str], db_path: str):
     return most_common_version
 
 
-def add_new_game_version(game_name: str, version_name: str, igdb_id: int, game_archive: str, binary: str, config: str,
-                         db_path: str, igdb_client):
+def add_new_game_version(
+    game_name: str,
+    version_name: str,
+    igdb_id: int,
+    game_archive: str,
+    binary: str,
+    config: str,
+    db_path: str,
+    igdb_client,
+):
     # 1. check if game exists in db
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
@@ -67,24 +81,22 @@ def add_new_game_version(game_name: str, version_name: str, igdb_id: int, game_a
         game_id = cursor.fetchall()[0][0]
     else:
         # 2.1 query IGDB for extra info
-        result = igdb_client.query("games", ["release_dates", "genres"], f"id={igdb_id}")
-        details = result[0]
-        dates_result = igdb_client.query("release_dates", ["date"], f"platform=13&id=({",".join([str(d) for d in details['release_dates']])})")
-        if len(dates_result) == 0:
-            release_date = ""
-        else:
-            epoch = dates_result[0]["date"]
-            date_time = datetime.utcfromtimestamp(epoch)
-            release_date = date_time.year
-        genre_result = igdb_client.query("genres", ["name"], f"id=({",".join([str(i) for i in details['genres']])})")
-        genre_string = ", ".join(g["name"] for g in genre_result)
+        details = fetch_game_details(igdb_client, igdb_id)
         # 2.2 add game entry in games table
         cursor.execute(
             """
-            INSERT INTO games (title, release_year, genre, igdb_id)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-            (game_name, release_date, genre_string, igdb_id),
+            (
+                game_name,
+                details["summary"],
+                details["release_date"],
+                details["genres"],
+                details["publisher"],
+                igdb_id,
+                details["cover"],
+            ),
         )
         game_id = cursor.lastrowid
     # 2.5 TODO: check that this version does not already exist.
@@ -104,18 +116,63 @@ def add_new_game_version(game_name: str, version_name: str, igdb_id: int, game_a
             h = utils.compute_md5_from_zip(zf, binary)
             hashes.append((binary, 0, h))
     for h in hashes:
-                cursor.execute(
-                    """
+        cursor.execute(
+            """
                     INSERT INTO hashes (version_id, file_name, hash)
                     VALUES (?, ?, ?)""",
-                    (version_id, h[0], h[2]),
-                )
+            (version_id, h[0], h[2]),
+        )
     # 5. add local version
     cursor.execute(
-                    "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, os.path.basename(game_archive))
-                )
+        "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, os.path.basename(game_archive))
+    )
     conn.commit()
     conn.close()
+
+
+def fetch_game_details(igdb_client, igdb_id) -> dict:
+    result = igdb_client.query(
+        "games", ["release_dates", "genres", "summary", "involved_companies", "cover"], f"id={igdb_id}"
+    )
+    details = result[0]
+
+    response = igdb_client.query("genres", ["name"], f"id=({','.join([str(i) for i in details['genres']])})")
+    assert len(response) == len(details["genres"])
+    genres_string = ", ".join(r["name"] for r in response)
+
+    dates_result = igdb_client.query(
+        "release_dates",
+        ["date"],
+        f"platform={IgdbClient.DOS_PLATFORM_ID}&id=({','.join([str(d) for d in details['release_dates']])})",
+    )
+    release_epoch = dates_result[0]["date"]
+
+    response = igdb_client.query(
+        "involved_companies",
+        ["company", "developer"],
+        f"id=({','.join(str(i) for i in details['involved_companies'])})",
+    )
+    company_ids = set(r["company"] for r in response if r["developer"])
+    if not company_ids:
+        company_ids = set(r["company"] for r in response)
+    if company_ids:
+        response = igdb_client.query("companies", ["name"], f"id=({','.join(str(i) for i in company_ids)})")
+        companies = ", ".join(r["name"] for r in response)
+    else:
+        companies = ""
+
+    response = igdb_client.query("covers", ["url"], f"id={details['cover']}")
+    assert len(response) == 1
+    cover_info = response[0]
+
+    return {
+        "summary": details["summary"],
+        "genres": genres_string,
+        "release_date": release_epoch,
+        "publisher": companies,
+        "cover": cover_info["url"],
+    }
+
 
 class CancellationFlag:
     def __init__(self):

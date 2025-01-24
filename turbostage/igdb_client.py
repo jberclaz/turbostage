@@ -3,8 +3,8 @@ import json
 import requests
 from igdb.wrapper import IGDBWrapper
 
-
 # API documentation: https://api-docs.igdb.com/#authentication
+
 
 class IgdbClient:
     CLIENT_ID = "finu9rpxtjmau9p7gv6tmt5rejv3qz"

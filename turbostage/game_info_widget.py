@@ -1,4 +1,7 @@
-from PySide6.QtCore import Qt, QUrl, Slot
+import hashlib
+import os
+
+from PySide6.QtCore import QStandardPaths, Qt, QUrl, Slot
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QFormLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy, QVBoxLayout, QWidget
@@ -31,6 +34,11 @@ class GameInfoWidget(QWidget):
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.finished.connect(self.on_image_download_finished)
 
+        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        self._covers_cache_folder = os.path.join(app_data_folder, "covers")
+        if not os.path.isdir(self._covers_cache_folder):
+            os.makedirs(self._covers_cache_folder)
+
     def set_game_name(self, game_name: str):
         self.game_info_label.setText(f"<h2>{game_name}</h2>")
 
@@ -57,13 +65,26 @@ class GameInfoWidget(QWidget):
         """
         self.details_label.setText(html_content)
         self.summary.setText(summary)
-        request = QNetworkRequest(QUrl(cover_url))
-        self.network_manager.get(request)
+
+        local_cover_url = self._local_cover_cache_url
+        if os.path.isfile(local_cover_url):
+            pixmap = QPixmap(local_cover_url)
+            self.cover_image.setPixmap(pixmap.scaled(150, 200, Qt.AspectRatioMode.KeepAspectRatio))
+        else:
+            request = QNetworkRequest(QUrl(cover_url))
+            self.network_manager.get(request)
 
     @Slot(QNetworkReply)
     def on_image_download_finished(self, reply):
         image_data = reply.readAll()
+        with open(self._local_cover_cache_url, "wb") as image_file:
+            image_file.write(image_data)
         image = QImage()
         image.loadFromData(image_data)
         pixmap = QPixmap(image)
         self.cover_image.setPixmap(pixmap.scaled(150, 200, Qt.AspectRatioMode.KeepAspectRatio))
+
+    @property
+    def _local_cover_cache_url(self):
+        image_name = f"{hashlib.md5(self.game_info_label.text().encode()).hexdigest()}.jpg"
+        return os.path.join(self._covers_cache_folder, image_name)

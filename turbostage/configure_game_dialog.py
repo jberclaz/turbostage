@@ -1,9 +1,18 @@
 import os
 import zipfile
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt, QItemSelectionModel
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QListView, QLabel, QPushButton, QTextEdit, QSpacerItem, QSizePolicy, \
-    QLineEdit
+from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, Qt
+from PySide6.QtWidgets import (
+    QDialog,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QPushButton,
+    QSizePolicy,
+    QSpacerItem,
+    QTextEdit,
+    QVBoxLayout,
+)
 
 
 class BinaryListModel(QAbstractListModel):
@@ -23,8 +32,18 @@ class BinaryListModel(QAbstractListModel):
         self.binaries = binaries
         self.endResetModel()
 
+
 class ConfigureGameDialog(QDialog):
-    def __init__(self, game_name: str, game_id: int, game_archive: str, version: str | None = None, binary: str | None = None, config: str | None = None, add: bool = True):
+    def __init__(
+        self,
+        game_name: str,
+        game_id: int,
+        game_archive: str,
+        version: str | None = None,
+        binary: str | None = None,
+        config: str | None = None,
+        add: bool = True,
+    ):
         super().__init__()
         self._game_name = game_name
         self._game_id = game_id
