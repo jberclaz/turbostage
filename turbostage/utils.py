@@ -149,12 +149,17 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
 
     response = igdb_client.query(
         "involved_companies",
-        ["company"],
-        f"id=({','.join(str(i) for i in details['involved_companies'])})&developer=true",
+        ["company", "developer"],
+        f"id=({','.join(str(i) for i in details['involved_companies'])})",
     )
-    company_ids = set(r["company"] for r in response)
-    response = igdb_client.query("companies", ["name"], f"id=({','.join(str(i) for i in company_ids)})")
-    companies = ", ".join(r["name"] for r in response)
+    company_ids = set(r["company"] for r in response if r["developer"])
+    if not company_ids:
+        company_ids = set(r["company"] for r in response)
+    if company_ids:
+        response = igdb_client.query("companies", ["name"], f"id=({','.join(str(i) for i in company_ids)})")
+        companies = ", ".join(r["name"] for r in response)
+    else:
+        companies = ""
 
     response = igdb_client.query("covers", ["url"], f"id={details['cover']}")
     assert len(response) == 1
