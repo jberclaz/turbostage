@@ -25,11 +25,14 @@ build: venv
 	deactivate;
 	)
 
-package: venv
+package: dist/turbostage
+	version=`grep "__version__" turbostage/__init__.py | sed -e 's/^__version__ = "\(.*\)"$$/\1/'`; \
+	zip -j turbostage-v$${version}.zip dist/turbostage
+
+dist/turbostage: venv turbostage/*.py pyproject.toml
 	( \
 	. venv/bin/activate; \
 	poetry-dynamic-versioning; \
-	version=`grep "__version__" turbostage/__init__.py | sed -e 's/^__version__ = "\(.*\)"$$/\1/'`; \
 	pyinstaller --onefile --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py; \
 	deactivate; \
 	)
