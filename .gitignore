@@ -177,3 +177,4 @@ games/
 roms/
 .idea/
 conf/shell_history.txt
+test-reports/
