@@ -9,7 +9,6 @@ from unittest import TestCase
 from turbostage import utils
 from turbostage.db.populate_db import initialize_database
 from turbostage.igdb_client import IgdbClient
-from turbostage.main_window import MainWindow
 
 
 class TestUtils(TestCase):
@@ -24,7 +23,7 @@ class TestUtils(TestCase):
             self.create_mockup_archive(archive_path, filenames)
             binary = "MK/MK.EXE"
             config = "[sdl]\nfull_screen = True\n"
-            db_path = os.path.join(tempdir, MainWindow.DB_FILE)
+            db_path = os.path.join(tempdir, "test.db")
             initialize_database(db_path)
             utils.add_new_game_version(name, version, game_id, archive_path, binary, config, db_path, client)
 
