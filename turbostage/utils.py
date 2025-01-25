@@ -174,6 +174,20 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
     }
 
 
+def update_version_info(version_id: int, version_name: str, binary: str, config: str, db_path: str):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+            UPDATE versions SET version = ?, executable = ?, config = ?
+            WHERE id = ?
+        """,
+        (version_name, binary, config, version_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 class CancellationFlag:
     def __init__(self):
         self.cancelled = False

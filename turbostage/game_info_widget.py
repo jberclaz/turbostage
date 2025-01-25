@@ -40,7 +40,10 @@ class GameInfoWidget(QWidget):
             os.makedirs(self._covers_cache_folder)
 
     def set_game_name(self, game_name: str):
-        self.game_info_label.setText(f"<h2>{game_name}</h2>")
+        if game_name:
+            self.game_info_label.setText(f"<h2>{game_name}</h2>")
+        else:
+            self.game_info_label = QLabel("Select a game to see details here.")
 
     def set_game_info(
         self, summary: str, cover_url: str, release_date: str = None, genres: str = None, publisher: str = None

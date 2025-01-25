@@ -14,7 +14,6 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QFileDialog,
-    QHBoxLayout,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -96,7 +95,7 @@ class MainWindow(QMainWindow):
 
         # Window dimensions
         geometry = self.screen().availableGeometry()
-        self.setGeometry(geometry.width() / 4, geometry.height() / 4, geometry.width() * 0.5, geometry.height() * 0.5)
+        self.setGeometry(geometry.width() // 4, geometry.height() // 4, geometry.width() // 2, geometry.height() // 2)
         self.setMinimumSize(800, 600)
 
         self.search_box = QLineEdit(self)
@@ -138,6 +137,8 @@ class MainWindow(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
+        self.scan_progress_dialog = None
+
     def filter_games(self):
         pass
 
@@ -161,9 +162,9 @@ class MainWindow(QMainWindow):
         conn.close()
 
         settings = QSettings("jberclaz", "TurboStage")
-        full_screen = settings.value("app/full_screen", False)
-        dosbox_exec = settings.value("app/emulator_path", "")
-        games_path = settings.value("app/games_path", "")
+        full_screen = bool(settings.value("app/full_screen", False))
+        dosbox_exec = str(settings.value("app/emulator_path", ""))
+        games_path = str(settings.value("app/games_path", ""))
         if not dosbox_exec:
             QMessageBox.critical(
                 self,
@@ -193,7 +194,7 @@ class MainWindow(QMainWindow):
     def update_game_info(self):
         selected_items = self.game_table.selectedItems()
         if not selected_items:
-            self.game_info_label.setText("Select a game to see details here.")
+            self.game_info_panel.set_game_name("")
             self.launch_button.setEnabled(False)
             return
         if len(selected_items) != 4:
@@ -241,8 +242,7 @@ class MainWindow(QMainWindow):
         self.game_table.resizeColumnsToContents()
 
     def scan_local_games(self):
-        settings = QSettings("jberclaz", "TurboStage")
-        games_path = settings.value("app/games_path", "")
+        games_path = self.games_path
         if not games_path:
             QMessageBox.critical(
                 self,
@@ -279,8 +279,7 @@ class MainWindow(QMainWindow):
         self.scan_progress_dialog.close()
 
     def add_new_game(self):
-        settings = QSettings("jberclaz", "TurboStage")
-        games_path = settings.value("app/games_path", "")
+        games_path = self.games_path
         game_path, _ = QFileDialog.getOpenFileName(
             self, "Select DosBox Staging binary", games_path, "Game archives (*.zip)"
         )
@@ -308,7 +307,7 @@ class MainWindow(QMainWindow):
                 game_name, version, game_id, game_path, binary, config, self.db_path, self._igdb_client
             )
         except RuntimeError as e:
-            QMessageBox.critical("Error", "Unable to add new game")
+            QMessageBox.critical("Error", "Unable to add new game", str(e))
             return
         self.load_games()
 
@@ -395,27 +394,37 @@ class MainWindow(QMainWindow):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT v.executable, lv.archive, v.config, v.version
+            SELECT v.executable, lv.archive, v.config, v.version, v.id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.title = ?
+            WHERE g.igdb_id = ?
             """,
-            (game_name,),
+            (game_id,),
         )
         rows = cursor.fetchall()
         conn.close()
+        if len(rows) != 1:
+            raise RuntimeError(f"Unable to get game details for '{game_name}'")
+        game_details = rows[0]
 
-        settings = QSettings("jberclaz", "TurboStage")
-        games_path = settings.value("app/games_path", "")
-
+        games_path = self.games_path
         game_path = os.path.join(games_path, rows[0][1])
 
         configure_dialog = ConfigureGameDialog(
-            game_name, game_id, game_path, version=rows[0][3], config=rows[0][2], binary=rows[0][0], add=False
+            game_name,
+            game_id,
+            game_path,
+            version=game_details[3],
+            config=game_details[2],
+            binary=game_details[0],
+            add=False,
         )
-        if configure_dialog.exec() != QDialog.Accepted:
-            pass
+        if configure_dialog.exec() == QDialog.Accepted:
+            binary = configure_dialog.selected_binary
+            version = configure_dialog.version_name.text()
+            config = configure_dialog.dosbox_config_text.toPlainText()
+            utils.update_version_info(game_details[4], version, binary, config, self.db_path)
 
     @property
     def db_path(self):
@@ -423,3 +432,8 @@ class MainWindow(QMainWindow):
         if not os.path.isfile(p):
             initialize_database(p)
         return p
+
+    @property
+    def games_path(self) -> str:
+        settings = QSettings("jberclaz", "TurboStage")
+        return str(settings.value("app/games_path", ""))
