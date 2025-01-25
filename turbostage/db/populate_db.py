@@ -6,6 +6,8 @@ from PySide6.QtCore import QStandardPaths
 
 from turbostage import utils
 
+DB_VERSION = "0.2.0"
+
 GAME_DATA = [
     {
         "title": "The Secret of Monkey Island",
@@ -127,7 +129,7 @@ def initialize_database(db_path: str):
         """
     )
 
-    cursor.execute("""INSERT INTO db_version (version) VALUES (?)""", ("0.0.0",))
+    cursor.execute("""INSERT INTO db_version (version) VALUES (?)""", (DB_VERSION,))
 
     conn.commit()
     conn.close()
@@ -138,7 +140,7 @@ def populate_database(db_path, games):
     cursor = conn.cursor()
 
     cursor.execute("DELETE FROM db_version;")
-    cursor.execute("""INSERT INTO db_version (version) VALUES (?)""", ("0.1.0",))
+    cursor.execute("""INSERT INTO db_version (version) VALUES (?)""", (DB_VERSION,))
 
     for game in games:
         cursor.execute(

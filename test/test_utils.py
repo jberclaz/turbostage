@@ -1,6 +1,7 @@
 import io
 import os
 import random
+import sqlite3
 import tempfile
 import zipfile
 from unittest import TestCase
@@ -26,6 +27,15 @@ class TestUtils(TestCase):
             db_path = os.path.join(tempdir, MainWindow.DB_FILE)
             initialize_database(db_path)
             utils.add_new_game_version(name, version, game_id, archive_path, binary, config, db_path, client)
+
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT count(*) FROM games")
+            results = cursor.fetchall()
+            self.assertEqual(1, results[0][0])
+            cursor.execute("SELECT count(*) FROM versions")
+            results = cursor.fetchall()
+            self.assertEqual(1, results[0][0])
 
     @staticmethod
     def create_mockup_archive(archive_path: str, filenames: list[str]) -> None:

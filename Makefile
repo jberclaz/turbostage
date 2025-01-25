@@ -37,5 +37,9 @@ dist/turbostage: venv turbostage/*.py pyproject.toml
 	deactivate; \
 	)
 
+.PHONY: test
+test:
+	python -m xmlrunner discover -o test-reports -s test
+
 clean:
 	${RM} -rf venv *~

@@ -342,6 +342,23 @@ class MainWindow(QMainWindow):
                 self, "Database up to date", "The game database is already up to date.", QMessageBox.Ok
             )
             return
+        else:
+            online_major, online_minor, online_patch = map(int, online_version.split("."))
+            major, minor, patch = map(int, version.split("."))
+            if online_major != major:
+                upgrade_ok = online_major > major
+            elif online_minor != minor:
+                upgrade_ok = online_minor > minor
+            else:
+                upgrade_ok = online_patch > patch
+            if not upgrade_ok:
+                QMessageBox.warning(
+                    self,
+                    "Database NOT updated",
+                    "The game database was not updated because the online version is too old.",
+                    QMessageBox.Ok,
+                )
+                return
 
         response = requests.get(self.ONLINE_DB_URL)
         if response.status_code != 200:
