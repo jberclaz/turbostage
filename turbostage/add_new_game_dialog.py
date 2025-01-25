@@ -23,7 +23,7 @@ class GameListModel(QAbstractListModel):
 
 
 class AddNewGameDialog(QDialog):
-    def __init__(self, igdb_client):
+    def __init__(self, igdb_client, parent):
         super().__init__()
         self.setWindowTitle("Add new game")
         self.setModal(True)
@@ -50,6 +50,12 @@ class AddNewGameDialog(QDialog):
         self.layout.addWidget(self.select_button)
 
         self.selected_game = None
+
+        parent_geom = parent.geometry()
+        self.move(
+            parent_geom.x() + (parent_geom.width() - self.width()) // 2,
+            parent_geom.y() + (parent_geom.height() - self.height()) // 2,
+        )
 
     def _search_games(self):
         response = self._igdb_client.search(

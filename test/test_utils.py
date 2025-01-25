@@ -1,15 +1,38 @@
+import io
+import os
+import random
+import tempfile
+import zipfile
 from unittest import TestCase
 
 from turbostage import utils
+from turbostage.db.populate_db import initialize_database
+from turbostage.igdb_client import IgdbClient
+from turbostage.main_window import MainWindow
 
 
 class TestUtils(TestCase):
     def test_add_new_game_version(self):
         name = "Mortal Kombat"
         version = "vga"
-        game_id = 1234
-        archive = "../games/mortal_kombat.zip"
-        binary = "MK/MK.EXE"
-        config = ""
-        db_path = "/home/jrb/.local/share/turbostage.db"
-        utils.add_new_game_version(name, version, game_id, archive, binary, config, db_path)
+        game_id = 1618
+        client = IgdbClient()
+        with tempfile.TemporaryDirectory() as tempdir:
+            archive_path = os.path.join(tempdir, f"mortal_kombat.zip")
+            filenames = ["MK/MK.EXE", "MK/GAME.DAT", "MK/SOUND.DAT", "MK/START.BAT"]
+            self.create_mockup_archive(archive_path, filenames)
+            binary = "MK/MK.EXE"
+            config = "[sdl]\nfull_screen = True\n"
+            db_path = os.path.join(tempdir, MainWindow.DB_FILE)
+            initialize_database(db_path)
+            utils.add_new_game_version(name, version, game_id, archive_path, binary, config, db_path, client)
+
+    @staticmethod
+    def create_mockup_archive(archive_path: str, filenames: list[str]) -> None:
+        with zipfile.ZipFile(archive_path, "w") as zip_obj:
+            for filename in filenames:
+                with io.BytesIO() as in_memory_file:
+                    file_size_bytes = random.randint(100, 1000)
+                    in_memory_file.write(os.urandom(file_size_bytes))
+                    in_memory_file.seek(0)  # Reset the file pointer to the beginning
+                    zip_obj.writestr(filename, in_memory_file.read())

@@ -70,7 +70,7 @@ GAME_DATA = [
 ]
 
 
-def initialize_database(db_path):
+def initialize_database(db_path: str):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(

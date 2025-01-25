@@ -292,7 +292,7 @@ class MainWindow(QMainWindow):
                 "It looks like this game is already known from the game database. To add it, simply run Scan Local Games option from the main menu.",
             )
             return
-        new_game_dialog = AddNewGameDialog(self._igdb_client)
+        new_game_dialog = AddNewGameDialog(self._igdb_client, self)
         if new_game_dialog.exec() != QDialog.Accepted:
             return
         game_name, game_id = new_game_dialog.selected_game
