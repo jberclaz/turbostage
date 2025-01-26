@@ -1,6 +1,23 @@
-from PySide6.QtCore import QSettings
-from PySide6.QtWidgets import QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QLineEdit, QVBoxLayout
+import os
+from io import BytesIO
+from zipfile import ZipFile
 
+import requests
+from PySide6.QtCore import QSettings, QStandardPaths
+from PySide6.QtWidgets import (
+    QCheckBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QLineEdit,
+    QMessageBox,
+    QPushButton,
+    QVBoxLayout,
+)
+
+from turbostage import constants, utils
 from turbostage.clickable_line_edit import ClickableLineEdit
 
 
@@ -29,6 +46,18 @@ class SettingsDialog(QDialog):
         self.games_path_input.clicked.connect(self._select_games_path)
         form_layout.addRow("Games Path", self.games_path_input)
 
+        self.mt32_path_input = ClickableLineEdit(self)
+        mt32_roms_path = str(self.settings.value("app/mt32_path", ""))
+        self.mt32_path_input.setText(mt32_roms_path)
+        self.mt32_path_input.clicked.connect(self._select_mt32_path)
+        self.mt32_download_button = QPushButton("Download", self)
+        self.mt32_download_button.clicked.connect(self._download_mt32_roms)
+        self.mt32_download_button.setEnabled(mt32_roms_path == "")
+        mt32_layout = QHBoxLayout()
+        mt32_layout.addWidget(self.mt32_path_input)
+        mt32_layout.addWidget(self.mt32_download_button)
+        form_layout.addRow("MT-32 Roms Path", mt32_layout)
+
         button_box = QDialogButtonBox(self)
         button_box.setStandardButtons(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         self.layout.addWidget(button_box)
@@ -51,12 +80,38 @@ class SettingsDialog(QDialog):
         )
         if file_path:
             self.emulator_path_input.setText(file_path)
-            # TODO: test and validate version
+            version = utils.get_dosbox_version(self.settings)
+            if version != constants.SUPPORTED_DOSBOX_VERSION:
+                QMessageBox.warning(
+                    self,
+                    "DosBox version not supported",
+                    f"Your version of DosBox ({version}) is not supported by this frontend and may not work correctly.",
+                    QMessageBox.OK,
+                )
 
     def _select_games_path(self):
         folder = QFileDialog.getExistingDirectory(self, "Select the Games folder", "", QFileDialog.ShowDirsOnly)
         if folder:
             self.games_path_input.setText(folder)
+
+    def _select_mt32_path(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select the MT-32 ROMs folder", "", QFileDialog.ShowDirsOnly)
+        if folder:
+            self.mt32_path_input.setText(folder)
+
+    def _download_mt32_roms(self):
+        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        mt32_roms_path = os.path.join(app_data_folder, "mt32_roms")
+        os.makedirs(mt32_roms_path, exist_ok=True)
+        self.settings.setValue("app/mt32_path", mt32_roms_path)
+
+        response = requests.get(constants.MT32_ROMS_DOWNLOAD_URL)
+        response.raise_for_status()
+        with BytesIO(response.content) as zip_file_in_memory:
+            with ZipFile(zip_file_in_memory, "r") as zip_ref:
+                zip_ref.extractall(mt32_roms_path)
+
+        self.mt32_path_input.setText(mt32_roms_path)
 
     @staticmethod
     def _to_bool(value) -> bool:

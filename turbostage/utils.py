@@ -1,6 +1,8 @@
 import hashlib
 import os.path
+import re
 import sqlite3
+import subprocess
 import zipfile
 from collections import Counter
 from datetime import datetime
@@ -186,6 +188,19 @@ def update_version_info(version_id: int, version_name: str, binary: str, config:
     )
     conn.commit()
     conn.close()
+
+
+def get_dosbox_version(settings) -> str:
+    dosbox_exec = str(settings.value("app/emulator_path", ""))
+    output = subprocess.check_output([dosbox_exec, "-V"], text=True)
+    for line in output.splitlines():
+        if "version" not in line:
+            continue
+        match = re.search(r"version ([0-9]+\.[0-9]+\.[0-9]+)", line)
+        if match:
+            version = match.group(1)
+            return version
+    return ""
 
 
 class CancellationFlag:
