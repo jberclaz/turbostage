@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import sqlite3
@@ -162,9 +163,10 @@ class MainWindow(QMainWindow):
         conn.close()
 
         settings = QSettings("jberclaz", "TurboStage")
-        full_screen = bool(settings.value("app/full_screen", False))
+        full_screen = utils.to_bool(settings.value("app/full_screen", False))
         dosbox_exec = str(settings.value("app/emulator_path", ""))
         games_path = str(settings.value("app/games_path", ""))
+        mt32_roms_path = str(settings.value("app/mt32_path", ""))
         if not dosbox_exec:
             QMessageBox.critical(
                 self,
@@ -180,13 +182,17 @@ class MainWindow(QMainWindow):
             with zipfile.ZipFile(archive_path, "r") as zip_ref:
                 zip_ref.extractall(temp_dir)
             dosbox_command = os.path.join(temp_dir, startup)
-            command = [dosbox_exec, "--noprimaryconf", "--conf", "conf/dosbox-staging.conf"]
+            main_config = importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf")
+            command = [dosbox_exec, "--noprimaryconf", "--conf", str(main_config)]
             if full_screen:
                 command.append("--fullscreen")
             with tempfile.NamedTemporaryFile() as conf_file:
-                if config:
+                if config or mt32_roms_path:
                     with open(conf_file.name, "wt") as f:
-                        f.write(config)
+                        if config:
+                            f.write(config)
+                        if mt32_roms_path:
+                            f.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
                     command.extend(["--conf", conf_file.name])
                 command.append(dosbox_command)
                 subprocess.run(command)
@@ -283,6 +289,8 @@ class MainWindow(QMainWindow):
         game_path, _ = QFileDialog.getOpenFileName(
             self, "Select DosBox Staging binary", games_path, "Game archives (*.zip)"
         )
+        if not game_path:
+            return
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
         version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
         if version_id is not None:
@@ -388,16 +396,24 @@ class MainWindow(QMainWindow):
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
     def delete_selected_game(self):
+        selected_items = self.game_table.selectedItems()
+        if len(selected_items) != 4:
+            raise RuntimeError("Invalid game selection")
+        name_row = selected_items[0]
+        game_id = name_row.data(Qt.UserRole)
+        game_name = name_row.text()
+
         reply = QMessageBox.question(
             self,
             "Confirm Deletion",
-            "Are you sure you want to remove this game?",
+            f"Are you sure you want to remove '{game_name}'?",
             QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
-            pass
+            utils.delete_local_game(game_id, self.db_path)
+            self.load_games()
 
     def edit_selected_game(self):
         selected_items = self.game_table.selectedItems()

@@ -203,6 +203,38 @@ def get_dosbox_version(settings) -> str:
     return ""
 
 
+def to_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int):
+        return value != 0
+    if isinstance(value, str):
+        return value.lower() == "true"
+    raise RuntimeError(f"Cannot convert value {value} to bool")
+
+
+def delete_local_game(game_id: int, db_path: str):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute(
+        """
+            DELETE FROM local_versions
+            WHERE version_id in (
+              SELECT id
+              FROM versions
+              WHERE game_id in (
+                SELECT id
+                FROM games
+                WHERE igdb_id = ?
+              )
+            )
+        """,
+        (game_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
 class CancellationFlag:
     def __init__(self):
         self.cancelled = False

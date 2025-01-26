@@ -176,5 +176,5 @@ db/*.db
 games/
 roms/
 .idea/
-conf/shell_history.txt
+turbostage/conf/shell_history.txt
 test-reports/

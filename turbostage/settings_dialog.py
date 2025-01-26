@@ -32,7 +32,7 @@ class SettingsDialog(QDialog):
         self.layout = QVBoxLayout(self)
         form_layout = QFormLayout()
         self.full_screen_checkbox = QCheckBox("Play game in full screen", self)
-        self.full_screen_checkbox.setChecked(self._to_bool(self.settings.value("app/full_screen", False)))
+        self.full_screen_checkbox.setChecked(utils.to_bool(self.settings.value("app/full_screen", False)))
         form_layout.addRow(self.full_screen_checkbox)
         self.layout.addLayout(form_layout)
 
@@ -112,12 +112,3 @@ class SettingsDialog(QDialog):
                 zip_ref.extractall(mt32_roms_path)
 
         self.mt32_path_input.setText(mt32_roms_path)
-
-    @staticmethod
-    def _to_bool(value) -> bool:
-        if isinstance(value, bool):
-            return value
-        if isinstance(value, int):
-            return value != 0
-        if isinstance(value, str):
-            return value.lower() == "true"
