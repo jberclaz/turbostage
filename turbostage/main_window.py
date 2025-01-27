@@ -34,6 +34,7 @@ from turbostage.configure_game_dialog import ConfigureGameDialog
 from turbostage.db.populate_db import initialize_database
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_info_widget import GameInfoWidget
+from turbostage.game_setup_dialog import GameSetupDialog
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
 from turbostage.settings_dialog import SettingsDialog
@@ -144,20 +145,18 @@ class MainWindow(QMainWindow):
         pass
 
     def launch_game(self):
-        selected_row = self.game_table.currentRow()
-        game_name = self.game_table.item(selected_row, 0).text()
-
+        game_id, _ = self.selected_game
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT v.executable, lv.archive, v.config
+            SELECT v.executable, lv.archive, v.config, v.id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.title = ?
+            WHERE g.igdb_id = ?
             """,
-            (game_name,),
+            (game_id,),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -176,11 +175,27 @@ class MainWindow(QMainWindow):
             )
             return
 
-        startup, archive, config = rows[0]
+        startup, archive, config, version_id = rows[0]
         with tempfile.TemporaryDirectory() as temp_dir:
             archive_path = os.path.join(games_path, archive)
             with zipfile.ZipFile(archive_path, "r") as zip_ref:
                 zip_ref.extractall(temp_dir)
+
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+            SELECT path, content FROM config_files
+            WHERE version_id = ?
+            """,
+                (version_id,),
+            )
+            rows = cursor.fetchall()
+            conn.close()
+            for config_file_path, content in rows:
+                with open(os.path.join(temp_dir, config_file_path), "wb") as f:
+                    f.write(content)
+
             dosbox_command = os.path.join(temp_dir, startup)
             main_config = importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf")
             command = [dosbox_exec, "--noprimaryconf", "--conf", str(main_config)]
@@ -389,6 +404,10 @@ class MainWindow(QMainWindow):
         edit_action.triggered.connect(self.edit_selected_game)
         context_menu.addAction(edit_action)
 
+        setup_action = QAction("Run Game Setup", self)
+        setup_action.triggered.connect(self.run_game_setup)
+        context_menu.addAction(setup_action)
+
         delete_action = QAction("Delete Game", self)
         delete_action.triggered.connect(self.delete_selected_game)
         context_menu.addAction(delete_action)
@@ -396,12 +415,7 @@ class MainWindow(QMainWindow):
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
     def delete_selected_game(self):
-        selected_items = self.game_table.selectedItems()
-        if len(selected_items) != 4:
-            raise RuntimeError("Invalid game selection")
-        name_row = selected_items[0]
-        game_id = name_row.data(Qt.UserRole)
-        game_name = name_row.text()
+        game_id, game_name = self.selected_game
 
         reply = QMessageBox.question(
             self,
@@ -416,12 +430,7 @@ class MainWindow(QMainWindow):
             self.load_games()
 
     def edit_selected_game(self):
-        selected_items = self.game_table.selectedItems()
-        if len(selected_items) != 4:
-            raise RuntimeError("Invalid game selection")
-        name_row = selected_items[0]
-        game_id = name_row.data(Qt.UserRole)
-        game_name = name_row.text()
+        game_id, game_name = self.selected_game
 
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -459,6 +468,65 @@ class MainWindow(QMainWindow):
             config = configure_dialog.dosbox_config_text.toPlainText()
             utils.update_version_info(game_details[4], version, binary, config, self.db_path)
 
+    def run_game_setup(self):
+        game_id, game_name = self.selected_game
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT lv.archive, v.config, v.id
+            FROM games g
+            JOIN versions v ON g.id = v.game_id
+            JOIN local_versions lv ON v.id = lv.version_id
+            WHERE g.igdb_id = ?
+            """,
+            (game_id,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        settings = QSettings("jberclaz", "TurboStage")
+        dosbox_exec = str(settings.value("app/emulator_path", ""))
+        games_path = str(settings.value("app/games_path", ""))
+        mt32_roms_path = str(settings.value("app/mt32_path", ""))
+
+        game_archive, game_config, version_id = rows[0]
+        game_archive_url = os.path.join(games_path, game_archive)
+        setup_dialog = GameSetupDialog(game_archive_url)
+        if setup_dialog.exec() != QDialog.Accepted:
+            return
+        startup = setup_dialog.selected_binary
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with zipfile.ZipFile(game_archive_url, "r") as zip_ref:
+                zip_ref.extractall(temp_dir)
+            original_files = utils.list_files_with_md5(temp_dir)
+            dosbox_command = os.path.join(temp_dir, startup)
+            main_config = importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf")
+            command = [dosbox_exec, "--noprimaryconf", "--conf", str(main_config)]
+            with tempfile.NamedTemporaryFile() as conf_file:
+                if game_config or mt32_roms_path:
+                    with open(conf_file.name, "wt") as f:
+                        if game_config:
+                            f.write(game_config)
+                        if mt32_roms_path:
+                            f.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
+                    command.extend(["--conf", conf_file.name])
+                command.append(dosbox_command)
+                subprocess.run(command)
+
+            config_files = []
+            files_after_setup = utils.list_files_with_md5(temp_dir)
+            for file_after_setup, file_hash in files_after_setup.items():
+                if not file_after_setup in original_files:
+                    config_files.append(file_after_setup)
+                else:
+                    if original_files[file_after_setup] != file_hash:
+                        config_files.append(file_after_setup)
+
+            if config_files:
+                utils.add_config_files(config_files, version_id, temp_dir, self.db_path)
+
     @property
     def db_path(self):
         p = os.path.join(self._app_data_folder, self.DB_FILE)
@@ -470,3 +538,13 @@ class MainWindow(QMainWindow):
     def games_path(self) -> str:
         settings = QSettings("jberclaz", "TurboStage")
         return str(settings.value("app/games_path", ""))
+
+    @property
+    def selected_game(self) -> tuple[int, str]:
+        selected_items = self.game_table.selectedItems()
+        if len(selected_items) != 4:
+            raise RuntimeError("Invalid game selection")
+        name_row = selected_items[0]
+        game_id = name_row.data(Qt.UserRole)
+        game_name = name_row.text()
+        return game_id, game_name
