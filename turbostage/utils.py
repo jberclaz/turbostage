@@ -168,7 +168,7 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
     cover_info = response[0]
 
     return {
-        "summary": details["summary"],
+        "summary": details["summary"] if "summary" in details else "",
         "genres": genres_string,
         "release_date": release_epoch,
         "publisher": companies,
@@ -231,6 +231,57 @@ def delete_local_game(game_id: int, db_path: str):
         """,
         (game_id,),
     )
+    conn.commit()
+    conn.close()
+
+
+def compute_file_md5(file_path: str) -> str:
+    """Compute the MD5 hash of a file."""
+    hash_md5 = hashlib.md5()
+    try:
+        with open(file_path, "rb") as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
+        return hash_md5.hexdigest()
+    except Exception as e:
+        print(f"Error computing hash for '{file_path}': {e}")
+        return ""
+
+
+def list_files_with_md5(folder: str) -> dict[str, str]:
+    """
+    Recursively list all files in a folder and compute their MD5 hashes.
+
+    Args:
+        folder (str): The path of the folder to scan.
+
+    Returns:
+        List[Tuple[str, str]]: A list of tuples where each tuple contains
+                               the file path and its MD5 hash.
+    """
+    result = {}
+    for root, _, files in os.walk(folder):
+        for file_name in files:
+            file_path = os.path.join(root, file_name)
+            md5_hash = compute_file_md5(file_path)
+            result[file_path] = md5_hash
+    return result
+
+
+def add_config_files(config_files: list[str], version_id: int, path_prefix: str, db_path: str):
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM config_files WHERE version_id = ?", (version_id,))
+    for file_name in config_files:
+        with open(file_name, "rb") as f:
+            data = f.read()
+            cursor.execute(
+                """
+                    INSERT INTO config_files(version_id, path, content)
+                    VALUES (?, ?, ?)
+                    """,
+                (version_id, os.path.relpath(file_name, path_prefix), data),
+            )
     conn.commit()
     conn.close()
 

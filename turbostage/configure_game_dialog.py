@@ -71,7 +71,7 @@ class ConfigureGameDialog(QDialog):
         self.binary_list_model = BinaryListModel()
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
-        self._populates_binary_list(game_archive)
+        self.populates_binary_list(game_archive, self.binary_list_model)
         if binary is not None:
             for row in range(self.binary_list_model.rowCount()):
                 index = self.binary_list_model.index(row, 0)
@@ -101,7 +101,8 @@ class ConfigureGameDialog(QDialog):
 
         self.selected_binary = None
 
-    def _populates_binary_list(self, game_archive: str):
+    @staticmethod
+    def populates_binary_list(game_archive: str, list_model):
         binaries = []
         with zipfile.ZipFile(game_archive, "r") as zf:
             for info in zf.infolist():
@@ -109,7 +110,7 @@ class ConfigureGameDialog(QDialog):
                 if extension.lower() not in [".exe", ".bat", ".com"]:
                     continue
                 binaries.append(info.filename)
-        self.binary_list_model.set_binaries(binaries)
+        list_model.set_binaries(binaries)
 
     def _on_add_game(self):
         self.accept()
