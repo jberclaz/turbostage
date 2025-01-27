@@ -15,7 +15,8 @@ class IgdbClient:
         self._auth_token = self._get_auth()
         self._wrapper = IGDBWrapper(IgdbClient.CLIENT_ID, self._auth_token)
 
-    def _get_auth(self):
+    @staticmethod
+    def _get_auth():
         request_url = f"https://id.twitch.tv/oauth2/token?client_id={IgdbClient.CLIENT_ID}&client_secret={IgdbClient.CLIENT_SECRET}&grant_type=client_credentials"
         response = requests.post(request_url)
         if response.status_code != 200:

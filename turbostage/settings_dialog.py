@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QLineEdit,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
@@ -37,12 +36,12 @@ class SettingsDialog(QDialog):
         self.layout.addLayout(form_layout)
 
         self.emulator_path_input = ClickableLineEdit(self)
-        self.emulator_path_input.setText(self.settings.value("app/emulator_path", ""))
+        self.emulator_path_input.setText(str(self.settings.value("app/emulator_path", "")))
         self.emulator_path_input.clicked.connect(self._select_emulator)
         form_layout.addRow("Emulator Path", self.emulator_path_input)
 
         self.games_path_input = ClickableLineEdit(self)
-        self.games_path_input.setText(self.settings.value("app/games_path", ""))
+        self.games_path_input.setText(str(self.settings.value("app/games_path", "")))
         self.games_path_input.clicked.connect(self._select_games_path)
         form_layout.addRow("Games Path", self.games_path_input)
 

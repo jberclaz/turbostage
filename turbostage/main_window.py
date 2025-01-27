@@ -5,7 +5,7 @@ import sqlite3
 import subprocess
 import tempfile
 import zipfile
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 from PySide6 import QtWidgets
@@ -253,7 +253,7 @@ class MainWindow(QMainWindow):
         for row_num, row in enumerate(rows):
             game_name = QTableWidgetItem(row[0])
             game_name.setData(Qt.UserRole, row[4])
-            dt_object = datetime.utcfromtimestamp(row[1])
+            dt_object = datetime.fromtimestamp(row[1], timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
 
             self.game_table.setItem(row_num, 0, game_name)

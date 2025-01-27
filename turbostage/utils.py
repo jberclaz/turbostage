@@ -7,7 +7,6 @@ import zipfile
 from collections import Counter
 from datetime import datetime
 
-from turbostage import utils
 from turbostage.igdb_client import IgdbClient
 
 
@@ -112,10 +111,10 @@ def add_new_game_version(
     )
     version_id = cursor.lastrowid
     # 4. add hashes
-    hashes = utils.compute_hash_for_largest_files_in_zip(game_archive, n=4)
+    hashes = compute_hash_for_largest_files_in_zip(game_archive, n=4)
     if not binary in [h[0] for h in hashes]:
         with zipfile.ZipFile(game_archive, "r") as zf:
-            h = utils.compute_md5_from_zip(zf, binary)
+            h = compute_md5_from_zip(zf, binary)
             hashes.append((binary, 0, h))
     for h in hashes:
         cursor.execute(
