@@ -249,6 +249,7 @@ class MainWindow(QMainWindow):
         rows = cursor.fetchall()
         conn.close()
 
+        self.game_table.setSortingEnabled(False)
         self.game_table.setRowCount(len(rows))
         for row_num, row in enumerate(rows):
             game_name = QTableWidgetItem(row[0])
@@ -261,6 +262,7 @@ class MainWindow(QMainWindow):
             self.game_table.setItem(row_num, 2, QTableWidgetItem(row[2]))
             self.game_table.setItem(row_num, 3, QTableWidgetItem(row[3]))
         self.game_table.resizeColumnsToContents()
+        self.game_table.setSortingEnabled(True)
 
     def scan_local_games(self):
         games_path = self.games_path
