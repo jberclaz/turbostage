@@ -78,7 +78,10 @@ class ConfigureGameDialog(QDialog):
                 item_data = self.binary_list_model.data(index, Qt.DisplayRole)
                 if item_data == binary:
                     self.binary_list_view.selectionModel().select(index, QItemSelectionModel.Select)
+                    self.selected_binary = binary
                     break
+        else:
+            self.selected_binary = None
         self.binary_list_view.selectionModel().selectionChanged.connect(self._on_selection_change)
         self.layout.addWidget(self.binary_list_view)
 
@@ -98,8 +101,6 @@ class ConfigureGameDialog(QDialog):
         self.add_button.setEnabled(not add)
         self.add_button.clicked.connect(self._on_add_game)
         self.layout.addWidget(self.add_button)
-
-        self.selected_binary = None
 
     @staticmethod
     def populates_binary_list(game_archive: str, list_model):

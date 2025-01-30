@@ -451,24 +451,25 @@ class MainWindow(QMainWindow):
         if len(rows) != 1:
             raise RuntimeError(f"Unable to get game details for '{game_name}'")
         game_details = rows[0]
+        game_binary, game_archive, game_config, game_version, version_id = game_details
 
         games_path = self.games_path
-        game_path = os.path.join(games_path, rows[0][1])
+        game_path = os.path.join(games_path, game_archive)
 
         configure_dialog = ConfigureGameDialog(
             game_name,
             game_id,
             game_path,
-            version=game_details[3],
-            config=game_details[2],
-            binary=game_details[0],
+            version=game_version,
+            config=game_config,
+            binary=game_binary,
             add=False,
         )
         if configure_dialog.exec() == QDialog.Accepted:
             binary = configure_dialog.selected_binary
             version = configure_dialog.version_name.text()
             config = configure_dialog.dosbox_config_text.toPlainText()
-            utils.update_version_info(game_details[4], version, binary, config, self.db_path)
+            utils.update_version_info(version_id, version, binary, config, self.db_path)
 
     def run_game_setup(self):
         game_id, game_name = self.selected_game
