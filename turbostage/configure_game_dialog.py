@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QTextEdit,
-    QVBoxLayout,
+    QVBoxLayout, QComboBox,
 )
 
 
@@ -33,16 +33,32 @@ class BinaryListModel(QAbstractListModel):
         self.endResetModel()
 
 
+CPU_CYCLES = {
+    "Auto": 0,
+    "8088 (4.77 MHz)": 300,
+    "286-8": 700,
+    "286-12": 1500,
+    "386SX-20": 3000,
+    "386DX-33": 6000,
+    "386DX-40": 8000,
+    "486DX-33": 12000,
+    "486DX/2-66": 25000,
+    "Pentium 90": 50000,
+    "Pentium MMX-166": 100000,
+    "Pentium II 300": 200000
+}
+
+
 class ConfigureGameDialog(QDialog):
     def __init__(
-        self,
-        game_name: str,
-        game_id: int,
-        game_archive: str,
-        version: str | None = None,
-        binary: str | None = None,
-        config: str | None = None,
-        add: bool = True,
+            self,
+            game_name: str,
+            game_id: int,
+            game_archive: str,
+            version: str | None = None,
+            binary: str | None = None,
+            config: str | None = None,
+            add: bool = True,
     ):
         super().__init__()
         self._game_name = game_name
@@ -84,6 +100,14 @@ class ConfigureGameDialog(QDialog):
             self.selected_binary = None
         self.binary_list_view.selectionModel().selectionChanged.connect(self._on_selection_change)
         self.layout.addWidget(self.binary_list_view)
+
+        self.layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+        label = QLabel("CPU")
+        self.layout.addWidget(label)
+        self.cpu_combobox = QComboBox()
+        self.cpu_combobox.addItems(list(CPU_CYCLES.keys()))
+        self.layout.addWidget(self.cpu_combobox)
 
         self.layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
@@ -129,3 +153,7 @@ class ConfigureGameDialog(QDialog):
         selected_index = self.binary_list_view.selectedIndexes()
         if selected_index:
             self.add_button.setEnabled(True)
+
+    @property
+    def cpu_cycles(self) -> int:
+        return CPU_CYCLES[self.cpu_combobox.currentText()]

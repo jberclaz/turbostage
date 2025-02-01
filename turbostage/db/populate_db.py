@@ -6,7 +6,7 @@ from PySide6.QtCore import QStandardPaths
 
 from turbostage import utils
 
-DB_VERSION = "0.3.0"
+DB_VERSION = "0.4.0"
 
 GAME_DATA = [
     {
@@ -97,7 +97,8 @@ def initialize_database(db_path: str):
             version TEXT,
             executable TEXT,
             archive TEXT,
-            config TEXT
+            config TEXT,
+            cycles INTEGER DEFAULT 0
         );
         """
     )
