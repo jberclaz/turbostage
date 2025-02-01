@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
+    QTabWidget,
     QVBoxLayout,
     QWidget,
 )
@@ -32,6 +33,7 @@ from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWo
 from turbostage.game_info_widget import GameInfoWidget
 from turbostage.game_launcher import GameLauncher
 from turbostage.game_setup_dialog import GameSetupDialog
+from turbostage.game_setup_widget import GameSetupWidget
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
 from turbostage.settings_dialog import SettingsDialog
@@ -119,8 +121,12 @@ class MainWindow(QMainWindow):
         self.splitter.addWidget(self.game_table)
 
         # Right panel: Game info display
-        self.game_info_panel = GameInfoWidget()
-        self.splitter.addWidget(self.game_info_panel)
+        self.right_panel = QTabWidget()
+        self.right_info_tab = GameInfoWidget()
+        self.right_setup_tab = GameSetupWidget(self.on_game_settings_save)
+        self.right_panel.addTab(self.right_info_tab, "Info")
+        self.right_panel.addTab(self.right_setup_tab, "Setup")
+        self.splitter.addWidget(self.right_panel)
 
         # Launch button
         self.launch_button = QPushButton("Launch Game")
@@ -148,7 +154,7 @@ class MainWindow(QMainWindow):
     def update_game_info(self):
         selected_items = self.game_table.selectedItems()
         if not selected_items:
-            self.game_info_panel.set_game_name("")
+            self.right_info_tab.set_game_name("")
             self.launch_button.setEnabled(False)
             return
         if len(selected_items) != 4:
@@ -159,12 +165,13 @@ class MainWindow(QMainWindow):
         name_row = selected_items[0]
         game_id = name_row.data(Qt.UserRole)
         game_name = name_row.text()
-        self.game_info_panel.set_game_name(game_name)
+        self.right_info_tab.set_game_name(game_name)
+        self.right_setup_tab.set_game(game_id, self.db_path)
         self.launch_button.setEnabled(True)
         cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, self.db_path, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
-        fetch_worker.finished.connect(self.game_info_panel.set_game_info)
+        fetch_worker.finished.connect(self.right_info_tab.set_game_info)
         fetch_task = FetchGameInfoTask(fetch_worker)
         self._thread_pool.start(fetch_task)
 
@@ -433,6 +440,13 @@ class MainWindow(QMainWindow):
         if setup_dialog.exec() != QDialog.Accepted:
             return
         GameLauncher.launch_game(game_id, self.db_path, False, setup_dialog.selected_binary)
+
+    def on_game_settings_save(self):
+        version_id = self.right_setup_tab.version_id
+        binary = self.right_setup_tab.selected_binary
+        config = self.right_setup_tab.dosbox_config_text.toPlainText()
+        cycles = self.right_setup_tab.cpu_cycles
+        utils.update_version_info(version_id, None, binary, config, cycles, self.db_path)
 
     @property
     def db_path(self):

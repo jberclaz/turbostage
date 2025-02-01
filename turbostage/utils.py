@@ -176,16 +176,25 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
     }
 
 
-def update_version_info(version_id: int, version_name: str, binary: str, config: str, cycles: int, db_path: str):
+def update_version_info(version_id: int, version_name: str | None, binary: str, config: str, cycles: int, db_path: str):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute(
-        """
-            UPDATE versions SET version = ?, executable = ?, config = ?, cycles = ?
-            WHERE id = ?
-        """,
-        (version_name, binary, config, cycles, version_id),
-    )
+    if version_name is not None:
+        cursor.execute(
+            """
+                UPDATE versions SET version = ?, executable = ?, config = ?, cycles = ?
+                WHERE id = ?
+            """,
+            (version_name, binary, config, cycles, version_id),
+        )
+    else:
+        cursor.execute(
+            """
+                UPDATE versions SET executable = ?, config = ?, cycles = ?
+                WHERE id = ?
+            """,
+            (binary, config, cycles, version_id),
+        )
     conn.commit()
     conn.close()
 

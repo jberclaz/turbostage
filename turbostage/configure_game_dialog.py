@@ -15,39 +15,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
-
-class BinaryListModel(QAbstractListModel):
-    def __init__(self, binaries=None):
-        super().__init__()
-        self.binaries = binaries or []
-
-    def rowCount(self, parent=QModelIndex()):
-        return len(self.binaries)
-
-    def data(self, index, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole:
-            return self.binaries[index.row()]
-
-    def set_binaries(self, binaries):
-        self.beginResetModel()
-        self.binaries = binaries
-        self.endResetModel()
-
-
-CPU_CYCLES = {
-    "Auto": 0,
-    "8088 (4.77 MHz)": 300,
-    "286-8": 700,
-    "286-12": 1500,
-    "386SX-20": 3000,
-    "386DX-33": 6000,
-    "386DX-40": 8000,
-    "486DX-33": 12000,
-    "486DX/2-66": 25000,
-    "Pentium 90": 50000,
-    "Pentium MMX-166": 100000,
-    "Pentium II 300": 200000,
-}
+from turbostage.constants import CPU_CYCLES
+from turbostage.game_setup_widget import BinaryListModel
 
 
 class ConfigureGameDialog(QDialog):
