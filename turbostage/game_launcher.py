@@ -71,11 +71,11 @@ class GameLauncher:
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute(
-                """
+            """
             SELECT path, content FROM config_files
             WHERE version_id = ?
             """,
-                (version_id,),
+            (version_id,),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -84,7 +84,9 @@ class GameLauncher:
                 f.write(content)
 
     @staticmethod
-    def write_custom_dosbox_config_file(config_file: str, config_content: str | None, mt32_roms_path: str, cpu_cycles: int):
+    def write_custom_dosbox_config_file(
+        config_file: str, config_content: str | None, mt32_roms_path: str, cpu_cycles: int
+    ):
         with open(config_file, "wt") as f:
             if config_content:
                 f.write(config_content)

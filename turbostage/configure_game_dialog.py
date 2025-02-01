@@ -3,6 +3,7 @@ import zipfile
 
 from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QLabel,
     QLineEdit,
@@ -11,7 +12,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QSpacerItem,
     QTextEdit,
-    QVBoxLayout, QComboBox,
+    QVBoxLayout,
 )
 
 
@@ -45,21 +46,21 @@ CPU_CYCLES = {
     "486DX/2-66": 25000,
     "Pentium 90": 50000,
     "Pentium MMX-166": 100000,
-    "Pentium II 300": 200000
+    "Pentium II 300": 200000,
 }
 
 
 class ConfigureGameDialog(QDialog):
     def __init__(
-            self,
-            game_name: str,
-            game_id: int,
-            game_archive: str,
-            version: str | None = None,
-            binary: str | None = None,
-            cycles: int | None = None,
-            config: str | None = None,
-            add: bool = True,
+        self,
+        game_name: str,
+        game_id: int,
+        game_archive: str,
+        version: str | None = None,
+        binary: str | None = None,
+        cycles: int | None = None,
+        config: str | None = None,
+        add: bool = True,
     ):
         super().__init__()
         self._game_name = game_name

@@ -434,7 +434,6 @@ class MainWindow(QMainWindow):
             return
         GameLauncher.launch_game(game_id, self.db_path, False, setup_dialog.selected_binary)
 
-
     @property
     def db_path(self):
         p = os.path.join(self._app_data_folder, self.DB_FILE)
