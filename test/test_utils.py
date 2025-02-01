@@ -24,8 +24,11 @@ class TestUtils(TestCase):
             binary = "MK/MK.EXE"
             config = "[sdl]\nfull_screen = True\n"
             db_path = os.path.join(tempdir, "test.db")
+            cpu_cycles = 12000
             initialize_database(db_path)
-            utils.add_new_game_version(name, version, game_id, archive_path, binary, config, db_path, client)
+            utils.add_new_game_version(
+                name, version, game_id, archive_path, binary, cpu_cycles, config, db_path, client
+            )
 
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
