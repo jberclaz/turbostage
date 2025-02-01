@@ -57,6 +57,7 @@ class ConfigureGameDialog(QDialog):
             game_archive: str,
             version: str | None = None,
             binary: str | None = None,
+            cycles: int | None = None,
             config: str | None = None,
             add: bool = True,
     ):
@@ -107,6 +108,9 @@ class ConfigureGameDialog(QDialog):
         self.layout.addWidget(label)
         self.cpu_combobox = QComboBox()
         self.cpu_combobox.addItems(list(CPU_CYCLES.keys()))
+        if cycles is not None:
+            index = list(CPU_CYCLES.values()).index(cycles)
+            self.cpu_combobox.setCurrentIndex(index)
         self.layout.addWidget(self.cpu_combobox)
 
         self.layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))

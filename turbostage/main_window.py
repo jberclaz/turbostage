@@ -150,7 +150,7 @@ class MainWindow(QMainWindow):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT v.executable, lv.archive, v.config, v.id
+            SELECT v.executable, lv.archive, v.config, v.cycles, v.id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id
@@ -175,7 +175,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        startup, archive, config, version_id = rows[0]
+        startup, archive, config, cpu_cycles, version_id = rows[0]
         with tempfile.TemporaryDirectory() as temp_dir:
             archive_path = os.path.join(games_path, archive)
             with zipfile.ZipFile(archive_path, "r") as zip_ref:
@@ -206,6 +206,8 @@ class MainWindow(QMainWindow):
                     with open(conf_file.name, "wt") as f:
                         if config:
                             f.write(config)
+                        if cpu_cycles > 0:
+                            f.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\n")
                         if mt32_roms_path:
                             f.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
                     command.extend(["--conf", conf_file.name])
@@ -326,10 +328,11 @@ class MainWindow(QMainWindow):
             return
         binary = configure_dialog.selected_binary
         version = configure_dialog.version_name.text()
+        cycles = configure_dialog.cpu_cycles
         config = configure_dialog.dosbox_config_text.toPlainText()
         try:
             utils.add_new_game_version(
-                game_name, version, game_id, game_path, binary, config, self.db_path, self._igdb_client
+                game_name, version, game_id, game_path, binary, cycles, config, self.db_path, self._igdb_client
             )
         except RuntimeError as e:
             QMessageBox.critical("Error", "Unable to add new game", str(e))
@@ -438,7 +441,7 @@ class MainWindow(QMainWindow):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT v.executable, lv.archive, v.config, v.version, v.id
+            SELECT v.executable, lv.archive, v.config, v.cycles, v.version, v.id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id
@@ -451,7 +454,7 @@ class MainWindow(QMainWindow):
         if len(rows) != 1:
             raise RuntimeError(f"Unable to get game details for '{game_name}'")
         game_details = rows[0]
-        game_binary, game_archive, game_config, game_version, version_id = game_details
+        game_binary, game_archive, game_config, cpu_cycles, game_version, version_id = game_details
 
         games_path = self.games_path
         game_path = os.path.join(games_path, game_archive)
@@ -461,15 +464,17 @@ class MainWindow(QMainWindow):
             game_id,
             game_path,
             version=game_version,
-            config=game_config,
             binary=game_binary,
+            cycles=cpu_cycles,
+            config=game_config,
             add=False,
         )
         if configure_dialog.exec() == QDialog.Accepted:
             binary = configure_dialog.selected_binary
             version = configure_dialog.version_name.text()
             config = configure_dialog.dosbox_config_text.toPlainText()
-            utils.update_version_info(version_id, version, binary, config, self.db_path)
+            cycles = configure_dialog.cpu_cycles
+            utils.update_version_info(version_id, version, binary, config, cycles, self.db_path)
 
     def run_game_setup(self):
         game_id, game_name = self.selected_game
