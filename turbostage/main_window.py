@@ -1,10 +1,6 @@
-import importlib
 import json
 import os
 import sqlite3
-import subprocess
-import tempfile
-import zipfile
 from datetime import datetime, timezone
 
 import requests
@@ -34,6 +30,7 @@ from turbostage.configure_game_dialog import ConfigureGameDialog
 from turbostage.db.populate_db import initialize_database
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_info_widget import GameInfoWidget
+from turbostage.game_launcher import GameLauncher
 from turbostage.game_setup_dialog import GameSetupDialog
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
@@ -146,71 +143,7 @@ class MainWindow(QMainWindow):
 
     def launch_game(self):
         game_id, _ = self.selected_game
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT v.executable, lv.archive, v.config, v.id
-            FROM games g
-            JOIN versions v ON g.id = v.game_id
-            JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.igdb_id = ?
-            """,
-            (game_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-
-        settings = QSettings("jberclaz", "TurboStage")
-        full_screen = utils.to_bool(settings.value("app/full_screen", False))
-        dosbox_exec = str(settings.value("app/emulator_path", ""))
-        games_path = str(settings.value("app/games_path", ""))
-        mt32_roms_path = str(settings.value("app/mt32_path", ""))
-        if not dosbox_exec:
-            QMessageBox.critical(
-                self,
-                "DosBox binary not specified",
-                "Cannot start game, because the DosBox Staging binary has not been specified. Use the Settings dialog to set it up or download DosBox Staging",
-                QMessageBox.Ok,
-            )
-            return
-
-        startup, archive, config, version_id = rows[0]
-        with tempfile.TemporaryDirectory() as temp_dir:
-            archive_path = os.path.join(games_path, archive)
-            with zipfile.ZipFile(archive_path, "r") as zip_ref:
-                zip_ref.extractall(temp_dir)
-
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-            SELECT path, content FROM config_files
-            WHERE version_id = ?
-            """,
-                (version_id,),
-            )
-            rows = cursor.fetchall()
-            conn.close()
-            for config_file_path, content in rows:
-                with open(os.path.join(temp_dir, config_file_path), "wb") as f:
-                    f.write(content)
-
-            dosbox_command = os.path.join(temp_dir, startup)
-            main_config = importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf")
-            command = [dosbox_exec, "--noprimaryconf", "--conf", str(main_config)]
-            if full_screen:
-                command.append("--fullscreen")
-            with tempfile.NamedTemporaryFile() as conf_file:
-                if config or mt32_roms_path:
-                    with open(conf_file.name, "wt") as f:
-                        if config:
-                            f.write(config)
-                        if mt32_roms_path:
-                            f.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
-                    command.extend(["--conf", conf_file.name])
-                command.append(dosbox_command)
-                subprocess.run(command)
+        GameLauncher.launch_game(game_id, self.db_path)
 
     def update_game_info(self):
         selected_items = self.game_table.selectedItems()
@@ -326,10 +259,11 @@ class MainWindow(QMainWindow):
             return
         binary = configure_dialog.selected_binary
         version = configure_dialog.version_name.text()
+        cycles = configure_dialog.cpu_cycles
         config = configure_dialog.dosbox_config_text.toPlainText()
         try:
             utils.add_new_game_version(
-                game_name, version, game_id, game_path, binary, config, self.db_path, self._igdb_client
+                game_name, version, game_id, game_path, binary, cycles, config, self.db_path, self._igdb_client
             )
         except RuntimeError as e:
             QMessageBox.critical("Error", "Unable to add new game", str(e))
@@ -438,7 +372,7 @@ class MainWindow(QMainWindow):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT v.executable, lv.archive, v.config, v.version, v.id
+            SELECT v.executable, lv.archive, v.config, v.cycles, v.version, v.id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id
@@ -451,7 +385,7 @@ class MainWindow(QMainWindow):
         if len(rows) != 1:
             raise RuntimeError(f"Unable to get game details for '{game_name}'")
         game_details = rows[0]
-        game_binary, game_archive, game_config, game_version, version_id = game_details
+        game_binary, game_archive, game_config, cpu_cycles, game_version, version_id = game_details
 
         games_path = self.games_path
         game_path = os.path.join(games_path, game_archive)
@@ -461,23 +395,25 @@ class MainWindow(QMainWindow):
             game_id,
             game_path,
             version=game_version,
-            config=game_config,
             binary=game_binary,
+            cycles=cpu_cycles,
+            config=game_config,
             add=False,
         )
         if configure_dialog.exec() == QDialog.Accepted:
             binary = configure_dialog.selected_binary
             version = configure_dialog.version_name.text()
             config = configure_dialog.dosbox_config_text.toPlainText()
-            utils.update_version_info(version_id, version, binary, config, self.db_path)
+            cycles = configure_dialog.cpu_cycles
+            utils.update_version_info(version_id, version, binary, config, cycles, self.db_path)
 
     def run_game_setup(self):
-        game_id, game_name = self.selected_game
+        game_id, _ = self.selected_game
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT lv.archive, v.config, v.id
+            SELECT lv.archive
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id
@@ -489,46 +425,14 @@ class MainWindow(QMainWindow):
         conn.close()
 
         settings = QSettings("jberclaz", "TurboStage")
-        dosbox_exec = str(settings.value("app/emulator_path", ""))
         games_path = str(settings.value("app/games_path", ""))
-        mt32_roms_path = str(settings.value("app/mt32_path", ""))
 
-        game_archive, game_config, version_id = rows[0]
+        game_archive = rows[0][0]
         game_archive_url = os.path.join(games_path, game_archive)
         setup_dialog = GameSetupDialog(game_archive_url)
         if setup_dialog.exec() != QDialog.Accepted:
             return
-        startup = setup_dialog.selected_binary
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            with zipfile.ZipFile(game_archive_url, "r") as zip_ref:
-                zip_ref.extractall(temp_dir)
-            original_files = utils.list_files_with_md5(temp_dir)
-            dosbox_command = os.path.join(temp_dir, startup)
-            main_config = importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf")
-            command = [dosbox_exec, "--noprimaryconf", "--conf", str(main_config)]
-            with tempfile.NamedTemporaryFile() as conf_file:
-                if game_config or mt32_roms_path:
-                    with open(conf_file.name, "wt") as f:
-                        if game_config:
-                            f.write(game_config)
-                        if mt32_roms_path:
-                            f.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
-                    command.extend(["--conf", conf_file.name])
-                command.append(dosbox_command)
-                subprocess.run(command)
-
-            config_files = []
-            files_after_setup = utils.list_files_with_md5(temp_dir)
-            for file_after_setup, file_hash in files_after_setup.items():
-                if not file_after_setup in original_files:
-                    config_files.append(file_after_setup)
-                else:
-                    if original_files[file_after_setup] != file_hash:
-                        config_files.append(file_after_setup)
-
-            if config_files:
-                utils.add_config_files(config_files, version_id, temp_dir, self.db_path)
+        GameLauncher.launch_game(game_id, self.db_path, False, setup_dialog.selected_binary)
 
     @property
     def db_path(self):

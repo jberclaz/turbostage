@@ -3,6 +3,7 @@ import zipfile
 
 from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, Qt
 from PySide6.QtWidgets import (
+    QComboBox,
     QDialog,
     QLabel,
     QLineEdit,
@@ -33,6 +34,22 @@ class BinaryListModel(QAbstractListModel):
         self.endResetModel()
 
 
+CPU_CYCLES = {
+    "Auto": 0,
+    "8088 (4.77 MHz)": 300,
+    "286-8": 700,
+    "286-12": 1500,
+    "386SX-20": 3000,
+    "386DX-33": 6000,
+    "386DX-40": 8000,
+    "486DX-33": 12000,
+    "486DX/2-66": 25000,
+    "Pentium 90": 50000,
+    "Pentium MMX-166": 100000,
+    "Pentium II 300": 200000,
+}
+
+
 class ConfigureGameDialog(QDialog):
     def __init__(
         self,
@@ -41,6 +58,7 @@ class ConfigureGameDialog(QDialog):
         game_archive: str,
         version: str | None = None,
         binary: str | None = None,
+        cycles: int | None = None,
         config: str | None = None,
         add: bool = True,
     ):
@@ -87,6 +105,17 @@ class ConfigureGameDialog(QDialog):
 
         self.layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
 
+        label = QLabel("CPU")
+        self.layout.addWidget(label)
+        self.cpu_combobox = QComboBox()
+        self.cpu_combobox.addItems(list(CPU_CYCLES.keys()))
+        if cycles is not None:
+            index = list(CPU_CYCLES.values()).index(cycles)
+            self.cpu_combobox.setCurrentIndex(index)
+        self.layout.addWidget(self.cpu_combobox)
+
+        self.layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
         self.config_label = QLabel("Extra DosBox config (optional)")
         self.layout.addWidget(self.config_label)
         self.dosbox_config_text = QTextEdit(self)
@@ -129,3 +158,7 @@ class ConfigureGameDialog(QDialog):
         selected_index = self.binary_list_view.selectedIndexes()
         if selected_index:
             self.add_button.setEnabled(True)
+
+    @property
+    def cpu_cycles(self) -> int:
+        return CPU_CYCLES[self.cpu_combobox.currentText()]

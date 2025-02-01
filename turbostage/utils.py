@@ -67,6 +67,7 @@ def add_new_game_version(
     igdb_id: int,
     game_archive: str,
     binary: str,
+    cpu_cycles: int,
     config: str,
     db_path: str,
     igdb_client,
@@ -104,10 +105,10 @@ def add_new_game_version(
     # 3. add game version in version table
     cursor.execute(
         """
-        INSERT INTO versions (game_id, version, executable, archive, config)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO versions (game_id, version, executable, archive, config, cycles)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (game_id, version_name, binary, os.path.basename(game_archive), config),
+        (game_id, version_name, binary, os.path.basename(game_archive), config, cpu_cycles),
     )
     version_id = cursor.lastrowid
     # 4. add hashes
@@ -175,22 +176,21 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
     }
 
 
-def update_version_info(version_id: int, version_name: str, binary: str, config: str, db_path: str):
+def update_version_info(version_id: int, version_name: str, binary: str, config: str, cycles: int, db_path: str):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     cursor.execute(
         """
-            UPDATE versions SET version = ?, executable = ?, config = ?
+            UPDATE versions SET version = ?, executable = ?, config = ?, cycles = ?
             WHERE id = ?
         """,
-        (version_name, binary, config, version_id),
+        (version_name, binary, config, cycles, version_id),
     )
     conn.commit()
     conn.close()
 
 
-def get_dosbox_version(settings) -> str:
-    dosbox_exec = str(settings.value("app/emulator_path", ""))
+def get_dosbox_version(dosbox_exec: str) -> str:
     output = subprocess.check_output([dosbox_exec, "-V"], text=True)
     for line in output.splitlines():
         if "version" not in line:

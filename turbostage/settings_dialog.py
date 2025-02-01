@@ -79,7 +79,7 @@ class SettingsDialog(QDialog):
         )
         if file_path:
             self.emulator_path_input.setText(file_path)
-            version = utils.get_dosbox_version(self.settings)
+            version = utils.get_dosbox_version(file_path)
             if version != constants.SUPPORTED_DOSBOX_VERSION:
                 QMessageBox.warning(
                     self,
