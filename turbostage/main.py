@@ -1,5 +1,6 @@
 import importlib
 import sys
+from argparse import ArgumentParser
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
@@ -28,12 +29,18 @@ def show_splash_screen():
 
 
 def main():
-    app = QApplication(sys.argv)
+    parser = ArgumentParser(description="TurboStage")
+    parser.add_argument("-s", "--skip_splash", help="Skip splash screen", action="store_true")
+    args = parser.parse_args()
 
-    splash = show_splash_screen()
+    app = QApplication(sys.argv)
     window = MainWindow()
 
-    QTimer.singleShot(200, lambda: [splash.close(), window.show()])
+    if not args.skip_splash:
+        splash = show_splash_screen()
+        QTimer.singleShot(2000, lambda: [splash.close(), window.show()])
+    else:
+        window.show()
 
     sys.exit(app.exec())
 
