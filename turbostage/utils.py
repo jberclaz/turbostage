@@ -1,5 +1,6 @@
 import hashlib
 import os.path
+import platform
 import re
 import sqlite3
 import subprocess
@@ -200,7 +201,10 @@ def update_version_info(version_id: int, version_name: str | None, binary: str, 
 
 
 def get_dosbox_version(dosbox_exec: str) -> str:
-    output = subprocess.check_output([dosbox_exec, "-V"], text=True)
+    try:
+        output = subprocess.check_output([dosbox_exec, "-V"], text=True, shell=True)
+    except subprocess.CalledProcessError as e:
+        return ""
     for line in output.splitlines():
         if "version" not in line:
             continue
@@ -290,6 +294,10 @@ def add_extra_files(config_files: dict[str, bytes], version_id: int, file_type: 
         )
     conn.commit()
     conn.close()
+
+
+def get_os():
+    return platform.system()
 
 
 class CancellationFlag:

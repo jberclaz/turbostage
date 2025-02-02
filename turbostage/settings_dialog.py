@@ -74,8 +74,13 @@ class SettingsDialog(QDialog):
         super().reject()
 
     def _select_emulator(self):
+        os_name = utils.get_os()
+        if os_name == "Windows":
+            target_executable = "dosbox.exe"
+        elif os_name == "Linux":
+            target_executable = "dosbox"
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select DosBox Staging binary", "", "Executable Files (dosbox);;All Files (*)"
+            self, "Select DosBox Staging binary", "", f"Executable Files ({target_executable});;All Files (*)"
         )
         if file_path:
             self.emulator_path_input.setText(file_path)
@@ -85,7 +90,7 @@ class SettingsDialog(QDialog):
                     self,
                     "DosBox version not supported",
                     f"Your version of DosBox ({version}) is not supported by this frontend and may not work correctly.",
-                    QMessageBox.OK,
+                    QMessageBox.Ok,
                 )
 
     def _select_games_path(self):

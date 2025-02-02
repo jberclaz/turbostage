@@ -73,12 +73,20 @@ class GameLauncher:
             command = [dosbox_exec, "--noprimaryconf", "--conf", str(main_config)]
             if full_screen:
                 command.append("--fullscreen")
-            with tempfile.NamedTemporaryFile() as conf_file:
+            with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt") as conf_file:
                 if config or mt32_roms_path or cpu_cycles > 0:
-                    GameLauncher._write_custom_dosbox_config_file(conf_file.name, config, mt32_roms_path, cpu_cycles)
+                    GameLauncher._write_custom_dosbox_config_file(conf_file, config, mt32_roms_path, cpu_cycles)
                     command.extend(["--conf", conf_file.name])
                 command.append(executable_path)
-                subprocess.run(command)
+                try:
+                    subprocess.run(command, check=True)
+                except subprocess.CalledProcessError as e:
+                    QMessageBox.warning(
+                        None,
+                        "Error in DosBox",
+                        f"The game failed with the following error: '{e}'",
+                        QMessageBox.Ok,
+                    )
 
             if self._track_change:
                 self._extract_changed_files(temp_dir)
@@ -113,16 +121,13 @@ class GameLauncher:
                 f.write(content)
 
     @staticmethod
-    def _write_custom_dosbox_config_file(
-        config_file: str, config_content: str | None, mt32_roms_path: str, cpu_cycles: int
-    ):
-        with open(config_file, "wt") as f:
-            if config_content:
-                f.write(config_content)
-            if cpu_cycles > 0:
-                f.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\n")
-            if mt32_roms_path:
-                f.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
+    def _write_custom_dosbox_config_file(config_file, config_content: str | None, mt32_roms_path: str, cpu_cycles: int):
+        if config_content:
+            config_file.write(config_content)
+        if cpu_cycles > 0:
+            config_file.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\n")
+        if mt32_roms_path:
+            config_file.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
 
     @property
     def modified_files(self) -> dict:
