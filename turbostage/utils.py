@@ -202,7 +202,7 @@ def update_version_info(version_id: int, version_name: str | None, binary: str, 
 
 def get_dosbox_version(dosbox_exec: str) -> str:
     try:
-        output = subprocess.check_output([dosbox_exec, "-V"], text=True, shell=True)
+        output = subprocess.check_output(f"{dosbox_exec} -V", text=True, shell=True)
     except subprocess.CalledProcessError as e:
         return ""
     for line in output.splitlines():
