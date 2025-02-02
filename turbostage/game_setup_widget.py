@@ -160,6 +160,7 @@ class GameSetupWidget(QWidget):
             self.selected_binary = self.binary_list_model.binaries[selected_index[0].row()]
         if self._auto_save_enable:
             self.enable_button(True)
+        self.settings_changed.emit()
 
     def _on_save(self):
         self.save_button.setEnabled(False)
