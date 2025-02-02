@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from turbostage import __version__, utils
+from turbostage import __version__, constants, utils
 from turbostage.add_new_game_dialog import AddNewGameDialog
 from turbostage.configure_game_dialog import ConfigureGameDialog
 from turbostage.db.populate_db import initialize_database
@@ -150,7 +150,11 @@ class MainWindow(QMainWindow):
 
     def launch_game(self):
         game_id, _ = self.selected_game
-        GameLauncher.launch_game(game_id, self.db_path)
+        gl = GameLauncher(track_change=True)
+        gl.launch_game(game_id, self.db_path)
+        if gl.new_files or gl.modified_files:
+            config_files = {**gl.new_files, **gl.modified_files}
+            utils.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME, self.db_path)
 
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
@@ -378,7 +382,7 @@ class MainWindow(QMainWindow):
         cursor = conn.cursor()
         cursor.execute(
             """
-            SELECT lv.archive
+            SELECT lv.archive, v.id
             FROM games g
             JOIN versions v ON g.id = v.game_id
             JOIN local_versions lv ON v.id = lv.version_id
@@ -392,12 +396,16 @@ class MainWindow(QMainWindow):
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))
 
-        game_archive = rows[0][0]
+        game_archive, version_id = rows[0]
         game_archive_url = os.path.join(games_path, game_archive)
         setup_dialog = GameSetupDialog(game_archive_url)
         if setup_dialog.exec() != QDialog.Accepted:
             return
-        GameLauncher.launch_game(game_id, self.db_path, False, setup_dialog.selected_binary)
+        gl = GameLauncher(track_change=True)
+        gl.launch_game(game_id, self.db_path, False, False, setup_dialog.selected_binary)
+        if gl.new_files or gl.modified_files:
+            config_files = {**gl.new_files, **gl.modified_files}
+            utils.add_extra_files(config_files, version_id, constants.FileType.CONFIG, self.db_path)
 
     def on_game_settings_saved(self):
         version_id = self.right_setup_tab.version_id

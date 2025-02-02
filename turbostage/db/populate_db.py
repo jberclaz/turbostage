@@ -6,7 +6,7 @@ from PySide6.QtCore import QStandardPaths
 
 from turbostage import utils
 
-DB_VERSION = "0.4.0"
+DB_VERSION = "0.5.0"
 
 GAME_DATA = [
     {
@@ -126,6 +126,7 @@ def initialize_database(db_path: str):
         CREATE TABLE IF NOT EXISTS config_files (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             version_id INTEGER NOT NULL,
+            type INTEGER NOT NULL,
             path TEXT,
             content BLOB
         )

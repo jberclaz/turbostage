@@ -276,20 +276,18 @@ def list_files_with_md5(folder: str) -> dict[str, str]:
     return result
 
 
-def add_config_files(config_files: list[str], version_id: int, path_prefix: str, db_path: str):
+def add_extra_files(config_files: dict[str, bytes], version_id: int, file_type: int, db_path: str):
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM config_files WHERE version_id = ?", (version_id,))
-    for file_name in config_files:
-        with open(file_name, "rb") as f:
-            data = f.read()
-            cursor.execute(
-                """
-                    INSERT INTO config_files(version_id, path, content)
-                    VALUES (?, ?, ?)
+    cursor.execute("DELETE FROM config_files WHERE version_id = ? AND type = ?", (version_id, file_type))
+    for file_name, content in config_files.items():
+        cursor.execute(
+            """
+                    INSERT INTO config_files(version_id, path, content, type)
+                    VALUES (?, ?, ?, ?)
                     """,
-                (version_id, os.path.relpath(file_name, path_prefix), data),
-            )
+            (version_id, file_name, content, file_type),
+        )
     conn.commit()
     conn.close()
 
