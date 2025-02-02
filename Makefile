@@ -27,7 +27,7 @@ build: venv
 
 package: dist/turbostage
 	version=`grep "__version__" turbostage/__init__.py | sed -e 's/^__version__ = "\(.*\)"$$/\1/'`; \
-	zip -j turbostage-v$${version}.zip dist/turbostage
+	zip -j turbostage-linux-v$${version}.zip dist/turbostage
 
 dist/turbostage: venv turbostage/*.py pyproject.toml
 	( \

@@ -1,4 +1,4 @@
-name: Create Linux Package
+name: Create Packages
 
 on:
   push:
@@ -6,15 +6,15 @@ on:
       - 'v*'
 
 jobs:
-  build-and-release:
+  build-linux-and-release:
 
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v3
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
 
@@ -39,11 +39,34 @@ jobs:
         prerelease: false
 
     - name: Upload Release Asset
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      uses: softprops/action-gh-release@v2
       with:
-        upload_url: ${{ steps.create_release.outputs.upload_url }}
-        asset_path: ./turbostage-${{ github.ref_name }}.zip
-        asset_name: turbostage-${{ github.ref_name }}.zip
-        asset_content_type: application/zip
+        files: turbostage-linux-${{ github.ref_name }}.zip
+
+
+  build-windows:
+
+    runs-on: windows-latest
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements-dev.txt
+
+    - name: Run package build
+      run: |
+        poetry-dynamic-versioning
+        pyinstaller --onefile --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py
+
+    - name: Upload Release Asset
+      uses: softprops/action-gh-release@v2
+      with:
+        files: dist/turbostage.exe
