@@ -2,7 +2,7 @@ import os
 import sqlite3
 import zipfile
 
-from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, QSettings, Qt
+from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QLabel,
@@ -37,8 +37,13 @@ class BinaryListModel(QAbstractListModel):
 
 
 class GameSetupWidget(QWidget):
-    def __init__(self, save_slot):
+    settings_applied = Signal()
+    settings_changed = Signal()
+
+    def __init__(self, auto_save_enable=True):
         super().__init__()
+
+        self._auto_save_enable = auto_save_enable
 
         self.layout = QVBoxLayout(self)
 
@@ -49,7 +54,8 @@ class GameSetupWidget(QWidget):
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
         self.selected_binary = None
-        self.binary_list_view.selectionModel().selectionChanged.connect(self._on_selection_change)
+        self.binary_list_view.selectionModel().selectionChanged.connect(self._on_settings_changed)
+        self.binary_list_view.setEnabled(False)
         self.layout.addWidget(self.binary_list_view)
 
         self.layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
@@ -58,7 +64,8 @@ class GameSetupWidget(QWidget):
         self.layout.addWidget(label)
         self.cpu_combobox = QComboBox()
         self.cpu_combobox.addItems(list(constants.CPU_CYCLES.keys()))
-        self.cpu_combobox.currentIndexChanged.connect(self._on_selection_change)
+        self.cpu_combobox.currentIndexChanged.connect(self._on_settings_changed)
+        self.cpu_combobox.setEnabled(False)
         self.layout.addWidget(self.cpu_combobox)
 
         self.layout.addItem(QSpacerItem(20, 20, QSizePolicy.Minimum, QSizePolicy.Expanding))
@@ -67,7 +74,8 @@ class GameSetupWidget(QWidget):
         self.layout.addWidget(self.config_label)
         self.dosbox_config_text = QTextEdit(self)
         self.dosbox_config_text.setPlaceholderText("Enter custom DOSBox configuration here...")
-        self.dosbox_config_text.textChanged.connect(self._on_selection_change)
+        self.dosbox_config_text.textChanged.connect(self._on_settings_changed)
+        self.dosbox_config_text.setEnabled(False)
         self.layout.addWidget(self.dosbox_config_text)
 
         self.version_id = -1
@@ -77,9 +85,13 @@ class GameSetupWidget(QWidget):
         self.save_button.clicked.connect(self._on_save)
         self.layout.addWidget(self.save_button, alignment=Qt.AlignmentFlag.AlignRight)
 
-        self.save_slot = save_slot
-
-    def set_game(self, game_id: int, db_path: str):
+    def set_game(self, game_id: int | None, db_path: str):
+        enabled = game_id is not None
+        self.binary_list_view.setEnabled(enabled)
+        self.cpu_combobox.setEnabled(enabled)
+        self.dosbox_config_text.setEnabled(enabled)
+        if not enabled:
+            return
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute(
@@ -122,6 +134,15 @@ class GameSetupWidget(QWidget):
 
         self.save_button.setEnabled(False)
 
+    def set_new_game(self, game_archive: str):
+        self.populates_binary_list(game_archive, self.binary_list_model)
+        self.binary_list_view.setEnabled(True)
+        self.cpu_combobox.setEnabled(True)
+        self.dosbox_config_text.setEnabled(True)
+
+    def enable_button(self, enabled: bool):
+        self.save_button.setEnabled(enabled)
+
     @staticmethod
     def populates_binary_list(game_archive: str, list_model):
         binaries = []
@@ -133,15 +154,16 @@ class GameSetupWidget(QWidget):
                 binaries.append(info.filename)
         list_model.set_binaries(binaries)
 
-    def _on_selection_change(self):
+    def _on_settings_changed(self):
         selected_index = self.binary_list_view.selectedIndexes()
         if selected_index:
             self.selected_binary = self.binary_list_model.binaries[selected_index[0].row()]
-        self.save_button.setEnabled(True)
+        if self._auto_save_enable:
+            self.enable_button(True)
 
     def _on_save(self):
         self.save_button.setEnabled(False)
-        self.save_slot.emit()
+        self.settings_applied.emit()
 
     @property
     def cpu_cycles(self) -> int:

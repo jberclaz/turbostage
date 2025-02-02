@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         self.game_table.setSortingEnabled(True)
         self.game_table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.game_table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.game_table.selectionModel().selectionChanged.connect(self.update_game_info)
+        self.game_table.selectionModel().selectionChanged.connect(self.on_game_change)
         self.game_table.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         self.game_table.cellDoubleClicked.connect(self.launch_game)
         self.game_table.setContextMenuPolicy(Qt.CustomContextMenu)
@@ -123,7 +123,8 @@ class MainWindow(QMainWindow):
         # Right panel: Game info display
         self.right_panel = QTabWidget()
         self.right_info_tab = GameInfoWidget()
-        self.right_setup_tab = GameSetupWidget(self.on_game_settings_save)
+        self.right_setup_tab = GameSetupWidget()
+        self.right_setup_tab.settings_applied.connect(self.on_game_settings_saved)
         self.right_panel.addTab(self.right_info_tab, "Info")
         self.right_panel.addTab(self.right_setup_tab, "Setup")
         self.splitter.addWidget(self.right_panel)
@@ -151,10 +152,11 @@ class MainWindow(QMainWindow):
         game_id, _ = self.selected_game
         GameLauncher.launch_game(game_id, self.db_path)
 
-    def update_game_info(self):
+    def on_game_change(self):
         selected_items = self.game_table.selectedItems()
         if not selected_items:
             self.right_info_tab.set_game_name("")
+            self.right_setup_tab.set_game(None)
             self.launch_button.setEnabled(False)
             return
         if len(selected_items) != 4:
@@ -165,9 +167,11 @@ class MainWindow(QMainWindow):
         name_row = selected_items[0]
         game_id = name_row.data(Qt.UserRole)
         game_name = name_row.text()
+
         self.right_info_tab.set_game_name(game_name)
         self.right_setup_tab.set_game(game_id, self.db_path)
         self.launch_button.setEnabled(True)
+
         cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, self.db_path, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
@@ -261,13 +265,13 @@ class MainWindow(QMainWindow):
         if new_game_dialog.exec() != QDialog.Accepted:
             return
         game_name, game_id = new_game_dialog.selected_game
-        configure_dialog = ConfigureGameDialog(game_name, game_id, game_path)
+        configure_dialog = ConfigureGameDialog(game_path)
         if configure_dialog.exec() != QDialog.Accepted:
             return
         binary = configure_dialog.selected_binary
         version = configure_dialog.version_name.text()
         cycles = configure_dialog.cpu_cycles
-        config = configure_dialog.dosbox_config_text.toPlainText()
+        config = configure_dialog.config_text
         try:
             utils.add_new_game_version(
                 game_name, version, game_id, game_path, binary, cycles, config, self.db_path, self._igdb_client
@@ -343,10 +347,6 @@ class MainWindow(QMainWindow):
     def show_context_menu(self, pos):
         context_menu = QMenu(self)
 
-        edit_action = QAction("Edit Game", self)
-        edit_action.triggered.connect(self.edit_selected_game)
-        context_menu.addAction(edit_action)
-
         setup_action = QAction("Run Game Setup", self)
         setup_action.triggered.connect(self.run_game_setup)
         context_menu.addAction(setup_action)
@@ -371,48 +371,6 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             utils.delete_local_game(game_id, self.db_path)
             self.load_games()
-
-    def edit_selected_game(self):
-        game_id, game_name = self.selected_game
-
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT v.executable, lv.archive, v.config, v.cycles, v.version, v.id
-            FROM games g
-            JOIN versions v ON g.id = v.game_id
-            JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.igdb_id = ?
-            """,
-            (game_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        if len(rows) != 1:
-            raise RuntimeError(f"Unable to get game details for '{game_name}'")
-        game_details = rows[0]
-        game_binary, game_archive, game_config, cpu_cycles, game_version, version_id = game_details
-
-        games_path = self.games_path
-        game_path = os.path.join(games_path, game_archive)
-
-        configure_dialog = ConfigureGameDialog(
-            game_name,
-            game_id,
-            game_path,
-            version=game_version,
-            binary=game_binary,
-            cycles=cpu_cycles,
-            config=game_config,
-            add=False,
-        )
-        if configure_dialog.exec() == QDialog.Accepted:
-            binary = configure_dialog.selected_binary
-            version = configure_dialog.version_name.text()
-            config = configure_dialog.dosbox_config_text.toPlainText()
-            cycles = configure_dialog.cpu_cycles
-            utils.update_version_info(version_id, version, binary, config, cycles, self.db_path)
 
     def run_game_setup(self):
         game_id, _ = self.selected_game
@@ -441,7 +399,7 @@ class MainWindow(QMainWindow):
             return
         GameLauncher.launch_game(game_id, self.db_path, False, setup_dialog.selected_binary)
 
-    def on_game_settings_save(self):
+    def on_game_settings_saved(self):
         version_id = self.right_setup_tab.version_id
         binary = self.right_setup_tab.selected_binary
         config = self.right_setup_tab.dosbox_config_text.toPlainText()

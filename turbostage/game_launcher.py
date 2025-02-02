@@ -13,7 +13,7 @@ from turbostage import utils
 
 class GameLauncher:
     @staticmethod
-    def launch_game(game_id: str, db_path: str, config_files: bool = True, binary: str | None = None):
+    def launch_game(game_id: int, db_path: str, config_files: bool = True, binary: str | None = None):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute(
