@@ -1,6 +1,6 @@
 from PySide6 import QtWidgets
 
-from turbostage.configure_game_dialog import BinaryListModel, ConfigureGameDialog
+from turbostage.game_setup_widget import BinaryListModel, GameSetupWidget
 
 
 class GameSetupDialog(QtWidgets.QDialog):
@@ -18,7 +18,7 @@ class GameSetupDialog(QtWidgets.QDialog):
         self.binary_list_model = BinaryListModel()
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QtWidgets.QListView.SingleSelection)
-        ConfigureGameDialog.populates_binary_list(game_archive, self.binary_list_model)
+        GameSetupWidget.populates_binary_list(game_archive, self.binary_list_model)
         self.binary_list_view.selectionModel().selectionChanged.connect(self._on_selection_change)
         self.layout.addWidget(self.binary_list_view)
 
