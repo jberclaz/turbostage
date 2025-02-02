@@ -8,12 +8,20 @@ import zipfile
 from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import QMessageBox
 
-from turbostage import utils
+from turbostage import constants, utils
 
 
 class GameLauncher:
-    @staticmethod
-    def launch_game(game_id: int, db_path: str, config_files: bool = True, binary: str | None = None):
+    def __init__(self, track_change: bool = False):
+        self._track_change = track_change
+        self._original_files = {}
+        self._new_files = {}
+        self._modified_files = {}
+        self._version_id = None
+
+    def launch_game(
+        self, game_id: int, db_path: str, save_games: bool = True, config_files: bool = True, binary: str | None = None
+    ):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute(
@@ -28,7 +36,7 @@ class GameLauncher:
         )
         rows = cursor.fetchall()
         conn.close()
-        executable, archive, config, cpu_cycles, version_id = rows[0]
+        executable, archive, config, cpu_cycles, self._version_id = rows[0]
         if binary is not None:
             executable = binary
 
@@ -52,7 +60,13 @@ class GameLauncher:
                 zip_ref.extractall(temp_dir)
 
             if config_files:
-                GameLauncher.write_game_config_files(version_id, temp_dir, db_path)
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db_path, constants.FileType.CONFIG)
+
+            if save_games:
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db_path, constants.FileType.SAVEGAME)
+
+            if self._track_change:
+                self._original_files = utils.list_files_with_md5(temp_dir)
 
             executable_path = os.path.join(temp_dir, executable)
             main_config = importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf")
@@ -61,21 +75,36 @@ class GameLauncher:
                 command.append("--fullscreen")
             with tempfile.NamedTemporaryFile() as conf_file:
                 if config or mt32_roms_path or cpu_cycles > 0:
-                    GameLauncher.write_custom_dosbox_config_file(conf_file.name, config, mt32_roms_path, cpu_cycles)
+                    GameLauncher._write_custom_dosbox_config_file(conf_file.name, config, mt32_roms_path, cpu_cycles)
                     command.extend(["--conf", conf_file.name])
                 command.append(executable_path)
                 subprocess.run(command)
 
+            if self._track_change:
+                self._extract_changed_files(temp_dir)
+
+    def _extract_changed_files(self, temp_dir: str):
+        files_after_setup = utils.list_files_with_md5(temp_dir)
+        for file_after_setup, file_hash in files_after_setup.items():
+            if not file_after_setup in self._original_files:
+                with open(file_after_setup, "rb") as f:
+                    content = f.read()
+                self._new_files[os.path.relpath(file_after_setup, temp_dir)] = content
+            elif self._original_files[file_after_setup] != file_hash:
+                with open(file_after_setup, "rb") as f:
+                    content = f.read()
+                self._modified_files[os.path.relpath(file_after_setup, temp_dir)] = content
+
     @staticmethod
-    def write_game_config_files(version_id: int, temp_dir: str, db_path: str):
+    def _write_game_extra_files(version_id: int, temp_dir: str, db_path: str, file_type: int):
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute(
             """
             SELECT path, content FROM config_files
-            WHERE version_id = ?
+            WHERE version_id = ? AND type = ?
             """,
-            (version_id,),
+            (version_id, file_type),
         )
         rows = cursor.fetchall()
         conn.close()
@@ -84,7 +113,7 @@ class GameLauncher:
                 f.write(content)
 
     @staticmethod
-    def write_custom_dosbox_config_file(
+    def _write_custom_dosbox_config_file(
         config_file: str, config_content: str | None, mt32_roms_path: str, cpu_cycles: int
     ):
         with open(config_file, "wt") as f:
@@ -94,3 +123,15 @@ class GameLauncher:
                 f.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\n")
             if mt32_roms_path:
                 f.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
+
+    @property
+    def modified_files(self) -> dict:
+        return self._modified_files
+
+    @property
+    def new_files(self) -> dict:
+        return self._new_files
+
+    @property
+    def version_id(self) -> int | None:
+        return self._version_id

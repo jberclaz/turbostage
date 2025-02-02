@@ -1,3 +1,5 @@
+from enum import IntEnum
+
 MT32_ROMS_DOWNLOAD_URL = (
     "https://archive.org/download/mame-versioned-roland-mt-32-and-cm-32l-rom-files/MT32_v1.07_legacy_ROM_files.zip"
 )
@@ -17,3 +19,8 @@ CPU_CYCLES = {
     "Pentium MMX-166": 100000,
     "Pentium II 300": 200000,
 }
+
+
+class FileType(IntEnum):
+    CONFIG = 1
+    SAVEGAME = 2
