@@ -145,8 +145,11 @@ class MainWindow(QMainWindow):
 
         self.scan_progress_dialog = None
 
-    def filter_games(self):
-        pass
+    def filter_games(self, query: str):
+        for row in range(self.game_table.rowCount()):
+            title = self.game_table.item(row, 0)
+            match = title and (query.lower() in title.text().lower())
+            self.game_table.setRowHidden(row, not match)
 
     def launch_game(self):
         game_id, _ = self.selected_game
