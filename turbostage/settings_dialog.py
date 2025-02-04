@@ -1,9 +1,11 @@
+import lzma
 import os
+import tarfile
 from io import BytesIO
 from zipfile import ZipFile
 
 import requests
-from PySide6.QtCore import QSettings, QStandardPaths
+from PySide6.QtCore import QSettings, QStandardPaths, QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -18,6 +20,7 @@ from PySide6.QtWidgets import (
 
 from turbostage import constants, utils
 from turbostage.clickable_line_edit import ClickableLineEdit
+from turbostage.download_dialog import DownloaderDialog
 
 
 class SettingsDialog(QDialog):
@@ -36,9 +39,16 @@ class SettingsDialog(QDialog):
         self.layout.addLayout(form_layout)
 
         self.emulator_path_input = ClickableLineEdit(self)
-        self.emulator_path_input.setText(str(self.settings.value("app/emulator_path", "")))
+        emulator_path = str(self.settings.value("app/emulator_path", ""))
+        self.emulator_path_input.setText(emulator_path)
         self.emulator_path_input.clicked.connect(self._select_emulator)
-        form_layout.addRow("Emulator Path", self.emulator_path_input)
+        self.emu_download_button = QPushButton("Download", self)
+        self.emu_download_button.clicked.connect(self._download_emulator)
+        self.emu_download_button.setEnabled(emulator_path == "")
+        emulator_layout = QHBoxLayout()
+        emulator_layout.addWidget(self.emulator_path_input)
+        emulator_layout.addWidget(self.emu_download_button)
+        form_layout.addRow("Emulator Path", emulator_layout)
 
         self.games_path_input = ClickableLineEdit(self)
         self.games_path_input.setText(str(self.settings.value("app/games_path", "")))
@@ -116,3 +126,26 @@ class SettingsDialog(QDialog):
                 zip_ref.extractall(mt32_roms_path)
 
         self.mt32_path_input.setText(mt32_roms_path)
+
+    def _download_emulator(self):
+        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        emulator_path = os.path.join(app_data_folder, "dosbox")
+        os.makedirs(emulator_path, exist_ok=True)
+
+        # response = requests.get(constants.DOSBOX_STAGING_LINUX)
+
+        dialog = DownloaderDialog(self, "Download DosBox")
+        dialog.start_download(constants.DOSBOX_STAGING_LINUX)
+        if not dialog.exec():
+            return
+
+        # with BytesIO(dialog.download_worker.buffer) as archive_in_memory:
+        with lzma.open(dialog.download_worker.buffer, "rb") as f:
+            with tarfile.open(fileobj=f, mode="r|") as tar:  # Open the tar within lzma
+                tar.extractall(path=app_data_folder)
+                for filename in tar.getnames():
+                    if filename.endswith("/dosbox"):
+                        executable = filename
+                        break
+
+        self.emulator_path_input.setText(os.path.join(emulator_path, executable))
