@@ -132,20 +132,29 @@ class SettingsDialog(QDialog):
         emulator_path = os.path.join(app_data_folder, "dosbox")
         os.makedirs(emulator_path, exist_ok=True)
 
-        # response = requests.get(constants.DOSBOX_STAGING_LINUX)
-
-        dialog = DownloaderDialog(self, "Download DosBox")
-        dialog.start_download(constants.DOSBOX_STAGING_LINUX)
-        if not dialog.exec():
+        download_dialog = DownloaderDialog(self, "Download DosBox")
+        os_name = utils.get_os()
+        if os_name == "Linux":
+            dosbox_url = constants.DOSBOX_STAGING_LINUX
+        elif os_name == "Windows":
+            dosbox_url = constants.DOSBOX_STAGING_WINDOWS
+        download_dialog.start_download(dosbox_url)
+        if not download_dialog.exec():
             return
 
-        # with BytesIO(dialog.download_worker.buffer) as archive_in_memory:
-        with lzma.open(dialog.download_worker.buffer, "rb") as f:
-            with tarfile.open(fileobj=f, mode="r|") as tar:  # Open the tar within lzma
-                tar.extractall(path=app_data_folder)
-                for filename in tar.getnames():
-                    if filename.endswith("/dosbox"):
+        if os_name == "Linux":
+            with lzma.open(download_dialog.data_buffer, "rb") as f:
+                with tarfile.open(fileobj=f, mode="r|") as tar:  # Open the tar within lzma
+                    tar.extractall(path=emulator_path)
+                    for filename in tar.getnames():
+                        if filename.endswith("/dosbox"):
+                            executable = filename
+                            break
+        elif os_name == "Windows":
+            with ZipFile(download_dialog.data_buffer, "r") as zip_ref:
+                zip_ref.extractall(emulator_path)
+                for filename in zip_ref.namelist():
+                    if filename.endswith("/dosbox.exe"):
                         executable = filename
                         break
-
         self.emulator_path_input.setText(os.path.join(emulator_path, executable))
