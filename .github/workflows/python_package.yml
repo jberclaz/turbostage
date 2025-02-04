@@ -53,7 +53,7 @@ jobs:
     - name: Run package build
       run: |
         poetry-dynamic-versioning
-        pyinstaller --onefile --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py
+        pyinstaller --onefile --windowed --icon=turbostage/content/icon.png --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py
 
     - name: Upload Release Asset
       uses: softprops/action-gh-release@v2
