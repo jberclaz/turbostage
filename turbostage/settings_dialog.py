@@ -5,7 +5,7 @@ from io import BytesIO
 from zipfile import ZipFile
 
 import requests
-from PySide6.QtCore import QSettings, QStandardPaths, QThread, Signal
+from PySide6.QtCore import QSettings, QStandardPaths
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,

@@ -29,7 +29,7 @@ class DownloadWorker(QThread):
                     self.buffer = None
                     return
 
-                self.buffer.write(chunk)  # Write to buffer
+                self.buffer.write(chunk)
                 bytes_downloaded += len(chunk)
                 progress = int((bytes_downloaded / total_size) * 100) if total_size else 0
                 self.progress_update.emit(progress)
