@@ -3,6 +3,11 @@ from enum import IntEnum
 MT32_ROMS_DOWNLOAD_URL = (
     "https://archive.org/download/mame-versioned-roland-mt-32-and-cm-32l-rom-files/MT32_v1.07_legacy_ROM_files.zip"
 )
+DOSBOX_STAGING_LINUX = "https://github.com/dosbox-staging/dosbox-staging/releases/download/v0.82.0/dosbox-staging-linux-x86_64-v0.82.0.tar.xz"
+DOSBOX_STAGING_WINDOWS = (
+    "https://github.com/dosbox-staging/dosbox-staging/releases/download/v0.82.0/dosbox-staging-windows-x64-v0.82.0.zip"
+)
+
 SUPPORTED_DOSBOX_VERSION = "0.82.0"
 
 CPU_CYCLES = {
