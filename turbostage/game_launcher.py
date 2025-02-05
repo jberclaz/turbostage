@@ -128,6 +128,7 @@ class GameLauncher:
             config_file.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\n")
         if mt32_roms_path:
             config_file.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
+        config_file.flush()
 
     @property
     def modified_files(self) -> dict:
