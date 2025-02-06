@@ -74,15 +74,20 @@ class TestUtils(TestCase):
             conn = sqlite3.connect(temp_file.name)
             cursor = conn.cursor()
             cursor.execute("CREATE TABLE hashes (version_id INTEGER, hash TEXT)")
-            cursor.execute("INSERT INTO hashes VALUES (1, 'abc123')")
+            cursor.execute(
+                "INSERT INTO hashes(version_id, hash) VALUES (1, 'abc123'), (1, 'cde234'), (1, 'def456'), (2, 'cde234'), (2, 'fgh789')"
+            )
             conn.commit()
             conn.close()
 
             result = utils.find_game_for_hashes(["abc123"], temp_file.name)
             self.assertEqual(result, 1)
 
+            result = utils.find_game_for_hashes(["cde234", "fgh789"], temp_file.name)
+            self.assertEqual(result, 2)
+
             result = utils.find_game_for_hashes(["dklfj"], temp_file.name)
-            self.assertEqual(result, 0)
+            self.assertEqual(result, None)
 
     def test_to_bool(self):
         self.assertTrue(utils.to_bool(True))
