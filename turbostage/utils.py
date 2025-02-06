@@ -6,13 +6,13 @@ import sqlite3
 import subprocess
 import zipfile
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 
 from turbostage.igdb_client import IgdbClient
 
 
 def epoch_to_formatted_date(epoch_s: int) -> str:
-    dt = datetime.fromtimestamp(epoch_s)
+    dt = datetime.fromtimestamp(epoch_s, timezone.utc)
     return dt.strftime("%B %d, %Y")
 
 
