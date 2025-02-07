@@ -26,10 +26,12 @@ class IgdbClient:
             raise RuntimeError("Malformed answer from IGDB.com")
         return payload["access_token"]
 
-    def query(self, endpoint: str, fields: list[str], where_clause: str = "", limit: int = 10):
+    def query(self, endpoint: str, fields: list[str], where_clause: str = "", limit: int = 10, sort: str = ""):
         query = f"fields {','.join(fields)}; limit {limit};"
         if where_clause:
             query += f" where {where_clause};"
+        if sort:
+            query += f" sort {sort};"
         byte_array = self._wrapper.api_request(endpoint, query)
         return json.loads(byte_array)
 
@@ -39,3 +41,17 @@ class IgdbClient:
             query += f" where {where_clause};"
         byte_array = self._wrapper.api_request(endpoint, query)
         return json.loads(byte_array)
+
+    def get_genres(self, genre_ids: list[int]) -> list[str]:
+        response = self.query("genres", ["name"], f"id=({','.join([str(i) for i in genre_ids])})")
+        return [r["name"] for r in response]
+
+    def get_release_date(self, release_date_ids: list[int]) -> list[int]:
+        response = self.query(
+            "release_dates", ["date", "platform"], f"id=({','.join([str(d) for d in release_date_ids])})", sort="date"
+        )
+        for r in response:
+            if r["platform"] == self.DOS_PLATFORM_ID:
+                return r["date"]
+        # if no release date for msdos, return first release date
+        return response[0]["date"]

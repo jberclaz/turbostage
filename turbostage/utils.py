@@ -139,16 +139,10 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
     )
     details = result[0]
 
-    response = igdb_client.query("genres", ["name"], f"id=({','.join([str(i) for i in details['genres']])})")
-    assert len(response) == len(details["genres"])
-    genres_string = ", ".join(r["name"] for r in response)
+    genres = igdb_client.get_genres(details["genres"])
+    genres_string = ", ".join(genres)
 
-    dates_result = igdb_client.query(
-        "release_dates",
-        ["date"],
-        f"platform={IgdbClient.DOS_PLATFORM_ID}&id=({','.join([str(d) for d in details['release_dates']])})",
-    )
-    release_epoch = dates_result[0]["date"]
+    release_epoch = igdb_client.get_release_date(details["release_dates"])
 
     response = igdb_client.query(
         "involved_companies",

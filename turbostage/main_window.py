@@ -72,15 +72,15 @@ class MainWindow(QMainWindow):
 
         # Add new game
         add_action = QAction("Add new game", self)
-        add_action.triggered.connect(self.add_new_game)
+        add_action.triggered.connect(self._on_add_new_game)
 
         # Update game database
         update_db_action = QAction("Update game database", self)
-        update_db_action.triggered.connect(self.update_game_database)
+        update_db_action.triggered.connect(self._on_update_game_database)
 
         # Settings
         settings_action = QAction("Settings", self)
-        settings_action.triggered.connect(self.settings_dialog)
+        settings_action.triggered.connect(self._on_show_settings_dialog)
 
         self.file_menu.addAction(add_action)
         self.file_menu.addAction(scan_action)
@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         self.game_table.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         self.game_table.cellDoubleClicked.connect(self.launch_game)
         self.game_table.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.game_table.customContextMenuRequested.connect(self.show_context_menu)
+        self.game_table.customContextMenuRequested.connect(self._on_show_context_menu)
         self.game_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
         self.splitter.addWidget(self.game_table)
 
@@ -124,7 +124,7 @@ class MainWindow(QMainWindow):
         self.right_panel = QTabWidget()
         self.right_info_tab = GameInfoWidget()
         self.right_setup_tab = GameSetupWidget()
-        self.right_setup_tab.settings_applied.connect(self.on_game_settings_saved)
+        self.right_setup_tab.settings_applied.connect(self._on_game_settings_saved)
         self.right_panel.addTab(self.right_info_tab, "Info")
         self.right_panel.addTab(self.right_setup_tab, "Setup")
         self.splitter.addWidget(self.right_panel)
@@ -242,17 +242,17 @@ class MainWindow(QMainWindow):
         self.scan_worker.start()
 
         # Handle cancellation
-        self.scan_progress_dialog.canceled.connect(self.cancel_scan)
+        self.scan_progress_dialog.canceled.connect(self._on_cancel_scan)
 
     def update_scan_progress(self, value):
         self.scan_progress_dialog.setValue(value)
 
-    def cancel_scan(self):
+    def _on_cancel_scan(self):
         if self.scan_worker.isRunning():
             self.scan_worker.terminate()  # Forcefully stop the worker thread
         self.scan_progress_dialog.close()
 
-    def add_new_game(self):
+    def _on_add_new_game(self):
         games_path = self.games_path
         game_path, _ = QFileDialog.getOpenFileName(
             self, "Select DosBox Staging binary", games_path, "Game archives (*.zip)"
@@ -288,11 +288,11 @@ class MainWindow(QMainWindow):
             return
         self.load_games()
 
-    def settings_dialog(self):
+    def _on_show_settings_dialog(self):
         dialog = SettingsDialog()
         dialog.exec()
 
-    def update_game_database(self):
+    def _on_update_game_database(self):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         cursor.execute("SELECT version FROM db_version")
@@ -351,20 +351,20 @@ class MainWindow(QMainWindow):
             self, "Database updated", "The game database has been updated to the latest version.", QMessageBox.Ok
         )
 
-    def show_context_menu(self, pos):
+    def _on_show_context_menu(self, pos):
         context_menu = QMenu(self)
 
         setup_action = QAction("Run Game Setup", self)
-        setup_action.triggered.connect(self.run_game_setup)
+        setup_action.triggered.connect(self._on_run_game_setup)
         context_menu.addAction(setup_action)
 
         delete_action = QAction("Delete Game", self)
-        delete_action.triggered.connect(self.delete_selected_game)
+        delete_action.triggered.connect(self._on_delete_selected_game)
         context_menu.addAction(delete_action)
 
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
-    def delete_selected_game(self):
+    def _on_delete_selected_game(self):
         game_id, game_name = self.selected_game
 
         reply = QMessageBox.question(
@@ -379,7 +379,7 @@ class MainWindow(QMainWindow):
             utils.delete_local_game(game_id, self.db_path)
             self.load_games()
 
-    def run_game_setup(self):
+    def _on_run_game_setup(self):
         game_id, _ = self.selected_game
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
@@ -410,7 +410,7 @@ class MainWindow(QMainWindow):
             config_files = {**gl.new_files, **gl.modified_files}
             utils.add_extra_files(config_files, version_id, constants.FileType.CONFIG, self.db_path)
 
-    def on_game_settings_saved(self):
+    def _on_game_settings_saved(self):
         version_id = self.right_setup_tab.version_id
         binary = self.right_setup_tab.selected_binary
         config = self.right_setup_tab.dosbox_config_text.toPlainText()
