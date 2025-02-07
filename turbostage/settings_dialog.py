@@ -78,6 +78,7 @@ class SettingsDialog(QDialog):
         self.settings.setValue("app/full_screen", self.full_screen_checkbox.isChecked())
         self.settings.setValue("app/emulator_path", self.emulator_path_input.text())
         self.settings.setValue("app/games_path", self.games_path_input.text())
+        self.settings.setValue("app/mt32_path", self.mt32_path_input.text())
         super().accept()
 
     def reject(self):
@@ -117,13 +118,14 @@ class SettingsDialog(QDialog):
         app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
         mt32_roms_path = os.path.join(app_data_folder, "mt32_roms")
         os.makedirs(mt32_roms_path, exist_ok=True)
-        self.settings.setValue("app/mt32_path", mt32_roms_path)
 
-        response = requests.get(constants.MT32_ROMS_DOWNLOAD_URL)
-        response.raise_for_status()
-        with BytesIO(response.content) as zip_file_in_memory:
-            with ZipFile(zip_file_in_memory, "r") as zip_ref:
-                zip_ref.extractall(mt32_roms_path)
+        download_dialog = DownloaderDialog(self, "Download MT-32 roms")
+        download_dialog.start_download(constants.MT32_ROMS_DOWNLOAD_URL)
+        if not download_dialog.exec():
+            return
+
+        with ZipFile(download_dialog.data_buffer, "r") as zip_ref:
+            zip_ref.extractall(mt32_roms_path)
 
         self.mt32_path_input.setText(mt32_roms_path)
 
