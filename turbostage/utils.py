@@ -134,40 +134,23 @@ def add_new_game_version(
 
 
 def fetch_game_details(igdb_client, igdb_id) -> dict:
-    result = igdb_client.query(
-        "games", ["release_dates", "genres", "summary", "involved_companies", "cover"], f"id={igdb_id}"
-    )
-    details = result[0]
+    details = igdb_client.get_game_details(igdb_id)
 
     genres = igdb_client.get_genres(details["genres"])
     genres_string = ", ".join(genres)
 
     release_epoch = igdb_client.get_release_date(details["release_dates"])
 
-    response = igdb_client.query(
-        "involved_companies",
-        ["company", "developer"],
-        f"id=({','.join(str(i) for i in details['involved_companies'])})",
-    )
-    company_ids = set(r["company"] for r in response if r["developer"])
-    if not company_ids:
-        company_ids = set(r["company"] for r in response)
-    if company_ids:
-        response = igdb_client.query("companies", ["name"], f"id=({','.join(str(i) for i in company_ids)})")
-        companies = ", ".join(r["name"] for r in response)
-    else:
-        companies = ""
+    companies = igdb_client.get_companies(details["involved_companies"])
+    companies_string = ", ".join(companies)
 
-    response = igdb_client.query("covers", ["url"], f"id={details['cover']}")
-    assert len(response) == 1
-    cover_info = response[0]
-
+    cover_url = igdb_client.get_cover_url(details["cover"])
     return {
         "summary": details["summary"] if "summary" in details else "",
         "genres": genres_string,
         "release_date": release_epoch,
-        "publisher": companies,
-        "cover": cover_info["url"],
+        "publisher": companies_string,
+        "cover": cover_url,
     }
 
 

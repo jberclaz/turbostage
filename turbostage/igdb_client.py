@@ -55,3 +55,34 @@ class IgdbClient:
                 return r["date"]
         # if no release date for msdos, return first release date
         return response[0]["date"]
+
+    def get_companies(self, company_ids: list[int]) -> list[str]:
+        response = self.query(
+            "involved_companies",
+            ["company", "developer", "publisher"],
+            f"id=({','.join(str(i) for i in company_ids)})",
+        )
+        company_ids = set(r["company"] for r in response if r["developer"])
+        if not company_ids:
+            # if no developer, show publisher
+            company_ids = set(r["company"] for r in response if r["publisher"])
+            if not company_ids:
+                # if neither developer nor publisher, show any of the other related company
+                company_ids = set(r["company"] for r in response)
+        if company_ids:
+            response = self.query("companies", ["name"], f"id=({','.join(str(i) for i in company_ids)})")
+            return [r["name"] for r in response]
+        return []
+
+    def get_game_details(self, igdb_id: int) -> dict:
+        result = self.query(
+            "games", ["release_dates", "genres", "summary", "involved_companies", "cover"], f"id={igdb_id}"
+        )
+        if len(result) != 1:
+            raise RuntimeError(f"Unexpected response from IGDB: {result}")
+        return result[0]
+
+    def get_cover_url(self, cover_id: int) -> str:
+        response = self.query("covers", ["url"], f"id={cover_id}")
+        assert len(response) == 1
+        return response[0]["url"]
