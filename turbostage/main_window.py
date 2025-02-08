@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import requests
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
-from PySide6.QtGui import QAction, QKeySequence
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import __version__, constants, utils
+from turbostage.add_game_worker import AddGameWorker
 from turbostage.add_new_game_dialog import AddNewGameDialog
 from turbostage.configure_game_dialog import ConfigureGameDialog
 from turbostage.db.populate_db import initialize_database
@@ -92,7 +93,6 @@ class MainWindow(QMainWindow):
 
         # Status Bar
         self.status = self.statusBar()
-        self.status.showMessage("Status bar")
 
         # Window dimensions
         geometry = self.screen().availableGeometry()
@@ -279,14 +279,19 @@ class MainWindow(QMainWindow):
         version = configure_dialog.version_name.text()
         cycles = configure_dialog.cpu_cycles
         config = configure_dialog.config_text
-        try:
-            utils.add_new_game_version(
-                game_name, version, game_id, game_path, binary, cycles, config, self.db_path, self._igdb_client
-            )
-        except RuntimeError as e:
-            QMessageBox.critical("Error", "Unable to add new game", str(e))
-            return
+
+        add_game_worker = AddGameWorker(
+            game_name, version, game_id, game_path, binary, cycles, config, self.db_path, self._igdb_client
+        )
+        add_game_worker.signals.task_finished.connect(self._on_game_added)
+        self._thread_pool.start(add_game_worker)
+        self.status.showMessage("Adding new game...", 3000)
+        QGuiApplication.setOverrideCursor(Qt.BusyCursor)
+
+    def _on_game_added(self):
         self.load_games()
+        QGuiApplication.restoreOverrideCursor()  # Restore normal cursor
+        self.status.showMessage("New game added.", 3000)
 
     def _on_show_settings_dialog(self):
         dialog = SettingsDialog()
