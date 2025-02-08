@@ -125,7 +125,7 @@ class GameLauncher:
         if config_content:
             config_file.write(config_content)
         if cpu_cycles > 0:
-            config_file.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\n")
+            config_file.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n")
         if mt32_roms_path:
             config_file.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
         config_file.flush()
