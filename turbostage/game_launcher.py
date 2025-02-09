@@ -6,6 +6,7 @@ import tempfile
 import zipfile
 
 from PySide6.QtCore import QSettings
+from PySide6.QtGui import QGuiApplication, Qt
 from PySide6.QtWidgets import QMessageBox
 
 from turbostage import constants, utils
@@ -22,6 +23,7 @@ class GameLauncher:
     def launch_game(
         self, game_id: int, db_path: str, save_games: bool = True, config_files: bool = True, binary: str | None = None
     ):
+        QGuiApplication.setOverrideCursor(Qt.BusyCursor)
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         cursor.execute(
@@ -78,6 +80,7 @@ class GameLauncher:
                     GameLauncher._write_custom_dosbox_config_file(conf_file, config, mt32_roms_path, cpu_cycles)
                     command.extend(["--conf", conf_file.name])
                 command.append(executable_path)
+                QGuiApplication.restoreOverrideCursor()
                 try:
                     subprocess.run(command, check=True)
                 except subprocess.CalledProcessError as e:
