@@ -109,6 +109,9 @@ class MainWindow(QMainWindow):
 
         self.splitter = QSplitter(Qt.Horizontal)
 
+        self.left_panel = QWidget()
+        self.left_layout = QVBoxLayout()
+
         # Game table
         self.game_table = QTableWidget()
         self.game_table.setColumnCount(4)
@@ -122,7 +125,11 @@ class MainWindow(QMainWindow):
         self.game_table.setContextMenuPolicy(Qt.CustomContextMenu)
         self.game_table.customContextMenuRequested.connect(self._on_show_context_menu)
         self.game_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-        self.splitter.addWidget(self.game_table)
+
+        self.left_layout.addWidget(self.search_box)
+        self.left_layout.addWidget(self.game_table)
+        self.left_panel.setLayout(self.left_layout)
+        self.splitter.addWidget(self.left_panel)
 
         # Right panel: Game info display
         self.right_panel = QTabWidget()
@@ -139,7 +146,6 @@ class MainWindow(QMainWindow):
         self.launch_button.setEnabled(False)
 
         layout = QVBoxLayout()
-        layout.addWidget(self.search_box)
         layout.addWidget(self.splitter)
         layout.addWidget(self.launch_button)
 
