@@ -12,7 +12,6 @@ jobs:
 
     permissions:
       contents: write
-      releases: write
       actions: read
 
     steps:
@@ -44,7 +43,6 @@ jobs:
 
     permissions:
       contents: write
-      releases: write
       actions: read
 
     steps:
@@ -76,7 +74,6 @@ jobs:
 
     permissions:
       contents: write
-      releases: write
       actions: read
 
     steps:
