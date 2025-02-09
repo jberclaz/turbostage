@@ -1,3 +1,4 @@
+import importlib
 import json
 import os
 import sqlite3
@@ -6,7 +7,7 @@ from datetime import datetime, timezone
 import requests
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
-from PySide6.QtGui import QAction, QGuiApplication, QKeySequence
+from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -57,6 +58,9 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         self.setWindowTitle(f"TurboStage {__version__}")
+        with importlib.resources.files("turbostage").joinpath("content/icon.png") as image:
+            icon = QIcon(str(image))
+            self.setWindowIcon(icon)
 
         # Menu
         self.menu = self.menuBar()
@@ -254,9 +258,7 @@ class MainWindow(QMainWindow):
 
     def _on_add_new_game(self):
         games_path = self.games_path
-        game_path, _ = QFileDialog.getOpenFileName(
-            self, "Select DosBox Staging binary", games_path, "Game archives (*.zip)"
-        )
+        game_path, _ = QFileDialog.getOpenFileName(self, "Select game archive", games_path, "Game archives (*.zip)")
         if not game_path:
             return
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
