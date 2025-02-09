@@ -11,6 +11,11 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      actions: read
+      checks: write
+
     steps:
     - uses: actions/checkout@v3
 
@@ -29,7 +34,7 @@ jobs:
         make test
 
     - name: Publish Test Results
-      uses: EnricoMi/publish-unit-test-result-action@v2
+      uses: EnricoMi/publish-unit-test-result-action@170bf24d20d201b842d7a52403b73ed297e6645b
       with:
         files: |
           test-reports/TEST-*.xml
