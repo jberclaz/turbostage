@@ -1,10 +1,8 @@
 import lzma
 import os
 import tarfile
-from io import BytesIO
 from zipfile import ZipFile
 
-import requests
 from PySide6.QtCore import QSettings, QStandardPaths
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -44,7 +42,7 @@ class SettingsDialog(QDialog):
         self.emulator_path_input.clicked.connect(self._select_emulator)
         self.emu_download_button = QPushButton("Download", self)
         self.emu_download_button.clicked.connect(self._download_emulator)
-        self.emu_download_button.setEnabled(emulator_path == "")
+        self.emu_download_button.setEnabled(emulator_path == "" and utils.get_os() != "Darwin")
         emulator_layout = QHBoxLayout()
         emulator_layout.addWidget(self.emulator_path_input)
         emulator_layout.addWidget(self.emu_download_button)
@@ -88,7 +86,7 @@ class SettingsDialog(QDialog):
         os_name = utils.get_os()
         if os_name == "Windows":
             target_executable = "dosbox.exe"
-        elif os_name == "Linux":
+        elif os_name in ["Linux", "Darwin"]:
             target_executable = "dosbox"
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select DosBox Staging binary", "", f"Executable Files ({target_executable});;All Files (*)"
