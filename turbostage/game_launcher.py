@@ -48,6 +48,7 @@ class GameLauncher:
         games_path = str(settings.value("app/games_path", ""))
         mt32_roms_path = str(settings.value("app/mt32_path", ""))
         if not dosbox_exec:
+            QGuiApplication.restoreOverrideCursor()
             QMessageBox.critical(
                 None,
                 "DosBox binary not specified",
