@@ -17,7 +17,7 @@ class ConfigureGameDialog(QDialog):
 
         self.version_label = QLabel("Version name")
         self.version_name = QLineEdit(self)
-        self.version_name.setPlaceholderText("Eg: 'vga', 'en', '1.2, ...")
+        self.version_name.setPlaceholderText("Eg: 'vga', 'en', '1.2', ...")
         self.version_name.textChanged.connect(self._on_settings_changed)
         self.layout.addWidget(self.version_label)
         self.layout.addWidget(self.version_name)
@@ -32,7 +32,7 @@ class ConfigureGameDialog(QDialog):
         self.accept()
 
     def _on_settings_changed(self):
-        if self.config_widget.selected_binary is None or self.version_name.text() == "":
+        if self.config_widget.selected_binary is None:
             self.config_widget.enable_button(False)
         else:
             self.config_widget.enable_button(True)
@@ -48,3 +48,7 @@ class ConfigureGameDialog(QDialog):
     @property
     def config_text(self) -> str:
         return self.config_widget.dosbox_config_text.toPlainText()
+
+    @property
+    def version(self):
+        return self.version_name.text() if self.version_name.text() else "default"

@@ -1,3 +1,5 @@
+import os.path
+
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
 from PySide6.QtWidgets import QDialog, QFormLayout, QLineEdit, QListView, QPushButton, QVBoxLayout
 
@@ -23,7 +25,7 @@ class GameListModel(QAbstractListModel):
 
 
 class AddNewGameDialog(QDialog):
-    def __init__(self, igdb_client, parent):
+    def __init__(self, igdb_client, file_name, parent):
         super().__init__()
         self.setWindowTitle("Add new game")
         self.setModal(True)
@@ -32,7 +34,7 @@ class AddNewGameDialog(QDialog):
         self.layout = QVBoxLayout(self)
         form_layout = QFormLayout()
         self.game_name_search_query = QLineEdit()
-        self.game_name_search_query.returnPressed.connect(self._search_games)
+        self.game_name_search_query.returnPressed.connect(self._search_games_slot)
         form_layout.addRow("Game name", self.game_name_search_query)
         self.layout.addLayout(form_layout)
 
@@ -56,10 +58,15 @@ class AddNewGameDialog(QDialog):
             parent_geom.x() + (parent_geom.width() - self.width()) // 2,
             parent_geom.y() + (parent_geom.height() - self.height()) // 2,
         )
+        base_name, _ = os.path.splitext(file_name)
+        self._search_games(base_name)
 
-    def _search_games(self):
+    def _search_games_slot(self):
+        self._search_games(self.game_name_search_query.text())
+
+    def _search_games(self, search_query):
         response = self._igdb_client.search(
-            "games", ["name"], self.game_name_search_query.text(), f"platforms=({IgdbClient.DOS_PLATFORM_ID})"
+            "games", ["name"], search_query, f"platforms=({IgdbClient.DOS_PLATFORM_ID})"
         )
         game_names = [(row["name"], row["id"]) for row in response]
         self.game_list_model.set_games(game_names)
