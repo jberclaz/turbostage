@@ -17,8 +17,8 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import constants, utils
-from turbostage.clickable_line_edit import ClickableLineEdit
-from turbostage.download_dialog import DownloaderDialog
+from turbostage.ui.clickable_line_edit import ClickableLineEdit
+from turbostage.ui.download_dialog import DownloaderDialog
 
 
 class SettingsDialog(QDialog):

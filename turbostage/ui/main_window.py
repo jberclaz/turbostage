@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 import requests
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
-from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence, QPixmap
+from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -28,17 +28,17 @@ from PySide6.QtWidgets import (
 
 from turbostage import __version__, constants, utils
 from turbostage.add_game_worker import AddGameWorker
-from turbostage.add_new_game_dialog import AddNewGameDialog
-from turbostage.configure_game_dialog import ConfigureGameDialog
 from turbostage.db.populate_db import initialize_database
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
-from turbostage.game_info_widget import GameInfoWidget
 from turbostage.game_launcher import GameLauncher
-from turbostage.game_setup_dialog import GameSetupDialog
-from turbostage.game_setup_widget import GameSetupWidget
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
-from turbostage.settings_dialog import SettingsDialog
+from turbostage.ui.add_new_game_dialog import AddNewGameDialog
+from turbostage.ui.configure_game_dialog import ConfigureGameDialog
+from turbostage.ui.game_info_widget import GameInfoWidget
+from turbostage.ui.game_setup_dialog import GameSetupDialog
+from turbostage.ui.game_setup_widget import GameSetupWidget
+from turbostage.ui.settings_dialog import SettingsDialog
 
 
 class MainWindow(QMainWindow):

@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import QDialog, QLabel, QLineEdit, QVBoxLayout
 
-from turbostage.game_setup_widget import GameSetupWidget
+from turbostage.ui.game_setup_widget import GameSetupWidget
 
 
 class ConfigureGameDialog(QDialog):
