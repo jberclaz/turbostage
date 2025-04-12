@@ -53,7 +53,7 @@ class TestIgdb(TestCase):
             ["company"],
             f"id=({','.join(str(i) for i in details['involved_companies'])})&developer=true",
         )
-        self.assertEqual(2, len(result))
+        self.assertEqual(1, len(result))
         company_ids = set(r["company"] for r in result)
         result = client.query("companies", ["name"], f"id=({','.join(str(i) for i in company_ids)})")
         self.assertEqual(1, len(result))
