@@ -187,7 +187,10 @@ class MainWindow(QMainWindow):
 
         self.right_info_tab.set_game_name(game_name)
         self.right_setup_tab.set_game(game_id, self.db_path)
-        self.launch_button.setEnabled(True)
+
+        settings = QSettings("jberclaz", "TurboStage")
+        dosbox_exec = str(settings.value("app/emulator_path", ""))
+        self.launch_button.setEnabled(dosbox_exec != "")
 
         cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, self.db_path, cancel_flag)
