@@ -121,6 +121,9 @@ class GameLauncher:
         rows = cursor.fetchall()
         conn.close()
         for config_file_path, content in rows:
+            folder = os.path.join(temp_dir, os.path.dirname(config_file_path))
+            if not os.path.isdir(folder):
+                os.makedirs(folder)
             with open(os.path.join(temp_dir, config_file_path), "wb") as f:
                 f.write(content)
 
