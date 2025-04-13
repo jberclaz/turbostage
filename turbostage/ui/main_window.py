@@ -2,6 +2,7 @@ import importlib
 import json
 import os
 import sqlite3
+import tempfile
 from datetime import datetime, timezone
 
 import requests
@@ -30,6 +31,7 @@ from turbostage import __version__, constants, utils
 from turbostage.add_game_worker import AddGameWorker
 from turbostage.db.populate_db import initialize_database
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
+from turbostage.game_database import GameDatabase
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
@@ -52,6 +54,7 @@ class MainWindow(QMainWindow):
         self._current_fetch_cancel_flag = None
         self._thread_pool = QThreadPool()
         self._app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        self._gamedb = GameDatabase(self.db_path)
 
         self._init_ui()
         self.load_games()
@@ -309,12 +312,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_update_game_database(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT version FROM db_version")
-        rows = cursor.fetchall()
-        conn.close()
-        version = rows[0][0]
+        version = self._gamedb.get_version()
 
         response = requests.get(self.ONLINE_DB_VERSION_URL)
         if response.status_code != 200:
@@ -328,30 +326,22 @@ class MainWindow(QMainWindow):
 
         online_version = json.loads(response.content)["version"]
 
-        # TODO: properly compare versions
-
-        if version == online_version:
-            QMessageBox.information(
-                self, "Database up to date", "The game database is already up to date.", QMessageBox.Ok
+        if version > online_version:
+            QMessageBox.warning(
+                self,
+                "Database NOT updated",
+                "The game database was not updated because the online version is too old.",
+                QMessageBox.Ok,
             )
             return
-        else:
-            online_major, online_minor, online_patch = map(int, online_version.split("."))
-            major, minor, patch = map(int, version.split("."))
-            if online_major != major:
-                upgrade_ok = online_major > major
-            elif online_minor != minor:
-                upgrade_ok = online_minor > minor
-            else:
-                upgrade_ok = online_patch > patch
-            if not upgrade_ok:
-                QMessageBox.warning(
-                    self,
-                    "Database NOT updated",
-                    "The game database was not updated because the online version is too old.",
-                    QMessageBox.Ok,
-                )
-                return
+        if version < online_version:
+            QMessageBox.warning(
+                self,
+                "Database NOT updated",
+                "The game database was not updated because the online version is too old. Please upgrade TurboStage to the latest version.",
+                QMessageBox.Ok,
+            )
+            return
 
         response = requests.get(self.ONLINE_DB_URL)
         if response.status_code != 200:
@@ -361,8 +351,12 @@ class MainWindow(QMainWindow):
                 "Unable to access online database. Please retry in a few minutes.",
                 QMessageBox.Ok,
             )
-        with open(self.db_path, "wb") as database_file:
-            database_file.write(response.content)
+        with tempfile.NamedTemporaryFile() as temp_file:
+            temp_file.write(response.content)
+            error = self._gamedb.merge_with(temp_file.name)
+            if error:
+                QMessageBox.warning(self, "Could not update database", error, QMessageBox.Ok)
+
         QMessageBox.information(
             self, "Database updated", "The game database has been updated to the latest version.", QMessageBox.Ok
         )
