@@ -276,10 +276,16 @@ class MainWindow(QMainWindow):
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
         version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
         if version_id is not None:
-            QMessageBox.warning(
+            added = self._gamedb.add_local_game(version_id, os.path.basename(game_path))
+            if added == 0:
+                QMessageBox.warning(
+                    self, "Game already installed", "The game you tried to add is already installed in TurboStage"
+                )
+                return
+            QMessageBox.information(
                 self,
-                "Game already in database",
-                "It looks like this game is already known from the game database. To add it, simply run Scan Local Games option from the main menu.",
+                "New game added",
+                "New game added to game list",
             )
             return
         new_game_dialog = AddNewGameDialog(self._igdb_client, os.path.basename(game_path), self)
