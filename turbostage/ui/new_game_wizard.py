@@ -3,8 +3,19 @@ import os
 import zipfile
 
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QListView, QVBoxLayout, QWizard, QWizardPage
+from PySide6.QtWidgets import (
+    QComboBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QTextEdit,
+    QVBoxLayout,
+    QWizard,
+    QWizardPage,
+)
 
+from turbostage import constants
 from turbostage.igdb_client import IgdbClient
 from turbostage.ui.add_new_game_dialog import GameListModel
 from turbostage.ui.game_setup_widget import BinaryListModel, GameSetupWidget
@@ -24,12 +35,25 @@ class NewGameWizard(QWizard):
             pixmap.loadFromData(file.read())
             self.setPixmap(QWizard.WizardPixmap.WatermarkPixmap, pixmap)
 
+        executables = self.get_executables_from_archive(game_archive_path)
+
         self.addPage(GameTitlePage(igdb_client, os.path.basename(game_archive_path)))
         self.addPage(VersionPage())
-        self.addPage(ExecutablePage(game_archive_path))
-        self.addPage(ConfigPage())
+        self.addPage(ExecutablePage(executables))
+        self.addPage(ConfigPage(executables))
         self.addPage(CPUPage())
         self.addPage(DosBoxOptions())
+
+    @staticmethod
+    def get_executables_from_archive(game_archive: str) -> list[str]:
+        executables = []
+        with zipfile.ZipFile(game_archive, "r") as zf:
+            for info in zf.infolist():
+                _, extension = os.path.splitext(info.filename)
+                if extension.lower() not in [".exe", ".bat", ".com"]:
+                    continue
+                executables.append(info.filename)
+        return executables
 
 
 class GameTitlePage(QWizardPage):
@@ -91,48 +115,72 @@ class VersionPage(QWizardPage):
 
 
 class ExecutablePage(QWizardPage):
-    def __init__(self, game_archive: str, parent=None):
+    def __init__(self, executables: list[str], parent=None):
         super().__init__(parent)
         self.setTitle("Game executable")
         self.setSubTitle("Pick the executable file to start the game")
 
         layout = QVBoxLayout(self)
+        label = QLabel("Game executable")
+        layout.addWidget(label)
         self.binary_list_view = QListView(self)
         self.binary_list_model = BinaryListModel()
+        self.binary_list_model.set_binaries(executables)
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
         self.selected_binary = None
         self.binary_list_view.selectionModel().selectionChanged.connect(self.completeChanged)
         layout.addWidget(self.binary_list_view)
-        self.populates_binary_list(game_archive, self.binary_list_model)
-
         self.setLayout(layout)
 
     def isComplete(self):
         return len(self.binary_list_view.selectedIndexes()) == 1
 
-    @staticmethod
-    def populates_binary_list(game_archive: str, list_model):
-        binaries = []
-        with zipfile.ZipFile(game_archive, "r") as zf:
-            for info in zf.infolist():
-                _, extension = os.path.splitext(info.filename)
-                if extension.lower() not in [".exe", ".bat", ".com"]:
-                    continue
-                binaries.append(info.filename)
-        list_model.set_binaries(binaries)
-
 
 class ConfigPage(QWizardPage):
-    def __init__(self, parent=None):
+    def __init__(self, executables: list[str], parent=None):
         super().__init__(parent)
+        self.setTitle("Game config")
+        self.setSubTitle("Pick the executable file for game setup (optional)")
+
+        layout = QVBoxLayout(self)
+        label = QLabel("Configuration executable")
+        layout.addWidget(label)
+        self.binary_list_view = QListView(self)
+        self.binary_list_model = BinaryListModel()
+        self.binary_list_model.set_binaries(executables)
+        self.binary_list_view.setModel(self.binary_list_model)
+        self.binary_list_view.setSelectionMode(QListView.SingleSelection)
+        self.selected_binary = None
+        self.binary_list_view.selectionModel().selectionChanged.connect(self.completeChanged)
+        layout.addWidget(self.binary_list_view)
+        self.setLayout(layout)
 
 
 class CPUPage(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setTitle("CPU config")
+        self.setSubTitle(
+            "Pick the appropriate system to run the game. In most cases, you can leave it to 'auto'. This can be adjusted later."
+        )
+
+        layout = QVBoxLayout(self)
+        label = QLabel("System CPU")
+        layout.addWidget(label)
+        self.cpu_combobox = QComboBox()
+        self.cpu_combobox.addItems(list(constants.CPU_CYCLES.keys()))
+        layout.addWidget(self.cpu_combobox)
+        self.setLayout(layout)
 
 
 class DosBoxOptions(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setTitle("DosBox options")
+        self.setSubTitle("Add extra DosBox config for this game (optional)")
+
+        layout = QVBoxLayout(self)
+        self.dosbox_config_text = QTextEdit(self)
+        self.dosbox_config_text.setPlaceholderText("Enter custom DOSBox configuration here...")
+        layout.addWidget(self.dosbox_config_text)
