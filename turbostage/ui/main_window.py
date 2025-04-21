@@ -290,7 +290,7 @@ class MainWindow(QMainWindow):
             )
             self._on_game_added()
             return
-        new_game_wizard = NewGameWizard(self._igdb_client, self)
+        new_game_wizard = NewGameWizard(self._igdb_client, os.path.basename(game_path), self)
         new_game_wizard.show()
 
         # new_game_dialog = AddNewGameDialog(self._igdb_client, os.path.basename(game_path), self)
