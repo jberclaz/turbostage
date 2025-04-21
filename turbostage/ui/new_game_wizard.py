@@ -13,6 +13,14 @@ class NewGameWizard(QWizard):
         super(NewGameWizard, self).__init__(parent)
         self.setWindowTitle("Add New Game")
         self.setWizardStyle(QWizard.ModernStyle)
+        with importlib.resources.files("turbostage").joinpath("content/msdos_logo.png").open("rb") as file:
+            pixmap = QPixmap()
+            pixmap.loadFromData(file.read())
+            self.setPixmap(QWizard.WizardPixmap.LogoPixmap, pixmap)
+        with importlib.resources.files("turbostage").joinpath("content/wizard.png").open("rb") as file:
+            pixmap = QPixmap()
+            pixmap.loadFromData(file.read())
+            self.setPixmap(QWizard.WizardPixmap.WatermarkPixmap, pixmap)
 
         self.addPage(GameTitlePage(igdb_client, file_name))
         self.addPage(ExecutablePage())
@@ -23,10 +31,6 @@ class GameTitlePage(QWizardPage):
         super().__init__(parent)
         self.setTitle("Game title")
         self.setSubTitle("Search for the game title in the search box and pick the correct version")
-        with importlib.resources.files("turbostage").joinpath("content/msdos_logo.png").open("rb") as file:
-            pixmap = QPixmap()
-            pixmap.loadFromData(file.read())
-            self.setPixmap(QWizard.WizardPixmap.LogoPixmap, pixmap)
         self._igdb_client = igdb_client
 
         self.layout = QVBoxLayout(self)
