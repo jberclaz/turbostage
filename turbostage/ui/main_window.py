@@ -287,6 +287,7 @@ class MainWindow(QMainWindow):
                 "New game added",
                 "New game added to game list",
             )
+            self._on_game_added()
             return
         new_game_dialog = AddNewGameDialog(self._igdb_client, os.path.basename(game_path), self)
         if new_game_dialog.exec() != QDialog.Accepted:
