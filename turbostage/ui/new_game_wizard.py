@@ -2,6 +2,7 @@ import importlib
 import os
 import zipfile
 
+from PySide6.QtCore import Property, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -44,6 +45,11 @@ class NewGameWizard(QWizard):
         self.addPage(CPUPage())
         self.addPage(DosBoxOptions())
 
+        self.accepted.connect(self.on_finish)
+
+    def on_finish(self):
+        print("Done")
+
     @staticmethod
     def get_executables_from_archive(game_archive: str) -> list[str]:
         executables = []
@@ -73,13 +79,22 @@ class GameTitlePage(QWizardPage):
         self.game_list_view = QListView(self)
         self.game_list_model = GameListModel()
         self.game_list_view.setModel(self.game_list_model)
-        self.game_list_view.selectionModel().selectionChanged.connect(self.completeChanged)
+        self.game_list_view.selectionModel().selectionChanged.connect(self._selection_changed)
         self.game_list_view.setSelectionMode(QListView.SingleSelection)
         layout.addWidget(self.game_list_view)
         self.setLayout(layout)
 
         base_name, _ = os.path.splitext(file_name)
         self._search_games(base_name)
+
+        self.registerField("game.title*", self, "selected_title")
+
+    @property
+    def selected_title(self) -> str:
+        selected_index = self.game_list_view.selectedIndexes()
+        if selected_index:
+            return self.game_list_model.games[selected_index[0].row()]
+        return ""
 
     def _search_games_slot(self):
         self._search_games(self.game_name_search_query.text())
@@ -91,6 +106,10 @@ class GameTitlePage(QWizardPage):
         game_names = [(row["name"], row["id"]) for row in response]
         self.game_list_model.set_games(game_names)
         self.game_list_view.clearSelection()
+
+    def _selection_changed(self):
+        self.setField("game.title", self.selected_title)
+        self.completeChanged.emit()
 
     def isComplete(self):
         return len(self.game_list_view.selectedIndexes()) == 1
@@ -128,13 +147,25 @@ class ExecutablePage(QWizardPage):
         self.binary_list_model.set_binaries(executables)
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
-        self.selected_binary = None
-        self.binary_list_view.selectionModel().selectionChanged.connect(self.completeChanged)
+        self.binary_list_view.selectionModel().selectionChanged.connect(self._selection_changed)
         layout.addWidget(self.binary_list_view)
         self.setLayout(layout)
 
+        self.registerField("game.executable*", self, "selected_executable")
+
     def isComplete(self):
         return len(self.binary_list_view.selectedIndexes()) == 1
+
+    @property
+    def selected_executable(self) -> str:
+        selected_index = self.binary_list_view.selectedIndexes()
+        if selected_index:
+            return self.binary_list_model.binaries[selected_index[0].row()]
+        return ""
+
+    def _selection_changed(self):
+        self.setField("game.executable", self.selected_executable)
+        self.completeChanged.emit()
 
 
 class ConfigPage(QWizardPage):
@@ -152,9 +183,21 @@ class ConfigPage(QWizardPage):
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
         self.selected_binary = None
-        self.binary_list_view.selectionModel().selectionChanged.connect(self.completeChanged)
+        self.binary_list_view.selectionModel().selectionChanged.connect(self._selection_changed)
         layout.addWidget(self.binary_list_view)
         self.setLayout(layout)
+
+        self.registerField("game.config_file", self, "selected_config")
+
+    @property
+    def selected_config(self) -> str:
+        selected_index = self.binary_list_view.selectedIndexes()
+        if selected_index:
+            return self.binary_list_model.binaries[selected_index[0].row()]
+        return ""
+
+    def _selection_changed(self):
+        self.setField("game.config_file", self.selected_config)
 
 
 class CPUPage(QWizardPage):
@@ -173,6 +216,8 @@ class CPUPage(QWizardPage):
         layout.addWidget(self.cpu_combobox)
         self.setLayout(layout)
 
+        self.registerField("game.cpu", self.cpu_combobox)
+
 
 class DosBoxOptions(QWizardPage):
     def __init__(self, parent=None):
@@ -183,4 +228,10 @@ class DosBoxOptions(QWizardPage):
         layout = QVBoxLayout(self)
         self.dosbox_config_text = QTextEdit(self)
         self.dosbox_config_text.setPlaceholderText("Enter custom DOSBox configuration here...")
+        self.dosbox_config_text.textChanged.connect(self._text_changed)
         layout.addWidget(self.dosbox_config_text)
+
+        self.registerField("game.extra_config", self.dosbox_config_text)
+
+    def _text_changed(self):
+        self.setField("game.extra_config", self.dosbox_config_text.toPlainText())
