@@ -2,6 +2,7 @@ import importlib
 import os
 import zipfile
 
+from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -17,7 +18,6 @@ from PySide6.QtWidgets import (
 
 from turbostage import constants
 from turbostage.igdb_client import IgdbClient
-from turbostage.ui.add_new_game_dialog import GameListModel
 from turbostage.ui.game_setup_widget import BinaryListModel
 
 
@@ -50,24 +50,32 @@ class NewGameWizard(QWizard):
         print("Done")
 
     @property
-    def game_title(self):
+    def game_title(self) -> str:
         return self.field("game.title")[0]
 
     @property
-    def igdb_id(self):
+    def igdb_id(self) -> int:
         return self.field("game.title")[1]
 
     @property
-    def game_version(self):
+    def game_version(self) -> str:
         return self.field("game.version")
 
     @property
-    def game_executable(self):
+    def game_executable(self) -> str:
         return self.field("game.executable")
 
     @property
-    def game_config(self):
-        return self.field("game.config")
+    def game_config(self) -> str | None:
+        return self.field("game.config_file")
+
+    @property
+    def cpu(self) -> int:
+        return self.field("game.cpu")
+
+    @property
+    def dosbox_config(self) -> str:
+        return self.field("game.extra_config")
 
     @staticmethod
     def get_executables_from_archive(game_archive: str) -> list[str]:
@@ -254,3 +262,21 @@ class DosBoxOptions(QWizardPage):
 
     def _text_changed(self):
         self.setField("game.extra_config", self.dosbox_config_text.toPlainText())
+
+
+class GameListModel(QAbstractListModel):
+    def __init__(self, games=None):
+        super().__init__()
+        self.games = games or []
+
+    def rowCount(self, parent=QModelIndex()):
+        return len(self.games)
+
+    def data(self, index, role=Qt.DisplayRole):
+        if role == Qt.DisplayRole:
+            return self.games[index.row()][0]
+
+    def set_games(self, games):
+        self.beginResetModel()
+        self.games = games
+        self.endResetModel()
