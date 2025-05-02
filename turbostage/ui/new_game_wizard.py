@@ -59,7 +59,8 @@ class NewGameWizard(QWizard):
 
     @property
     def game_version(self) -> str:
-        return self.field("game.version")
+        version = self.field("game.version")
+        return version if version else "default"
 
     @property
     def game_executable(self) -> str:
