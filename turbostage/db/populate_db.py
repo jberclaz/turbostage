@@ -116,7 +116,7 @@ def initialize_database(db_path: str):
         """
         CREATE TABLE IF NOT EXISTS local_versions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            version_id INTEGER NOT NULL,
+            version_id INTEGER UNIQUE NOT NULL,
             archive TEXT
         );
         """
