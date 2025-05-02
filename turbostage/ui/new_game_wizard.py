@@ -2,7 +2,6 @@ import importlib
 import os
 import zipfile
 
-from PySide6.QtCore import Property, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
@@ -19,7 +18,7 @@ from PySide6.QtWidgets import (
 from turbostage import constants
 from turbostage.igdb_client import IgdbClient
 from turbostage.ui.add_new_game_dialog import GameListModel
-from turbostage.ui.game_setup_widget import BinaryListModel, GameSetupWidget
+from turbostage.ui.game_setup_widget import BinaryListModel
 
 
 class NewGameWizard(QWizard):
@@ -49,6 +48,26 @@ class NewGameWizard(QWizard):
 
     def on_finish(self):
         print("Done")
+
+    @property
+    def game_title(self):
+        return self.field("game.title")[0]
+
+    @property
+    def igdb_id(self):
+        return self.field("game.title")[1]
+
+    @property
+    def game_version(self):
+        return self.field("game.version")
+
+    @property
+    def game_executable(self):
+        return self.field("game.executable")
+
+    @property
+    def game_config(self):
+        return self.field("game.config")
 
     @staticmethod
     def get_executables_from_archive(game_archive: str) -> list[str]:
