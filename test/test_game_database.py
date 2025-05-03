@@ -1,10 +1,9 @@
 import os
-import sqlite3
 import tempfile
 import unittest
-from unittest.mock import MagicMock, patch
 
-from turbostage.db.populate_db import DB_VERSION
+from turbostage.db.constants import DB_VERSION
+from turbostage.db.database_manager import DatabaseManager
 from turbostage.game_database import GameDatabase
 
 
@@ -14,94 +13,8 @@ class TestGameDatabase(unittest.TestCase):
         self.temp_db = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
         self.temp_db.close()
 
-        # Create the basic schema needed for testing
-        conn = sqlite3.connect(self.temp_db.name)
-        cursor = conn.cursor()
-
-        # Create basic tables needed for testing
-        cursor.execute("CREATE TABLE db_version (version TEXT)")
-        cursor.execute(f"INSERT INTO db_version (version) VALUES ('{DB_VERSION}')")
-
-        cursor.execute(
-            """
-            CREATE TABLE games (
-                id INTEGER PRIMARY KEY,
-                title TEXT NOT NULL,
-                summary TEXT,
-                release_date INTEGER,
-                genre TEXT,
-                publisher TEXT,
-                igdb_id INTEGER UNIQUE,
-                cover_url TEXT
-            )
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE TABLE versions (
-                id INTEGER PRIMARY KEY,
-                game_id INTEGER NOT NULL,
-                version TEXT NOT NULL,
-                executable TEXT NOT NULL,
-                archive TEXT NOT NULL,
-                config TEXT,
-                cycles INTEGER DEFAULT 0,
-                FOREIGN KEY (game_id) REFERENCES games(id) ON DELETE CASCADE
-            )
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE TABLE hashes (
-                id INTEGER PRIMARY KEY,
-                version_id INTEGER NOT NULL,
-                file_name TEXT NOT NULL,
-                hash TEXT NOT NULL,
-                FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
-            )
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE TABLE local_versions (
-                id INTEGER PRIMARY KEY,
-                version_id INTEGER NOT NULL,
-                archive TEXT NOT NULL,
-                FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
-            )
-        """
-        )
-
-        cursor.execute(
-            """
-            CREATE TABLE config_files (
-                id INTEGER PRIMARY KEY,
-                version_id INTEGER NOT NULL,
-                path TEXT NOT NULL,
-                content BLOB NOT NULL,
-                type INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
-            )
-        """
-        )
-
-        # Create some indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_versions_game_id ON versions(game_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_hashes_version_id ON hashes(version_id)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_hashes_hash ON hashes(hash)")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_config_files_version_id ON config_files(version_id)")
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_config_files_version_path ON config_files(version_id, path, type)"
-        )
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_local_versions_version_id ON local_versions(version_id)")
-
-        conn.commit()
-        conn.close()
+        # Initialize the database using the DatabaseManager
+        DatabaseManager.initialize_database(self.temp_db.name)
 
         # Define test data constants
         self.test_igdb_id = 12345
