@@ -1,6 +1,8 @@
 import os
+import queue
 import sqlite3
-from typing import Any, Dict, List, Optional, Set, Tuple
+import threading
+from typing import Any, Dict, List, Optional, Tuple
 
 from turbostage.db.populate_db import DB_VERSION
 
@@ -17,51 +19,134 @@ CREATE INDEX IF NOT EXISTS idx_local_versions_version_id ON local_versions(versi
 """
 
 
+class ConnectionPool:
+    """A connection pool for SQLite database connections.
+
+    This class manages a pool of SQLite connections to improve performance
+    by reusing connections instead of creating new ones for each query.
+    """
+
+    def __init__(self, db_file: str, max_connections: int = 5, timeout: float = 30.0):
+        """Initialize the connection pool.
+
+        Args:
+            db_file: Path to the SQLite database file
+            max_connections: Maximum number of connections to keep in the pool
+            timeout: Timeout for SQLite connection operations
+        """
+        self._db_file = db_file
+        self._max_connections = max_connections
+        self._timeout = timeout
+        self._pool = queue.Queue(maxsize=max_connections)
+        self._active_connections = 0
+        self._lock = threading.Lock()
+
+    def get_connection(self, read_only: bool = False) -> sqlite3.Connection:
+        """Get a connection from the pool or create a new one if needed.
+
+        Args:
+            read_only: If True, optimize the connection for read-only operations
+
+        Returns:
+            A SQLite connection
+        """
+        try:
+            # Try to get a connection from the pool
+            connection = self._pool.get_nowait()
+            return connection
+        except queue.Empty:
+            # Pool is empty, create a new connection if under the limit
+            with self._lock:
+                if self._active_connections < self._max_connections:
+                    self._active_connections += 1
+                    connection = sqlite3.connect(
+                        self._db_file,
+                        timeout=self._timeout,
+                    )
+                    # Configure connection based on read_only flag
+                    if read_only:
+                        connection.execute("PRAGMA query_only = ON")
+                    connection.execute("PRAGMA foreign_keys = ON")
+                    return connection
+                else:
+                    # Wait for a connection to be returned to the pool
+                    try:
+                        return self._pool.get(timeout=self._timeout)
+                    except queue.Empty:
+                        raise RuntimeError("Timed out waiting for a database connection")
+
+    def return_connection(self, connection: sqlite3.Connection) -> None:
+        """Return a connection to the pool.
+
+        Args:
+            connection: The SQLite connection to return to the pool
+        """
+        # Reset connection state before returning to pool
+        connection.rollback()  # Ensure no transactions are pending
+
+        try:
+            self._pool.put_nowait(connection)
+        except queue.Full:
+            # Pool is full, close the connection
+            with self._lock:
+                self._active_connections -= 1
+                connection.close()
+
+    def close_all(self) -> None:
+        """Close all connections in the pool."""
+        with self._lock:
+            while not self._pool.empty():
+                try:
+                    conn = self._pool.get_nowait()
+                    conn.close()
+                    self._active_connections -= 1
+                except queue.Empty:
+                    break
+            # The pool is now empty
+
+
 class GameDatabase:
     def __init__(self, db_file: str):
         self._db_file = db_file
-        self._connection = None
+        self._connection_pool = ConnectionPool(db_file)
 
         # Create the database and indexes if the file doesn't exist
         db_exists = os.path.exists(db_file)
 
-        self._check_version()
-
-        # Ensure indexes exist for efficient querying
+        # Initialize database schema if this is a new database
         if db_exists:
-            with self.get_connection() as conn:
+            # Ensure indexes exist for efficient querying
+            with self.transaction() as conn:
                 conn.executescript(CREATE_TABLES_SQL)
-                # Enable foreign keys for integrity
-                conn.execute("PRAGMA foreign_keys = ON")
-                # Enable WAL mode for better concurrent access
+                # WAL mode for better concurrent access
                 conn.execute("PRAGMA journal_mode = WAL")
-        # Enable foreign keys
-        with self.get_connection() as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
+                # Foreign keys already enabled in transaction context
+
+            # Check version after ensuring the database is set up
+            self._check_version()
 
     def get_version(self) -> str:
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT version FROM db_version")
             rows = cursor.fetchall()
-            return rows[0][0]
+            return rows[0][0] if rows else "unknown"
 
     def merge_with(self, db_file):
         input_conn = sqlite3.connect(db_file)
         input_cursor = input_conn.cursor()
 
         try:
-            with self.get_connection() as output_conn:
+            with self.transaction() as output_conn:
                 output_cursor = output_conn.cursor()
 
-                # Wrap all operations in a single transaction
+                # The transaction context manager will handle commit/rollback automatically
                 game_id_mapping = GameDatabase._copy_game_table(input_cursor, output_cursor)
                 version_id_mapping = GameDatabase._copy_versions(input_cursor, output_cursor, game_id_mapping)
                 GameDatabase._copy_table("hashes", input_cursor, output_cursor, version_id_mapping)
                 GameDatabase._copy_table("config_files", input_cursor, output_cursor, version_id_mapping, "type = 1")
 
-                # Only commit once at the end
-                output_conn.commit()
+                # No explicit commit needed - handled by transaction context manager
                 return ""
         except sqlite3.Error as error:
             return f"Database error: {error}"
@@ -71,22 +156,117 @@ class GameDatabase:
             input_conn.close()
 
     def _check_version(self):
-        version = self.get_version()
-        if version != DB_VERSION:
-            raise RuntimeError(
-                f"Incompatible DB version {version}. Remove file at {self._db_file} and re-run the program."
-            )
+        try:
+            version = self.get_version()
+            if version != DB_VERSION:
+                raise RuntimeError(
+                    f"Incompatible DB version {version}. Remove file at {self._db_file} and re-run the program."
+                )
+        except sqlite3.OperationalError:
+            # Database might be new or not have the version table yet
+            # This will be handled by the initialization code
+            pass
 
     def get_connection(self):
-        """Get a connection to the database with proper isolation level and timeout.
+        """Get a raw connection to the database from the connection pool.
 
-        Returns a context manager that handles the connection lifecycle.
+        DEPRECATED: This method is being phased out in favor of transaction() and
+        read_only_transaction() context managers.
+
+        This method returns a direct connection to the SQLite database without
+        any transaction management. It should be used with caution and only in
+        cases where you need complete control over the transaction lifecycle.
+
+        For most operations, use transaction() or read_only_transaction() instead,
+        which provide proper transaction management with automatic commit/rollback.
+
+        WARNING: When using this method, you are responsible for returning the connection
+        to the pool by calling connection_pool.return_connection(conn) to avoid connection leaks.
+
+        Returns:
+            A raw SQLite connection object from the connection pool
         """
-        return sqlite3.connect(
-            self._db_file,
-            isolation_level=None,  # autocommit mode
-            timeout=30.0,  # increase timeout for concurrent access
-        )
+        return self._connection_pool.get_connection(read_only=False)
+
+    def transaction(self):
+        """Create a transaction context manager for safe database operations.
+
+        This context manager obtains a database connection from the connection pool
+        for operations that modify the database. The transaction is automatically committed
+        when the context is exited normally, or rolled back if an exception occurs.
+        The connection is returned to the pool after use.
+
+        Usage:
+            with db.transaction() as conn:
+                cursor = conn.cursor()
+                cursor.execute(...)
+                # On successful completion, transaction is committed
+                # On exception, transaction is rolled back automatically
+
+        Returns:
+            A context manager that handles transaction lifecycle
+        """
+
+        class TransactionContextManager:
+            def __init__(self, connection_pool):
+                self.connection_pool = connection_pool
+                self.conn = None
+
+            def __enter__(self):
+                self.conn = self.connection_pool.get_connection(read_only=False)
+                return self.conn
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if self.conn:
+                    if exc_type is not None:
+                        # An exception occurred, roll back
+                        self.conn.rollback()
+                    else:
+                        # No exception, commit the transaction
+                        self.conn.commit()
+
+                    # Return the connection to the pool instead of closing it
+                    self.connection_pool.return_connection(self.conn)
+
+                return False  # Don't suppress exceptions
+
+        return TransactionContextManager(self._connection_pool)
+
+    def read_only_transaction(self):
+        """Create a read-only transaction context manager for database operations.
+
+        This context manager obtains a database connection from the connection pool
+        optimized for read-only operations. It uses SQLite's "read uncommitted" isolation level
+        for better performance and does not create a write transaction, which allows for better concurrency.
+        The connection is returned to the pool after use.
+
+        Usage:
+            with db.read_only_transaction() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT * FROM ...")
+                # No commit or rollback needed for read-only operations
+
+        Returns:
+            A context manager that handles read-only connection lifecycle
+        """
+
+        class ReadOnlyTransactionContextManager:
+            def __init__(self, connection_pool):
+                self.connection_pool = connection_pool
+                self.conn = None
+
+            def __enter__(self):
+                self.conn = self.connection_pool.get_connection(read_only=True)
+                return self.conn
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if self.conn:
+                    # Return the connection to the pool instead of closing it
+                    self.connection_pool.return_connection(self.conn)
+
+                return False  # Don't suppress exceptions
+
+        return ReadOnlyTransactionContextManager(self._connection_pool)
 
     #
     # Game related methods
@@ -94,7 +274,7 @@ class GameDatabase:
 
     def get_game_by_igdb_id(self, igdb_id: int) -> Optional[Tuple]:
         """Retrieve a game by its IGDB ID."""
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM games WHERE igdb_id = ?", (igdb_id,))
             return cursor.fetchone()
@@ -108,7 +288,7 @@ class GameDatabase:
         Returns:
             A tuple containing (release_date, genre, summary, publisher, cover_url) or None if not found
         """
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -133,7 +313,7 @@ class GameDatabase:
             publisher: Game publisher
             cover_url: URL to game cover image
         """
-        with self.get_connection() as conn:
+        with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -146,7 +326,7 @@ class GameDatabase:
 
     def insert_game_with_details(self, game_name: str, details: Dict[str, Any], igdb_id: int) -> int:
         """Insert a game with details from IGDB and return its ID."""
-        with self.get_connection() as conn:
+        with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -171,46 +351,38 @@ class GameDatabase:
         Args:
             igdb_id: The IGDB ID of the game to delete
         """
-        with self.get_connection() as conn:
+        with self.transaction() as conn:
             cursor = conn.cursor()
 
-            # Begin explicit transaction for complex multi-table operation
-            conn.execute("BEGIN TRANSACTION")
-            try:
-                # Get the internal game ID first
-                cursor.execute("SELECT id FROM games WHERE igdb_id = ?", (igdb_id,))
-                row = cursor.fetchone()
-                if row:
-                    internal_id = row[0]
+            # Get the internal game ID first
+            cursor.execute("SELECT id FROM games WHERE igdb_id = ?", (igdb_id,))
+            row = cursor.fetchone()
+            if row:
+                internal_id = row[0]
 
-                    # Delete all associated versions and their dependencies in a single transaction
-                    # Get all version IDs
-                    cursor.execute("SELECT id FROM versions WHERE game_id = ?", (internal_id,))
-                    version_ids = [row[0] for row in cursor.fetchall()]
+                # Delete all associated versions and their dependencies in a single transaction
+                # Get all version IDs
+                cursor.execute("SELECT id FROM versions WHERE game_id = ?", (internal_id,))
+                version_ids = [row[0] for row in cursor.fetchall()]
 
-                    # Use parameterized queries for batch operations if possible
-                    if version_ids:
-                        version_placeholders = ",".join(["?"] * len(version_ids))
+                # Use parameterized queries for batch operations if possible
+                if version_ids:
+                    version_placeholders = ",".join(["?"] * len(version_ids))
 
-                        # Delete related records in dependent tables
-                        cursor.execute(f"DELETE FROM hashes WHERE version_id IN ({version_placeholders})", version_ids)
-                        cursor.execute(
-                            f"DELETE FROM config_files WHERE version_id IN ({version_placeholders})", version_ids
-                        )
-                        cursor.execute(
-                            f"DELETE FROM local_versions WHERE version_id IN ({version_placeholders})", version_ids
-                        )
+                    # Delete related records in dependent tables
+                    cursor.execute(f"DELETE FROM hashes WHERE version_id IN ({version_placeholders})", version_ids)
+                    cursor.execute(
+                        f"DELETE FROM config_files WHERE version_id IN ({version_placeholders})", version_ids
+                    )
+                    cursor.execute(
+                        f"DELETE FROM local_versions WHERE version_id IN ({version_placeholders})", version_ids
+                    )
 
-                    # Delete the versions and game
-                    cursor.execute("DELETE FROM versions WHERE game_id = ?", (internal_id,))
-                    cursor.execute("DELETE FROM games WHERE id = ?", (internal_id,))
+                # Delete the versions and game
+                cursor.execute("DELETE FROM versions WHERE game_id = ?", (internal_id,))
+                cursor.execute("DELETE FROM games WHERE id = ?", (internal_id,))
 
-                # Commit the transaction if all operations succeeded
-                conn.execute("COMMIT")
-            except Exception as e:
-                # Roll back if anything went wrong
-                conn.execute("ROLLBACK")
-                raise e
+            # Transaction context manager handles commit and rollback automatically
 
     #
     # Version related methods
@@ -220,7 +392,7 @@ class GameDatabase:
         self, game_id: int, version: str, executable: str, archive: str, config: str, cycles: int
     ) -> int:
         """Insert a game version with all details and return its ID."""
-        with self.get_connection() as conn:
+        with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -244,7 +416,7 @@ class GameDatabase:
 
     def insert_multiple_hashes(self, version_id: int, hashes: List[Tuple[str, int, str]]) -> None:
         """Insert multiple hashes for a game version."""
-        with self.get_connection() as conn:
+        with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "INSERT INTO hashes (version_id, file_name, hash) VALUES " + ",".join(["(?, ?, ?)"] * len(hashes)),
@@ -253,7 +425,7 @@ class GameDatabase:
 
     def get_game_launch_info(self, game_id: int) -> Optional[Tuple]:
         """Retrieve the information needed to launch a game by its IGDB ID."""
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -276,7 +448,7 @@ class GameDatabase:
         Returns:
             A tuple containing (version_id, executable, config, cycles, archive) or None if not found
         """
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -300,7 +472,7 @@ class GameDatabase:
         Returns:
             A list of tuples containing (path, name, id) for each file
         """
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -318,7 +490,7 @@ class GameDatabase:
         Returns:
             A list of tuples containing (igdb_id, title, release_date, genre, version)
         """
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -340,7 +512,7 @@ class GameDatabase:
             A tuple containing (version_id, executable, config, cycles, archive, version_name)
             or None if not found
         """
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -354,7 +526,7 @@ class GameDatabase:
             )
             return cursor.fetchone()
 
-    def find_setup_executables(self, version_id: int) -> List[str]:
+    def find_setup_executables(self, version_id: int) -> list[str]:
         """Find setup executable files for a game version.
 
         Args:
@@ -363,7 +535,7 @@ class GameDatabase:
         Returns:
             A list of executable filenames that match setup patterns
         """
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -379,9 +551,9 @@ class GameDatabase:
     # Config file related methods
     #
 
-    def get_config_files_with_content(self, version_id: int, file_type: int) -> List[Tuple]:
+    def get_config_files_with_content(self, version_id: int, file_type: int) -> list[tuple]:
         """Retrieve paths and contents of config files for a given version and type."""
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -403,71 +575,64 @@ class GameDatabase:
         if not files:
             return
 
-        with self.get_connection() as conn:
-            # Start a transaction for better performance with multiple operations
-            conn.execute("BEGIN TRANSACTION")
-            try:
-                cursor = conn.cursor()
+        with self.transaction() as conn:
+            cursor = conn.cursor()
 
-                # First, get all existing files of this type for this version to reduce lookups
-                cursor.execute(
+            # First, get all existing files of this type for this version to reduce lookups
+            cursor.execute(
+                """
+                SELECT id, path FROM config_files
+                WHERE version_id = ? AND type = ?
+                """,
+                (version_id, file_type),
+            )
+            existing_files = {path: file_id for file_id, path in cursor.fetchall()}
+
+            # Prepare batch updates and inserts
+            updates = []
+            inserts = []
+
+            for file_path, content in files.items():
+                base_name = os.path.basename(file_path)
+
+                if file_path in existing_files:  # File exists, update it
+                    updates.append((content, base_name, existing_files[file_path]))
+                else:  # File doesn't exist, insert it
+                    inserts.append((version_id, file_path, content, file_type, base_name))
+
+            # Execute batch updates
+            if updates:
+                cursor.executemany(
                     """
-                    SELECT id, path FROM config_files
-                    WHERE version_id = ? AND type = ?
+                    UPDATE config_files
+                    SET content = ?, name = ?
+                    WHERE id = ?
                     """,
-                    (version_id, file_type),
+                    updates,
                 )
-                existing_files = {path: file_id for file_id, path in cursor.fetchall()}
 
-                # Prepare batch updates and inserts
-                updates = []
-                inserts = []
+            # Execute batch inserts
+            if inserts:
+                cursor.executemany(
+                    """
+                    INSERT INTO config_files (version_id, path, content, type, name)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    inserts,
+                )
 
-                for file_path, content in files.items():
-                    base_name = os.path.basename(file_path)
-
-                    if file_path in existing_files:  # File exists, update it
-                        updates.append((content, base_name, existing_files[file_path]))
-                    else:  # File doesn't exist, insert it
-                        inserts.append((version_id, file_path, content, file_type, base_name))
-
-                # Execute batch updates
-                if updates:
-                    cursor.executemany(
-                        """
-                        UPDATE config_files
-                        SET content = ?, name = ?
-                        WHERE id = ?
-                        """,
-                        updates,
-                    )
-
-                # Execute batch inserts
-                if inserts:
-                    cursor.executemany(
-                        """
-                        INSERT INTO config_files (version_id, path, content, type, name)
-                        VALUES (?, ?, ?, ?, ?)
-                        """,
-                        inserts,
-                    )
-
-                # Commit the transaction
-                conn.execute("COMMIT")
-            except Exception as e:
-                conn.execute("ROLLBACK")
-                raise e
+            # Transaction context manager handles commit and rollback automatically
 
     def insert_local_version(self, version_id: int, archive: str) -> int:
         """Insert a local version into the database and return its ID."""
-        with self.get_connection() as conn:
+        with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute("INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, archive))
             return cursor.lastrowid
 
     def clear_local_versions(self) -> None:
         """Remove all local game versions from the database."""
-        with self.get_connection() as conn:
+        with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM local_versions")
 
@@ -483,7 +648,7 @@ class GameDatabase:
         if not hashes:
             return None
 
-        with self.get_connection() as conn:
+        with self.read_only_transaction() as conn:
             cursor = conn.cursor()
 
             # Use parameter substitution to prevent SQL injection
@@ -584,6 +749,19 @@ class GameDatabase:
         print(f"Inserted {inserted_version_count} new version rows into output database.")
 
         return version_id_mapping
+
+    def close(self):
+        """Close the database connection pool.
+
+        This method should be called when the database is no longer needed
+        to properly clean up resources and close all connections.
+        """
+        if hasattr(self, "_connection_pool"):
+            self._connection_pool.close_all()
+
+    def __del__(self):
+        """Destructor to ensure connection pool is closed when object is garbage collected."""
+        self.close()
 
     @staticmethod
     def _copy_game_table(input_cursor: sqlite3.Cursor, output_cursor: sqlite3.Cursor) -> dict:
