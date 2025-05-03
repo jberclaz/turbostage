@@ -29,7 +29,7 @@ CPU_CYCLES = {
     "Pentium II 300": 200000,
 }
 
-
-class FileType(IntEnum):
-    CONFIG = 1
-    SAVEGAME = 2
+# IGDB API constants
+IGDB_CLIENT_ID = "finu9rpxtjmau9p7gv6tmt5rejv3qz"
+IGDB_CLIENT_SECRET = "mxp3b0ihmkza3lxihsu6vpm9otrq5v"
+IGDB_DOS_PLATFORM_ID = 13
