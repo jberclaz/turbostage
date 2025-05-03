@@ -359,45 +359,6 @@ class GameDatabase:
             )
             return cursor.lastrowid
 
-    def delete_game_by_igdb_id(self, igdb_id: int) -> None:
-        """Delete a game by its IGDB ID and all its associated data from the database.
-
-        Args:
-            igdb_id: The IGDB ID of the game to delete
-        """
-        with self.transaction() as conn:
-            cursor = conn.cursor()
-
-            # Get the internal game ID first
-            cursor.execute("SELECT id FROM games WHERE igdb_id = ?", (igdb_id,))
-            row = cursor.fetchone()
-            if row:
-                internal_id = row[0]
-
-                # Delete all associated versions and their dependencies in a single transaction
-                # Get all version IDs
-                cursor.execute("SELECT id FROM versions WHERE game_id = ?", (internal_id,))
-                version_ids = [row[0] for row in cursor.fetchall()]
-
-                # Use parameterized queries for batch operations if possible
-                if version_ids:
-                    version_placeholders = ",".join(["?"] * len(version_ids))
-
-                    # Delete related records in dependent tables
-                    cursor.execute(f"DELETE FROM hashes WHERE version_id IN ({version_placeholders})", version_ids)
-                    cursor.execute(
-                        f"DELETE FROM config_files WHERE version_id IN ({version_placeholders})", version_ids
-                    )
-                    cursor.execute(
-                        f"DELETE FROM local_versions WHERE version_id IN ({version_placeholders})", version_ids
-                    )
-
-                # Delete the versions and game
-                cursor.execute("DELETE FROM versions WHERE game_id = ?", (internal_id,))
-                cursor.execute("DELETE FROM games WHERE id = ?", (internal_id,))
-
-            # Transaction context manager handles commit and rollback automatically
-
     #
     # Version related methods
     #
@@ -460,13 +421,13 @@ class GameDatabase:
             game_id: The IGDB ID of the game
 
         Returns:
-            A tuple containing (version_id, executable, config, cycles, archive) or None if not found
+            A tuple containing (version_id, version, archive) or None if not found
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT v.id, v.executable, v.config, v.cycles, lv.archive
+                SELECT v.id, v.version, lv.archive
                 FROM versions v
                 JOIN local_versions lv ON v.id = lv.version_id
                 JOIN games g ON v.game_id = g.id
@@ -475,28 +436,6 @@ class GameDatabase:
                 (game_id,),
             )
             return cursor.fetchone()
-
-    def get_config_files_metadata(self, version_id: int, file_type: int) -> List[Tuple]:
-        """Retrieve metadata for config files of a specified type.
-
-        Args:
-            version_id: The version ID to get config files for
-            file_type: The type of config files to retrieve (e.g., CONFIG or SAVEGAME)
-
-        Returns:
-            A list of tuples containing (path, name, id) for each file
-        """
-        with self.read_only_transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT path, name, id FROM config_files
-                WHERE version_id = ? AND type = ?
-                ORDER BY name
-                """,
-                (version_id, file_type),
-            )
-            return cursor.fetchall()
 
     def get_games_with_local_versions(self) -> List[Tuple]:
         """Retrieve all games that have local versions installed.
@@ -539,27 +478,6 @@ class GameDatabase:
                 (game_id,),
             )
             return cursor.fetchone()
-
-    def find_setup_executables(self, version_id: int) -> list[str]:
-        """Find setup executable files for a game version.
-
-        Args:
-            version_id: The version ID to find setup executables for
-
-        Returns:
-            A list of executable filenames that match setup patterns
-        """
-        with self.read_only_transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT h.file_name
-                FROM hashes h
-                WHERE h.version_id = ? AND lower(h.file_name) LIKE '%setup%exe'
-                """,
-                (version_id,),
-            )
-            return [row[0] for row in cursor.fetchall()]
 
     #
     # Config file related methods

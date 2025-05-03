@@ -55,13 +55,14 @@ class AddGameWorker(QRunnable):
 
         # 2.5 Check that this version does not already exist
         existing_versions = db.get_version_info_by_game_id(game_id)
-        for version in existing_versions:
-            if version[1] == self._version_name:  # version[1] is the version name
-                # Version already exists, just update the local version entry
-                version_id = version[0]  # version[0] is the version ID
-                db.insert_local_version(version_id, archive_basename)
-                self.signals.task_finished.emit()
-                return
+        if existing_versions is not None:
+            for version in existing_versions:
+                if version[1] == self._version_name:  # version[1] is the version name
+                    # Version already exists, just update the local version entry
+                    version_id = version[0]  # version[0] is the version ID
+                    db.insert_local_version(version_id, archive_basename)
+                    self.signals.task_finished.emit()
+                    return
 
         # 3. add game version in version table
         version_id = db.insert_game_version(

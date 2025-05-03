@@ -45,7 +45,8 @@ class DatabaseManager:
     def initialize_database(db_path: str):
         """Initialize a new database or upgrade an existing one.
 
-        This function checks if the database exists. If not, it creates a new one with the latest schema.
+        This function checks if the database exists and is properly initialized with tables.
+        If not, it creates a new one with the latest schema.
         If it exists, it checks the version and applies any necessary migrations.
 
         Args:
@@ -54,17 +55,27 @@ class DatabaseManager:
         db_exists = os.path.exists(db_path)
 
         conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
 
-        if not db_exists:
-            # New database, create the schema
+        # Check if the database is properly initialized with tables
+        tables_exist = False
+        if db_exists:
+            try:
+                # Check if the db_version table exists
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='db_version'")
+                tables_exist = cursor.fetchone() is not None
+            except sqlite3.Error:
+                # If there's an error, assume tables don't exist
+                tables_exist = False
+
+        if not db_exists or not tables_exist:
+            # New or uninitialized database, create the schema
             DatabaseManager.create_schema(conn)
             conn.commit()
             conn.close()
             return
 
-        # Existing database, check version and migrate if needed
-        cursor = conn.cursor()
-
+        # Existing database with tables, check version and migrate if needed
         try:
             cursor.execute("SELECT version FROM db_version ORDER BY id DESC LIMIT 1")
             row = cursor.fetchone()

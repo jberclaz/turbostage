@@ -392,7 +392,7 @@ class MainWindow(QMainWindow):
             return
 
         # version_info format: (version_id, executable, config, cycles, archive)
-        version_id, _, _, _, game_archive = version_info
+        version_id, _, game_archive = version_info
 
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))

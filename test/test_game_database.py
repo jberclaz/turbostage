@@ -62,7 +62,7 @@ class TestGameDatabase(unittest.TestCase):
         game = db.get_game_by_igdb_id(self.test_igdb_id)
         self.assertIsNotNone(game)
         self.assertEqual(game[1], "Test Game")  # title
-        self.assertEqual(game[2], "Test game summary")  # summary
+        self.assertEqual(game[4], "Test game summary")  # summary
         self.assertEqual(game[6], self.test_igdb_id)  # igdb_id
 
     def test_update_game_details(self):
@@ -153,87 +153,6 @@ class TestGameDatabase(unittest.TestCase):
         self.assertEqual(launch_info[3], 3000)  # cycles
         self.assertEqual(launch_info[4], version_id)  # version_id
 
-    def test_config_files_operations(self):
-        """Test config file operations"""
-        _, version_id = self._create_test_game_and_version()
-        db = GameDatabase(self.temp_db.name)
-
-        # Add config files
-        config_type = 1  # CONFIG
-        config_files = {
-            "conf/dosbox.conf": b"[sdl]\nfullscreen=true\n",
-            "conf/mapper.txt": b"mapping data here",
-            "saves/save.dat": b"save game data",
-        }
-
-        db.add_extra_files(config_files, version_id, config_type)
-
-        # Get config files
-        retrieved_files = db.get_config_files_with_content(version_id, config_type)
-        self.assertEqual(len(retrieved_files), 3)
-
-        # Verify content
-        file_dict = {path: content for path, content in retrieved_files}
-        self.assertEqual(file_dict["conf/dosbox.conf"], b"[sdl]\nfullscreen=true\n")
-        self.assertEqual(file_dict["conf/mapper.txt"], b"mapping data here")
-        self.assertEqual(file_dict["saves/save.dat"], b"save game data")
-
-        # Get metadata
-        metadata = db.get_config_files_metadata(version_id, config_type)
-        self.assertEqual(len(metadata), 3)
-
-        # Update a file
-        updated_files = {"conf/dosbox.conf": b"[sdl]\nfullscreen=false\n"}
-        db.add_extra_files(updated_files, version_id, config_type)
-
-        # Verify update
-        retrieved_files = db.get_config_files_with_content(version_id, config_type)
-        file_dict = {path: content for path, content in retrieved_files}
-        self.assertEqual(file_dict["conf/dosbox.conf"], b"[sdl]\nfullscreen=false\n")
-
-        # Test different file type
-        save_type = 2  # SAVEGAME
-        save_files = {"saves/save1.sav": b"save game data 1", "saves/save2.sav": b"save game data 2"}
-
-        db.add_extra_files(save_files, version_id, save_type)
-
-        # Verify config files and save files are separate
-        config_files = db.get_config_files_with_content(version_id, config_type)
-        save_files = db.get_config_files_with_content(version_id, save_type)
-
-        self.assertEqual(len(config_files), 3)
-        self.assertEqual(len(save_files), 2)
-
-    def test_delete_game(self):
-        """Test deleting a game and all its dependencies"""
-        self._create_test_game_and_version()
-        db = GameDatabase(self.temp_db.name)
-
-        # Add some config files
-        config_type = 1  # CONFIG
-        config_files = {"conf/dosbox.conf": b"[sdl]\nfullscreen=true\n"}
-
-        # Get version ID for the game
-        launch_info = db.get_game_launch_info(self.test_igdb_id)
-        version_id = launch_info[4]
-
-        db.add_extra_files(config_files, version_id, config_type)
-
-        # Verify game exists
-        game = db.get_game_by_igdb_id(self.test_igdb_id)
-        self.assertIsNotNone(game)
-
-        # Delete the game
-        db.delete_game_by_igdb_id(self.test_igdb_id)
-
-        # Verify game is gone
-        game = db.get_game_by_igdb_id(self.test_igdb_id)
-        self.assertIsNone(game)
-
-        # Verify version is gone (by checking config files)
-        config_files = db.get_config_files_with_content(version_id, config_type)
-        self.assertEqual(len(config_files), 0)
-
     def test_local_versions(self):
         """Test operations related to local versions"""
         game_id, version_id = self._create_test_game_and_version()
@@ -258,34 +177,6 @@ class TestGameDatabase(unittest.TestCase):
         # Verify it's back
         games_list = db.get_games_with_local_versions()
         self.assertEqual(len(games_list), 1)
-
-    def test_find_setup_executables(self):
-        """Test finding setup executables"""
-        game_id, version_id = self._create_test_game_and_version()
-        db = GameDatabase(self.temp_db.name)
-
-        # Add some hashes with setup executables
-        setup_hashes = [
-            ("setup.exe", 1000, "setup123"),
-            ("install.exe", 2000, "install456"),  # Not matched by current implementation
-            ("SETUP2.EXE", 3000, "setup789"),  # This will match because of lower() in the SQL
-            ("not_setup.exe", 4000, "other123"),  # This will match due to 'setup' in name
-        ]
-
-        db.insert_multiple_hashes(version_id, setup_hashes)
-
-        # Find setup executables - files with 'setup' in lowercase name are found
-        setup_exes = db.find_setup_executables(version_id)
-
-        # Let's print for debugging
-        print(f"Found setup executables: {setup_exes}")
-
-        # Should include setup.exe, SETUP2.EXE (due to lower() in SQL), and not_setup.exe
-        self.assertEqual(len(setup_exes), 3)
-        self.assertIn("setup.exe", setup_exes)
-        self.assertIn("SETUP2.EXE", setup_exes)
-        self.assertIn("not_setup.exe", setup_exes)
-        self.assertNotIn("install.exe", setup_exes)
 
     def test_empty_query_results(self):
         """Test behavior with empty query results"""

@@ -129,7 +129,7 @@ class GameTitlePage(QWizardPage):
 
     def _search_games(self, search_query):
         response = self._igdb_client.search(
-            "games", ["name"], search_query, f"platforms=({IgdbClient.DOS_PLATFORM_ID})"
+            "games", ["name"], search_query, f"platforms=({constants.IGDB_DOS_PLATFORM_ID})"
         )
         game_names = [(row["name"], row["id"]) for row in response]
         self.game_list_model.set_games(game_names)
