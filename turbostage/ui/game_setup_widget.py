@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import zipfile
 
 from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, QSettings, Qt, Signal
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import constants
+from turbostage.game_database import GameDatabase
 
 
 class BinaryListModel(QAbstractListModel):
@@ -92,23 +92,17 @@ class GameSetupWidget(QWidget):
         self.dosbox_config_text.setEnabled(enabled)
         if not enabled:
             return
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT v.executable, lv.archive, v.config, v.cycles, v.version, v.id
-            FROM games g
-            JOIN versions v ON g.id = v.game_id
-            JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.igdb_id = ?
-            """,
-            (game_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        if len(rows) != 1:
+
+        db = GameDatabase(db_path)
+        version_details = db.get_version_details_by_game_id(game_id)
+
+        if not version_details:
             raise RuntimeError(f"Unable to get game details for '{game_id}'")
-        game_binary, game_archive, game_config, cpu_cycles, game_version, self.version_id = rows[0]
+
+        # Unpack the version details
+        # version_details has format: (version_id, executable, config, cycles, archive, version_name)
+        self.version_id, game_binary, game_config, cpu_cycles, game_archive, game_version = version_details
+
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))
         game_archive_path = os.path.join(games_path, game_archive)

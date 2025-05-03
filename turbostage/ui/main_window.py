@@ -1,7 +1,6 @@
 import importlib
 import json
 import os
-import sqlite3
 import tempfile
 from datetime import datetime, timezone
 
@@ -170,7 +169,8 @@ class MainWindow(QMainWindow):
         gl.launch_game(game_id, self.db_path)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
-            utils.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME, self.db_path)
+            db = GameDatabase(self.db_path)
+            db.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
 
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
@@ -203,31 +203,21 @@ class MainWindow(QMainWindow):
         self._thread_pool.start(fetch_task)
 
     def load_games(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT g.title, g.release_date, g.genre, v.version, g.igdb_id
-            FROM games g
-            JOIN versions v ON g.id = v.game_id
-            JOIN local_versions lv ON v.id = lv.version_id;
-            """
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        rows = self._gamedb.get_games_with_local_versions()
 
         self.game_table.setSortingEnabled(False)
         self.game_table.setRowCount(len(rows))
         for row_num, row in enumerate(rows):
-            game_name = QTableWidgetItem(row[0])
-            game_name.setData(Qt.UserRole, row[4])
-            dt_object = datetime.fromtimestamp(row[1], timezone.utc)
+            # row format: (igdb_id, title, release_date, genre, version)
+            game_name = QTableWidgetItem(row[1])
+            game_name.setData(Qt.UserRole, row[0])  # igdb_id
+            dt_object = datetime.fromtimestamp(row[2], timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
 
             self.game_table.setItem(row_num, 0, game_name)
             self.game_table.setItem(row_num, 1, QTableWidgetItem(release_date))
-            self.game_table.setItem(row_num, 2, QTableWidgetItem(row[2]))
-            self.game_table.setItem(row_num, 3, QTableWidgetItem(row[3]))
+            self.game_table.setItem(row_num, 2, QTableWidgetItem(row[3]))
+            self.game_table.setItem(row_num, 3, QTableWidgetItem(row[4]))
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
 
@@ -391,25 +381,16 @@ class MainWindow(QMainWindow):
 
     def _on_run_game_setup(self):
         game_id, _ = self.selected_game
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT lv.archive, v.id
-            FROM games g
-            JOIN versions v ON g.id = v.game_id
-            JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.igdb_id = ?
-            """,
-            (game_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        version_info = self._gamedb.get_version_info_by_game_id(game_id)
+        if not version_info:
+            return
+
+        # version_info format: (version_id, executable, config, cycles, archive)
+        version_id, _, _, _, game_archive = version_info
 
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))
 
-        game_archive, version_id = rows[0]
         game_archive_url = os.path.join(games_path, game_archive)
         setup_dialog = GameSetupDialog(game_archive_url)
         if setup_dialog.exec() != QDialog.Accepted:
@@ -418,7 +399,7 @@ class MainWindow(QMainWindow):
         gl.launch_game(game_id, self.db_path, False, False, setup_dialog.selected_binary)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
-            utils.add_extra_files(config_files, version_id, constants.FileType.CONFIG, self.db_path)
+            self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
 
     def _on_game_settings_saved(self):
         version_id = self.right_setup_tab.version_id

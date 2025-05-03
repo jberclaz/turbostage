@@ -1,8 +1,7 @@
-import sqlite3
-
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from turbostage import utils
+from turbostage.game_database import GameDatabase
 from turbostage.igdb_client import IgdbClient
 
 
@@ -20,51 +19,35 @@ class FetchGameInfoWorker(QObject):
         if self._cancel_flag():
             return
 
-        conn = sqlite3.connect(self._db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT release_date, genre, summary, publisher, cover_url
-            FROM games
-            WHERE igdb_id = ?
-            """,
-            (self._game_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        db = GameDatabase(self._db_path)
+        game_details = db.get_game_details_by_igdb_id(self._game_id)
 
-        if len(rows) != 1:
+        if not game_details:
             raise RuntimeError(f"No database entry for game {self._game_id}")
-        row = rows[0]
-        release_date = row[0]
+
+        release_date, genre, summary, publisher, cover_url = game_details
+
         if release_date is not None:
-            genre = row[1]
-            summary = row[2]
-            publisher = row[3]
             self.finished.emit(
                 summary,
-                "http:" + row[4].replace("t_thumb", "t_cover_big"),
+                "http:" + cover_url.replace("t_thumb", "t_cover_big"),
                 utils.epoch_to_formatted_date(release_date),
                 genre,
                 publisher,
             )
             return
 
+        # If we don't have complete details, fetch them from IGDB
         details = utils.fetch_game_details(self._igdb_client, self._game_id)
-        cursor.execute(
-            """
-            INSERT INTO games (summary, release_date, genre, publisher, cover_url)
-            VALUES (?, ?, ?, ?, ?)
-            WHERE igdb_id = ?
-        """,
-            (
-                details["summary"],
-                details["release_date"],
-                details["genres"],
-                details["publisher"],
-                details["cover"],
-                self._game_id,
-            ),
+
+        # Update the database with the fetched details
+        db.update_game_details(
+            self._game_id,
+            details["summary"],
+            details["release_date"],
+            details["genres"],
+            details["publisher"],
+            details["cover"],
         )
 
         self.finished.emit(

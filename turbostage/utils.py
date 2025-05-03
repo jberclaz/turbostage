@@ -37,29 +37,6 @@ def compute_hash_for_largest_files_in_zip(zip_path, n=5):
     return file_hashes
 
 
-def find_game_for_hashes(hash_list: list[str], db_path: str):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    placeholders = ", ".join("?" for _ in hash_list)
-    query = f"SELECT version_id, hash FROM hashes WHERE hash IN ({placeholders})"
-    cursor.execute(query, hash_list)
-    matches = cursor.fetchall()
-    conn.close()
-
-    if len(matches) == 0:
-        return None
-
-    versions = [version for version, _ in matches]
-    version_counts = Counter(versions)
-    num_versions = len(version_counts)
-    if num_versions == 1:
-        return versions[0]
-    # Find the most common version
-    most_common_version, _ = version_counts.most_common(1)[0]
-    return most_common_version
-
-
 def fetch_game_details(igdb_client, igdb_id) -> dict:
     details = igdb_client.get_game_details(igdb_id)
 
@@ -79,29 +56,6 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
         "publisher": companies_string,
         "cover": cover_url,
     }
-
-
-def update_version_info(version_id: int, version_name: str | None, binary: str, config: str, cycles: int, db_path: str):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    if version_name is not None:
-        cursor.execute(
-            """
-                UPDATE versions SET version = ?, executable = ?, config = ?, cycles = ?
-                WHERE id = ?
-            """,
-            (version_name, binary, config, cycles, version_id),
-        )
-    else:
-        cursor.execute(
-            """
-                UPDATE versions SET executable = ?, config = ?, cycles = ?
-                WHERE id = ?
-            """,
-            (binary, config, cycles, version_id),
-        )
-    conn.commit()
-    conn.close()
 
 
 def get_dosbox_version(dosbox_exec: str) -> str:
@@ -127,28 +81,6 @@ def to_bool(value) -> bool:
     if isinstance(value, str):
         return value.lower() == "true"
     raise RuntimeError(f"Cannot convert value {value} to bool")
-
-
-def delete_local_game(game_id: int, db_path: str):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-            DELETE FROM local_versions
-            WHERE version_id in (
-              SELECT id
-              FROM versions
-              WHERE game_id in (
-                SELECT id
-                FROM games
-                WHERE igdb_id = ?
-              )
-            )
-        """,
-        (game_id,),
-    )
-    conn.commit()
-    conn.close()
 
 
 def compute_file_md5(file_path: str) -> str:
@@ -182,22 +114,6 @@ def list_files_with_md5(folder: str) -> dict[str, str]:
             md5_hash = compute_file_md5(file_path)
             result[file_path] = md5_hash
     return result
-
-
-def add_extra_files(config_files: dict[str, bytes], version_id: int, file_type: int, db_path: str):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM config_files WHERE version_id = ? AND type = ?", (version_id, file_type))
-    for file_name, content in config_files.items():
-        cursor.execute(
-            """
-                    INSERT INTO config_files(version_id, path, content, type)
-                    VALUES (?, ?, ?, ?)
-                    """,
-            (version_id, file_name, content, file_type),
-        )
-    conn.commit()
-    conn.close()
 
 
 def get_os():
