@@ -128,7 +128,7 @@ def create_schema(conn: sqlite3.Connection):
         """
         CREATE TABLE IF NOT EXISTS local_versions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            version_id INTEGER NOT NULL,
+            version_id INTEGER UNIQUE NOT NULL,
             archive TEXT
         );
         """

@@ -34,11 +34,10 @@ from turbostage.game_database import GameDatabase
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
-from turbostage.ui.add_new_game_dialog import AddNewGameDialog
-from turbostage.ui.configure_game_dialog import ConfigureGameDialog
 from turbostage.ui.game_info_widget import GameInfoWidget
 from turbostage.ui.game_setup_dialog import GameSetupDialog
 from turbostage.ui.game_setup_widget import GameSetupWidget
+from turbostage.ui.new_game_wizard import NewGameWizard
 from turbostage.ui.settings_dialog import SettingsDialog
 
 
@@ -266,29 +265,37 @@ class MainWindow(QMainWindow):
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
         version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
         if version_id is not None:
-            QMessageBox.warning(
+            added = self._gamedb.add_local_game(version_id, os.path.basename(game_path))
+            if added == 0:
+                QMessageBox.warning(
+                    self, "Game already installed", "The game you tried to add is already installed in TurboStage"
+                )
+                return
+            QMessageBox.information(
                 self,
-                "Game already in database",
-                "It looks like this game is already known from the game database. To add it, simply run Scan Local Games option from the main menu.",
+                "New game added",
+                "New game added to game list",
             )
+            self._on_game_added()
             return
-        new_game_dialog = AddNewGameDialog(self._igdb_client, os.path.basename(game_path), self)
-        if new_game_dialog.exec() != QDialog.Accepted:
+        new_game_wizard = NewGameWizard(self._igdb_client, game_path, self)
+        if new_game_wizard.exec() != QDialog.Accepted:
             return
-        game_name, game_id = new_game_dialog.selected_game
-        configure_dialog = ConfigureGameDialog(game_path)
-        if configure_dialog.exec() != QDialog.Accepted:
-            return
-        binary = configure_dialog.selected_binary
-        version = configure_dialog.version
-        cycles = configure_dialog.cpu_cycles
-        config = configure_dialog.config_text
 
         add_game_worker = AddGameWorker(
-            game_name, version, game_id, game_path, binary, cycles, config, self.db_path, self._igdb_client
+            new_game_wizard.game_title,
+            new_game_wizard.game_version,
+            new_game_wizard.igdb_id,
+            game_path,
+            new_game_wizard.game_executable,
+            new_game_wizard.cpu,
+            new_game_wizard.dosbox_config,
+            self.db_path,
+            self._igdb_client,
         )
         add_game_worker.signals.task_finished.connect(self._on_game_added)
         self._thread_pool.start(add_game_worker)
+
         self.status.showMessage("Adding new game...", 3000)
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
 

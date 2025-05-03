@@ -143,6 +143,29 @@ class GameDatabase:
         finally:
             input_conn.close()
 
+    def add_local_game(self, version_id: int, game_archive_name: str) -> int:
+        """
+        Add a new game to the local version database
+        :param version_id: game version id
+        :param game_archive_name: game archive name (without path)
+        :return: 1 if successfully added and 0 if the game already exists
+        """
+        conn = self._connection
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT count(*) FROM local_versions WHERE version_id = ?", (version_id,))
+        rows = cursor.fetchall()
+        if rows[0][0] > 0:
+            conn.close()
+            return 0
+
+        cursor.execute(
+            "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive_name)
+        )
+        conn.commit()
+        conn.close()
+        return 1
+
     def _check_version(self):
         try:
             version = self.get_version()
