@@ -93,14 +93,22 @@ class GameSetupWidget(QWidget):
         if not enabled:
             return
 
-        version_details = db.get_version_details_by_game_id(game_id)
+        versions = db.get_version_info(game_id, detailed=True)
 
-        if not version_details:
+        if not versions:
             raise RuntimeError(f"Unable to get game details for '{game_id}'")
 
-        # Unpack the version details
-        # version_details has format: (version_id, executable, config, cycles, archive, version_name)
-        self.version_id, game_binary, game_config, cpu_cycles, game_archive, game_version = version_details
+        # Use the first version for now
+        # TODO: Allow user to select which version to configure
+        version_details = versions[0]
+
+        # Access the version details from the GameVersionInfo object
+        self.version_id = version_details.version_id
+        game_binary = version_details.executable
+        game_config = version_details.config
+        cpu_cycles = version_details.cycles
+        game_archive = version_details.archive
+        game_version = version_details.version_name
 
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))

@@ -2,10 +2,45 @@ import os
 import queue
 import sqlite3
 import threading
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
+
+
+@dataclass
+class LocalGameDetails:
+    igdb_id: int
+    title: str
+    release_date: int
+    genre: str
+    version: str
+    version_id: int
+
+
+@dataclass
+class GameDetails:
+    """Details about a game retrieved from the database."""
+
+    release_date: Optional[int]
+    genre: Optional[str]
+    summary: Optional[str]
+    publisher: Optional[str]
+    cover_url: Optional[str]
+
+
+@dataclass
+class GameVersionInfo:
+    """Information about a game version."""
+
+    version_id: int
+    version_name: str
+    archive: str
+    executable: Optional[str] = None
+    config: Optional[str] = None
+    cycles: Optional[int] = None
+
 
 # Indexes are now created during schema initialization and migration
 
@@ -293,14 +328,14 @@ class GameDatabase:
             cursor.execute("SELECT * FROM games WHERE igdb_id = ?", (igdb_id,))
             return cursor.fetchone()
 
-    def get_game_details_by_igdb_id(self, igdb_id: int) -> Optional[Tuple[str, str, str, str, str]]:
-        """Retrieve game details (release_date, genre, summary, publisher, cover_url) by IGDB ID.
+    def get_game_details_by_igdb_id(self, igdb_id: int) -> Optional[GameDetails]:
+        """Retrieve game details by IGDB ID.
 
         Args:
             igdb_id: The IGDB ID of the game
 
         Returns:
-            A tuple containing (release_date, genre, summary, publisher, cover_url) or None if not found
+            A GameDetails object or None if not found
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
@@ -312,7 +347,12 @@ class GameDatabase:
                 """,
                 (igdb_id,),
             )
-            return cursor.fetchone()
+            row = cursor.fetchone()
+            if row:
+                return GameDetails(
+                    release_date=row[0], genre=row[1], summary=row[2], publisher=row[3], cover_url=row[4]
+                )
+            return None
 
     def update_game_details(
         self, igdb_id: int, summary: str, release_date: str, genre: str, publisher: str, cover_url: str
@@ -398,13 +438,17 @@ class GameDatabase:
                 [item for f, _, h in hashes for item in (version_id, f, h)],
             )
 
-    def get_game_launch_info(self, game_id: int) -> Optional[Tuple]:
-        """Retrieve the information needed to launch a game by its IGDB ID."""
+    def get_game_launch_info(self, game_id: int) -> Optional[GameVersionInfo]:
+        """Retrieve the information needed to launch a game by its IGDB ID.
+
+        This method is deprecated. Use get_version_info(game_id, detailed=True) to get all versions
+        of a game, or get_version_launch_info(version_id) to get information for a specific version.
+        """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT v.executable, lv.archive, v.config, v.cycles, v.id
+                SELECT v.id, v.version, lv.archive, v.executable, v.config, v.cycles
                 FROM games g
                 JOIN versions v ON g.id = v.game_id
                 JOIN local_versions lv ON v.id = lv.version_id
@@ -412,72 +456,152 @@ class GameDatabase:
                 """,
                 (game_id,),
             )
-            return cursor.fetchone()
+            row = cursor.fetchone()
+            if row:
+                return GameVersionInfo(
+                    version_id=row[0],
+                    version_name=row[1],
+                    archive=row[2],
+                    executable=row[3],
+                    config=row[4],
+                    cycles=row[5],
+                )
+            return None
 
-    def get_version_info_by_game_id(self, game_id: int) -> Optional[Tuple]:
+    def get_version_launch_info(self, version_id: int) -> Optional[GameVersionInfo]:
+        """Retrieve the information needed to launch a specific version of a game.
+
+        Args:
+            version_id: The ID of the version to launch
+
+        Returns:
+            A GameVersionInfo object with launch information, or None if not found
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT v.version, lv.archive, v.executable, v.config, v.cycles
+                FROM versions v
+                JOIN local_versions lv ON v.id = lv.version_id
+                WHERE v.id = ?
+                """,
+                (version_id,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return GameVersionInfo(
+                    version_id=version_id,
+                    version_name=row[0],
+                    archive=row[1],
+                    executable=row[2],
+                    config=row[3],
+                    cycles=row[4],
+                )
+            return None
+
+    def get_version_info(self, game_id: int, detailed: bool = False) -> List[GameVersionInfo]:
         """Retrieve version information for a game by its IGDB ID.
+
+        Args:
+            game_id: The IGDB ID of the game
+            detailed: Whether to include detailed information (executable, config, cycles)
+
+        Returns:
+            A list of GameVersionInfo objects, or an empty list if none found
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            if detailed:
+                cursor.execute(
+                    """
+                    SELECT v.id, v.version, lv.archive, v.executable, v.config, v.cycles
+                    FROM versions v
+                    JOIN games g ON v.game_id = g.id
+                    JOIN local_versions lv ON v.id = lv.version_id
+                    WHERE g.igdb_id = ?
+                    """,
+                    (game_id,),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT v.id, v.version, lv.archive
+                    FROM versions v
+                    JOIN games g ON v.game_id = g.id
+                    JOIN local_versions lv ON v.id = lv.version_id
+                    WHERE g.igdb_id = ?
+                    """,
+                    (game_id,),
+                )
+
+            rows = cursor.fetchall()
+            result = []
+            for row in rows:
+                if detailed:
+                    result.append(
+                        GameVersionInfo(
+                            version_id=row[0],
+                            version_name=row[1],
+                            archive=row[2],
+                            executable=row[3],
+                            config=row[4],
+                            cycles=row[5],
+                        )
+                    )
+                else:
+                    result.append(GameVersionInfo(version_id=row[0], version_name=row[1], archive=row[2]))
+            return result
+
+    # For backward compatibility
+    def get_version_info_by_game_id(self, game_id: int) -> Optional[GameVersionInfo]:
+        """Retrieve version information for a game by its IGDB ID.
+
+        This method is deprecated. Use get_version_info(game_id) to get all versions of a game.
+        This method only returns the first version found, which may not be what you want.
 
         Args:
             game_id: The IGDB ID of the game
 
         Returns:
-            A tuple containing (version_id, version, archive) or None if not found
+            A GameVersionInfo object or None if not found
         """
-        with self.read_only_transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT v.id, v.version, lv.archive
-                FROM versions v
-                JOIN local_versions lv ON v.id = lv.version_id
-                JOIN games g ON v.game_id = g.id
-                WHERE g.igdb_id = ?
-                """,
-                (game_id,),
-            )
-            return cursor.fetchone()
+        versions = self.get_version_info(game_id)
+        return versions[0] if versions else None
 
-    def get_games_with_local_versions(self) -> List[Tuple]:
+    # For backward compatibility
+    def get_version_details_by_game_id(self, game_id: int) -> Optional[GameVersionInfo]:
+        """Retrieve detailed version information for a game by its IGDB ID.
+
+        This method is deprecated. Use get_version_info(game_id, detailed=True) to get all versions of a game.
+        This method only returns the first version found, which may not be what you want.
+
+        Args:
+            game_id: The IGDB ID of the game
+
+        Returns:
+            A GameVersionInfo object or None if not found
+        """
+        versions = self.get_version_info(game_id, detailed=True)
+        return versions[0] if versions else None
+
+    def get_games_with_local_versions(self) -> list[LocalGameDetails]:
         """Retrieve all games that have local versions installed.
 
         Returns:
-            A list of tuples containing (igdb_id, title, release_date, genre, version)
+            A list of tuples containing (version_id, title, release_date, genre, version)
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT DISTINCT g.igdb_id, g.title, g.release_date, g.genre, v.version
+                SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id
                 FROM games g JOIN versions v ON g.id = v.game_id
                 JOIN local_versions lv ON v.id = lv.version_id
                 ORDER BY g.title
                 """
             )
-            return cursor.fetchall()
-
-    def get_version_details_by_game_id(self, game_id: int) -> Optional[Tuple]:
-        """Retrieve detailed version information for a game by its IGDB ID.
-
-        Args:
-            game_id: The IGDB ID of the game
-
-        Returns:
-            A tuple containing (version_id, executable, config, cycles, archive, version_name)
-            or None if not found
-        """
-        with self.read_only_transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT v.id, v.executable, v.config, v.cycles, v.archive, v.version
-                FROM versions v
-                JOIN games g ON v.game_id = g.id
-                JOIN local_versions lv ON v.id = lv.version_id
-                WHERE g.igdb_id = ?
-                """,
-                (game_id,),
-            )
-            return cursor.fetchone()
+            return [LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0]) for row in cursor.fetchall()]
 
     #
     # Config file related methods

@@ -86,11 +86,11 @@ class TestGameDatabase(unittest.TestCase):
         # Verify the update
         game_details = db.get_game_details_by_igdb_id(self.test_igdb_id)
         self.assertIsNotNone(game_details)
-        self.assertEqual(game_details[0], new_release_date)  # release_date
-        self.assertEqual(game_details[1], new_genre)  # genre
-        self.assertEqual(game_details[2], new_summary)  # summary
-        self.assertEqual(game_details[3], new_publisher)  # publisher
-        self.assertEqual(game_details[4], new_cover_url)  # cover_url
+        self.assertEqual(game_details.release_date, new_release_date)
+        self.assertEqual(game_details.genre, new_genre)
+        self.assertEqual(game_details.summary, new_summary)
+        self.assertEqual(game_details.publisher, new_publisher)
+        self.assertEqual(game_details.cover_url, new_cover_url)
 
     def test_find_game_by_hashes(self):
         """Test finding a game by file hashes"""
@@ -144,14 +144,32 @@ class TestGameDatabase(unittest.TestCase):
         game_id, version_id = self._create_test_game_and_version()
         db = GameDatabase(self.temp_db.name)
 
-        # Test getting launch info
+        # Test getting launch info using the deprecated method
         launch_info = db.get_game_launch_info(self.test_igdb_id)
         self.assertIsNotNone(launch_info)
-        self.assertEqual(launch_info[0], "game.exe")  # executable
-        self.assertEqual(launch_info[1], "game.zip")  # archive
-        self.assertEqual(launch_info[2], "dosbox_config")  # config
-        self.assertEqual(launch_info[3], 3000)  # cycles
-        self.assertEqual(launch_info[4], version_id)  # version_id
+        self.assertEqual(launch_info.executable, "game.exe")
+        self.assertEqual(launch_info.archive, "game.zip")
+        self.assertEqual(launch_info.config, "dosbox_config")
+        self.assertEqual(launch_info.cycles, 3000)
+        self.assertEqual(launch_info.version_id, version_id)
+
+        # Test getting launch info using the new method
+        launch_info = db.get_version_launch_info(version_id)
+        self.assertIsNotNone(launch_info)
+        self.assertEqual(launch_info.executable, "game.exe")
+        self.assertEqual(launch_info.archive, "game.zip")
+        self.assertEqual(launch_info.config, "dosbox_config")
+        self.assertEqual(launch_info.cycles, 3000)
+        self.assertEqual(launch_info.version_id, version_id)
+
+        # Test getting all versions
+        versions = db.get_version_info(self.test_igdb_id, detailed=True)
+        self.assertEqual(len(versions), 1)
+        self.assertEqual(versions[0].executable, "game.exe")
+        self.assertEqual(versions[0].archive, "game.zip")
+        self.assertEqual(versions[0].config, "dosbox_config")
+        self.assertEqual(versions[0].cycles, 3000)
+        self.assertEqual(versions[0].version_id, version_id)
 
     def test_local_versions(self):
         """Test operations related to local versions"""
@@ -161,8 +179,8 @@ class TestGameDatabase(unittest.TestCase):
         # Verify game appears in local versions list
         games_list = db.get_games_with_local_versions()
         self.assertEqual(len(games_list), 1)
-        self.assertEqual(games_list[0][0], self.test_igdb_id)  # igdb_id
-        self.assertEqual(games_list[0][1], "Test Game")  # title
+        self.assertEqual(games_list[0].igdb_id, self.test_igdb_id)  # igdb_id
+        self.assertEqual(games_list[0].title, "Test Game")  # title
 
         # Clear local versions
         db.clear_local_versions()
@@ -186,13 +204,21 @@ class TestGameDatabase(unittest.TestCase):
         game = db.get_game_by_igdb_id(99999)
         self.assertIsNone(game)
 
-        # Test launch info for non-existent game
+        # Test launch info for non-existent game using deprecated method
         launch_info = db.get_game_launch_info(99999)
         self.assertIsNone(launch_info)
 
-        # Test version info for non-existent game
+        # Test launch info for non-existent version using new method
+        launch_info = db.get_version_launch_info(99999)
+        self.assertIsNone(launch_info)
+
+        # Test version info for non-existent game using deprecated method
         version_info = db.get_version_info_by_game_id(99999)
         self.assertIsNone(version_info)
+
+        # Test version info for non-existent game using new method
+        versions = db.get_version_info(99999)
+        self.assertEqual(len(versions), 0)
 
         # Test empty local versions list
         games_list = db.get_games_with_local_versions()
