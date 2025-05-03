@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from turbostage import utils
 from turbostage.add_game_worker import AddGameWorker
-from turbostage.db.populate_db import initialize_database
+from turbostage.db.database_manager import DatabaseManager
 from turbostage.igdb_client import IgdbClient
 
 
@@ -28,7 +28,7 @@ class TestUtils(TestCase):
             config = "[sdl]\nfull_screen = True\n"
             db_path = os.path.join(tempdir, "test.db")
             cpu_cycles = 12000
-            initialize_database(db_path)
+            DatabaseManager.initialize_database(db_path)
             worker = AddGameWorker(name, version, game_id, archive_path, binary, cpu_cycles, config, db_path, client)
             worker.run()
 

@@ -4,7 +4,8 @@ import sqlite3
 import threading
 from typing import Any, Dict, List, Optional, Tuple
 
-from turbostage.db.populate_db import DB_VERSION
+from turbostage.db.constants import DB_VERSION
+from turbostage.db.database_manager import DatabaseManager
 
 # Indexes are now created during schema initialization and migration
 
@@ -168,23 +169,12 @@ class GameDatabase:
 
     def _check_version(self):
         try:
-            version = self.get_version()
-            if version != DB_VERSION:
-                # Import migrations module here to avoid circular imports
-                from turbostage.db.migrations import migrate_database
+            current_version, needs_upgrade = DatabaseManager.check_and_upgrade_version(self._db_file)
 
-                # Open a direct connection for migration (outside the connection pool)
-                # to avoid transaction issues during schema changes
-                with sqlite3.connect(self._db_file) as conn:
-                    migrate_database(conn, version, DB_VERSION)
-
-                    # Ensure the version is updated
-                    cursor = conn.cursor()
-                    cursor.execute("DELETE FROM db_version")
-                    cursor.execute("INSERT INTO db_version (version) VALUES (?)", (DB_VERSION,))
-                    conn.commit()
-
-                print(f"Successfully migrated database from version {version} to {DB_VERSION}")
+            if needs_upgrade:
+                # If we need to upgrade, initialize the database which will handle migrations
+                DatabaseManager.initialize_database(self._db_file)
+                print(f"Successfully migrated database from version {current_version} to {DB_VERSION}")
         except sqlite3.OperationalError as e:
             # Database might be new or not have the version table yet
             # This will be handled by the initialization code

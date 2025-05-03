@@ -28,7 +28,7 @@ from PySide6.QtWidgets import (
 
 from turbostage import __version__, constants, utils
 from turbostage.add_game_worker import AddGameWorker
-from turbostage.db.populate_db import initialize_database
+from turbostage.db.database_manager import DatabaseManager
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_database import GameDatabase
 from turbostage.game_launcher import GameLauncher
@@ -419,7 +419,7 @@ class MainWindow(QMainWindow):
     def db_path(self):
         p = os.path.join(self._app_data_folder, self.DB_FILE)
         if not os.path.isfile(p):
-            initialize_database(p)
+            DatabaseManager.initialize_database(p)
         return p
 
     @property
