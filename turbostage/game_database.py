@@ -650,6 +650,85 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM local_versions")
 
+    def delete_local_game_by_igdb_id(self, igdb_id: int) -> None:
+        """Delete a local game from the database.
+
+        Instead of deleting the entire game from the database, this function
+        only removes its entry from the local_versions table, effectively making
+        it disappear from the user interface while keeping the game information
+        in the database for future use.
+
+        Args:
+            igdb_id: IGDB ID of the game to delete
+        """
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            # First get the version_id
+            cursor.execute(
+                """
+                SELECT v.id
+                FROM versions v
+                JOIN games g ON v.game_id = g.id
+                WHERE g.igdb_id = ?
+                """,
+                (igdb_id,),
+            )
+
+            version_ids = [row[0] for row in cursor.fetchall()]
+
+            if version_ids:
+                # Remove from local_versions
+                for version_id in version_ids:
+                    cursor.execute("DELETE FROM local_versions WHERE version_id = ?", (version_id,))
+
+    def update_version_info(
+        self,
+        version_id: int,
+        version_name: str = None,
+        binary: str = None,
+        config: str = None,
+        cycles: int = None,
+    ):
+        """Update version information for a game version.
+
+        Args:
+            version_id: ID of the version to update
+            version_name: New version name (if None, not updated)
+            binary: New binary path (if None, not updated)
+            config: New DOSBox configuration (if None, not updated)
+            cycles: New CPU cycles (if None, not updated)
+        """
+        # Only include fields that are not None
+        update_fields = []
+        params = []
+
+        if version_name is not None:
+            update_fields.append("version = ?")
+            params.append(version_name)
+
+        if binary is not None:
+            update_fields.append("executable = ?")
+            params.append(binary)
+
+        if config is not None:
+            update_fields.append("config = ?")
+            params.append(config)
+
+        if cycles is not None:
+            update_fields.append("cycles = ?")
+            params.append(cycles)
+
+        if not update_fields or not params:
+            return  # Nothing to update
+
+        # Add version_id as the last parameter
+        params.append(version_id)
+
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            query = f"UPDATE versions SET {', '.join(update_fields)} WHERE id = ?"
+            cursor.execute(query, params)
+
     def find_game_by_hashes(self, hashes: List[str]) -> Optional[int]:
         """Find a game version by matching multiple file hashes.
 

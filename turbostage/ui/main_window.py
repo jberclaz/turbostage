@@ -165,11 +165,10 @@ class MainWindow(QMainWindow):
     def launch_game(self):
         game_id, _ = self.selected_game
         gl = GameLauncher(track_change=True)
-        gl.launch_game(game_id, self.db_path)
+        gl.launch_game(game_id, self._gamedb)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
-            db = GameDatabase(self.db_path)
-            db.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
+            self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
 
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
@@ -188,7 +187,7 @@ class MainWindow(QMainWindow):
         game_name = name_row.text()
 
         self.right_info_tab.set_game_name(game_name)
-        self.right_setup_tab.set_game(game_id, self.db_path)
+        self.right_setup_tab.set_game(game_id, self._gamedb)
 
         settings = QSettings("jberclaz", "TurboStage")
         dosbox_exec = str(settings.value("app/emulator_path", ""))
@@ -263,7 +262,7 @@ class MainWindow(QMainWindow):
         if not game_path:
             return
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
-        version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
+        version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
             added = self._gamedb.add_local_game(version_id, os.path.basename(game_path))
             if added == 0:
@@ -383,7 +382,7 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            utils.delete_local_game(game_id, self.db_path)
+            self._gamedb.delete_local_game_by_igdb_id(game_id)
             self.load_games()
 
     def _on_run_game_setup(self):
@@ -403,7 +402,7 @@ class MainWindow(QMainWindow):
         if setup_dialog.exec() != QDialog.Accepted:
             return
         gl = GameLauncher(track_change=True)
-        gl.launch_game(game_id, self.db_path, False, False, setup_dialog.selected_binary)
+        gl.launch_game(game_id, self._gamedb, False, False, setup_dialog.selected_binary)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
@@ -413,7 +412,7 @@ class MainWindow(QMainWindow):
         binary = self.right_setup_tab.selected_binary
         config = self.right_setup_tab.dosbox_config_text.toPlainText()
         cycles = self.right_setup_tab.cpu_cycles
-        utils.update_version_info(version_id, None, binary, config, cycles, self.db_path)
+        self._gamedb.update_version_info(version_id, None, binary, config, cycles)
 
     @property
     def db_path(self):

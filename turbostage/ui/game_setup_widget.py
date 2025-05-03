@@ -85,7 +85,7 @@ class GameSetupWidget(QWidget):
         self.save_button.clicked.connect(self._on_save)
         self.layout.addWidget(self.save_button, alignment=Qt.AlignmentFlag.AlignRight)
 
-    def set_game(self, game_id: int | None, db_path: str):
+    def set_game(self, game_id: int | None, db: GameDatabase):
         enabled = game_id is not None
         self.binary_list_view.setEnabled(enabled)
         self.cpu_combobox.setEnabled(enabled)
@@ -93,7 +93,6 @@ class GameSetupWidget(QWidget):
         if not enabled:
             return
 
-        db = GameDatabase(db_path)
         version_details = db.get_version_details_by_game_id(game_id)
 
         if not version_details:

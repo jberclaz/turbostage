@@ -2,10 +2,8 @@ import hashlib
 import os.path
 import platform
 import re
-import sqlite3
 import subprocess
 import zipfile
-from collections import Counter
 from datetime import datetime, timezone
 
 
@@ -118,116 +116,6 @@ def list_files_with_md5(folder: str) -> dict[str, str]:
 
 def get_os():
     return platform.system()
-
-
-def update_version_info(
-    version_id: int,
-    version_name: str = None,
-    binary: str = None,
-    config: str = None,
-    cycles: int = None,
-    db_path: str = None,
-):
-    """Update version information for a game version.
-
-    Args:
-        version_id: ID of the version to update
-        version_name: New version name (if None, not updated)
-        binary: New binary path (if None, not updated)
-        config: New DOSBox configuration (if None, not updated)
-        cycles: New CPU cycles (if None, not updated)
-        db_path: Path to the database file
-    """
-    if not db_path:
-        return
-
-    # Only include fields that are not None
-    update_fields = []
-    params = []
-
-    if version_name is not None:
-        update_fields.append("version = ?")
-        params.append(version_name)
-
-    if binary is not None:
-        update_fields.append("executable = ?")
-        params.append(binary)
-
-    if config is not None:
-        update_fields.append("config = ?")
-        params.append(config)
-
-    if cycles is not None:
-        update_fields.append("cycles = ?")
-        params.append(cycles)
-
-    if not update_fields or not params:
-        return  # Nothing to update
-
-    # Add version_id as the last parameter
-    params.append(version_id)
-
-    from turbostage.game_database import GameDatabase
-
-    db = GameDatabase(db_path)
-
-    with db.transaction() as conn:
-        cursor = conn.cursor()
-        query = f"UPDATE versions SET {', '.join(update_fields)} WHERE id = ?"
-        cursor.execute(query, params)
-
-
-def find_game_for_hashes(hashes: list[str], db_path: str) -> int:
-    """Find a game by its file hashes.
-
-    Args:
-        hashes: A list of file hash values to check
-        db_path: Path to the database file
-
-    Returns:
-        The version_id if found, or None if not found
-    """
-    from turbostage.game_database import GameDatabase
-
-    db = GameDatabase(db_path)
-    return db.find_game_by_hashes(hashes)
-
-
-def delete_local_game(igdb_id: int, db_path: str):
-    """Delete a local game from the database.
-
-    Instead of deleting the entire game from the database, this function
-    only removes its entry from the local_versions table, effectively making
-    it disappear from the user interface while keeping the game information
-    in the database for future use.
-
-    Args:
-        igdb_id: IGDB ID of the game to delete
-        db_path: Path to the database file
-    """
-    from turbostage.game_database import GameDatabase
-
-    db = GameDatabase(db_path)
-
-    with db.transaction() as conn:
-        cursor = conn.cursor()
-        # First get the version_id
-        cursor.execute(
-            """
-            SELECT v.id
-            FROM versions v
-            JOIN games g ON v.game_id = g.id
-            WHERE g.igdb_id = ?
-        """,
-            (igdb_id,),
-        )
-
-        version_ids = [row[0] for row in cursor.fetchall()]
-
-        if version_ids:
-            # Remove from local_versions
-            for version_id in version_ids:
-                cursor.execute("DELETE FROM local_versions WHERE version_id = ?", (version_id,))
 
 
 class CancellationFlag:

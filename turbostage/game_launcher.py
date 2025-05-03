@@ -21,10 +21,14 @@ class GameLauncher:
         self._version_id = None
 
     def launch_game(
-        self, game_id: int, db_path: str, save_games: bool = True, config_files: bool = True, binary: str | None = None
+        self,
+        game_id: int,
+        db: GameDatabase,
+        save_games: bool = True,
+        config_files: bool = True,
+        binary: str | None = None,
     ):
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
-        db = GameDatabase(db_path)
         game_info = db.get_game_launch_info(game_id)
 
         if not game_info:
@@ -62,10 +66,10 @@ class GameLauncher:
                 zip_ref.extractall(temp_dir)
 
             if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db_path, constants.FileType.CONFIG)
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
 
             if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db_path, constants.FileType.SAVEGAME)
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
 
             if self._track_change:
                 self._original_files = utils.list_files_with_md5(temp_dir)
@@ -107,8 +111,7 @@ class GameLauncher:
                 self._modified_files[os.path.relpath(file_after_setup, temp_dir)] = content
 
     @staticmethod
-    def _write_game_extra_files(version_id: int, temp_dir: str, db_path: str, file_type: int):
-        db = GameDatabase(db_path)
+    def _write_game_extra_files(version_id: int, temp_dir: str, db: GameDatabase, file_type: int):
         config_files = db.get_config_files_with_content(version_id, file_type)
 
         for config_file_path, content in config_files:
