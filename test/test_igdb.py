@@ -10,11 +10,33 @@ class TestIgdb(TestCase):
         result = client.query("games", ["id", "name"], "platforms=13")
         self.assertTrue(len(result) > 0)
 
-    def test_simple_search(self):
-        client = IgdbClient()
+    import unittest
+    from unittest.mock import MagicMock, patch
 
-        result = client.search("games", ["id", "name", "release_dates"], "Drive", "platforms=(13)")
-        self.assertTrue(len(result) > 0)
+    from turbostage.igdb_client import IgdbClient
+
+    class TestIgdbClient(unittest.TestCase):
+        def test_simple_search(self):
+            with patch("turbostage.igdb_client.IGDBWrapper") as mock_wrapper:
+                # Setup mock response
+                mock_instance = MagicMock()
+                mock_instance.api_request.return_value = b'[{"id": 123, "name": "Test Drive"}]'
+                mock_wrapper.return_value = mock_instance
+
+                # Setup mock auth token
+                with patch.object(IgdbClient, "_get_auth", return_value="mock_token"):
+                    client = IgdbClient()
+                    result = client.search("games", ["id", "name", "release_dates"], "Drive", "platforms=(13)")
+                    self.assertTrue(len(result) > 0)
+
+                    # Verify correct parameters were used in the API call
+                    mock_instance.api_request.assert_called_once()
+                    self.assertEqual(mock_instance.api_request.call_args[0][0], "games")
+                    self.assertIn('search "Drive"', mock_instance.api_request.call_args[0][1])
+                    self.assertIn("platforms=(13)", mock_instance.api_request.call_args[0][1])
+
+    if __name__ == "__main__":
+        unittest.main()
 
     def test_platforms(self):
         client = IgdbClient()

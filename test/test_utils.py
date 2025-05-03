@@ -69,25 +69,7 @@ class TestUtils(TestCase):
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0][0], "file1.txt")
 
-    def test_find_game_for_hashes(self):
-        with tempfile.NamedTemporaryFile(suffix=".db") as temp_file:
-            conn = sqlite3.connect(temp_file.name)
-            cursor = conn.cursor()
-            cursor.execute("CREATE TABLE hashes (version_id INTEGER, hash TEXT)")
-            cursor.execute(
-                "INSERT INTO hashes(version_id, hash) VALUES (1, 'abc123'), (1, 'cde234'), (1, 'def456'), (2, 'cde234'), (2, 'fgh789')"
-            )
-            conn.commit()
-            conn.close()
-
-            result = utils.find_game_for_hashes(["abc123"], temp_file.name)
-            self.assertEqual(result, 1)
-
-            result = utils.find_game_for_hashes(["cde234", "fgh789"], temp_file.name)
-            self.assertEqual(result, 2)
-
-            result = utils.find_game_for_hashes(["dklfj"], temp_file.name)
-            self.assertEqual(result, None)
+    # Test removed as functionality has been moved to GameDatabase class
 
     def test_to_bool(self):
         self.assertTrue(utils.to_bool(True))
