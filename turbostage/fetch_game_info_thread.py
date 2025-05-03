@@ -1,7 +1,7 @@
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from turbostage import utils
-from turbostage.game_database import GameDatabase
+from turbostage.db.game_database import GameDatabase
 from turbostage.igdb_client import IgdbClient
 
 

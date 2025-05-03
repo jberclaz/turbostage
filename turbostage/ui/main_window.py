@@ -29,8 +29,8 @@ from PySide6.QtWidgets import (
 from turbostage import __version__, constants, utils
 from turbostage.add_game_worker import AddGameWorker
 from turbostage.db.database_manager import DatabaseManager
+from turbostage.db.game_database import GameDatabase
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
-from turbostage.game_database import GameDatabase
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread

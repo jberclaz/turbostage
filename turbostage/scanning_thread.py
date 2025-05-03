@@ -3,7 +3,7 @@ import os
 from PySide6.QtCore import QThread, Signal
 
 from turbostage import utils
-from turbostage.game_database import GameDatabase
+from turbostage.db.game_database import GameDatabase
 
 
 class ScanningThread(QThread):

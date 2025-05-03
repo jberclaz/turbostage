@@ -4,7 +4,7 @@ import unittest
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
-from turbostage.game_database import GameDatabase
+from turbostage.db.game_database import GameDatabase
 
 
 class TestGameDatabase(unittest.TestCase):

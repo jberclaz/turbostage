@@ -9,7 +9,7 @@ from PySide6.QtGui import QGuiApplication, Qt
 from PySide6.QtWidgets import QMessageBox
 
 from turbostage import constants, utils
-from turbostage.game_database import GameDatabase
+from turbostage.db.game_database import GameDatabase
 
 
 class GameLauncher:

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import constants
-from turbostage.game_database import GameDatabase
+from turbostage.db.game_database import GameDatabase
 
 
 class BinaryListModel(QAbstractListModel):
