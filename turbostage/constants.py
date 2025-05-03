@@ -1,4 +1,10 @@
-from enum import IntEnum
+from enum import Enum, IntEnum
+
+
+class FileType(IntEnum):
+    CONFIG = 1
+    SAVEGAME = 2
+
 
 SUPPORTED_DOSBOX_VERSION = "0.82.1"
 

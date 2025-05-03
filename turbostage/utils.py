@@ -177,6 +177,22 @@ def update_version_info(
         cursor.execute(query, params)
 
 
+def find_game_for_hashes(hashes: list[str], db_path: str) -> int:
+    """Find a game by its file hashes.
+
+    Args:
+        hashes: A list of file hash values to check
+        db_path: Path to the database file
+
+    Returns:
+        The version_id if found, or None if not found
+    """
+    from turbostage.game_database import GameDatabase
+
+    db = GameDatabase(db_path)
+    return db.find_game_by_hashes(hashes)
+
+
 def delete_local_game(igdb_id: int, db_path: str):
     """Delete a local game from the database.
 

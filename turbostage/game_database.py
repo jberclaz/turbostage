@@ -6,17 +6,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from turbostage.db.populate_db import DB_VERSION
 
-# SQL for creating tables and indexes
-CREATE_TABLES_SQL = """
--- Add indexes to frequently searched columns
-CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id);
-CREATE INDEX IF NOT EXISTS idx_versions_game_id ON versions(game_id);
-CREATE INDEX IF NOT EXISTS idx_hashes_version_id ON hashes(version_id);
-CREATE INDEX IF NOT EXISTS idx_hashes_hash ON hashes(hash);
-CREATE INDEX IF NOT EXISTS idx_config_files_version_id ON config_files(version_id);
-CREATE INDEX IF NOT EXISTS idx_config_files_version_path ON config_files(version_id, path, type);
-CREATE INDEX IF NOT EXISTS idx_local_versions_version_id ON local_versions(version_id);
-"""
+# Indexes are now created during schema initialization and migration
 
 
 class ConnectionPool:
@@ -115,14 +105,12 @@ class GameDatabase:
 
         # Initialize database schema if this is a new database
         if db_exists:
-            # Ensure indexes exist for efficient querying
+            # Enable WAL mode for better concurrent access
             with self.transaction() as conn:
-                conn.executescript(CREATE_TABLES_SQL)
-                # WAL mode for better concurrent access
                 conn.execute("PRAGMA journal_mode = WAL")
                 # Foreign keys already enabled in transaction context
 
-            # Check version after ensuring the database is set up
+            # Check version and run migrations if needed
             self._check_version()
 
     def get_version(self) -> str:
@@ -159,12 +147,25 @@ class GameDatabase:
         try:
             version = self.get_version()
             if version != DB_VERSION:
-                raise RuntimeError(
-                    f"Incompatible DB version {version}. Remove file at {self._db_file} and re-run the program."
-                )
-        except sqlite3.OperationalError:
+                # Import migrations module here to avoid circular imports
+                from turbostage.db.migrations import migrate_database
+
+                # Open a direct connection for migration (outside the connection pool)
+                # to avoid transaction issues during schema changes
+                with sqlite3.connect(self._db_file) as conn:
+                    migrate_database(conn, version, DB_VERSION)
+
+                    # Ensure the version is updated
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM db_version")
+                    cursor.execute("INSERT INTO db_version (version) VALUES (?)", (DB_VERSION,))
+                    conn.commit()
+
+                print(f"Successfully migrated database from version {version} to {DB_VERSION}")
+        except sqlite3.OperationalError as e:
             # Database might be new or not have the version table yet
             # This will be handled by the initialization code
+            print(f"Database operation error during version check: {e}")
             pass
 
     def get_connection(self):
