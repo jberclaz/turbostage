@@ -6,6 +6,8 @@ import subprocess
 import zipfile
 from datetime import datetime, timezone
 
+from turbostage.db.game_database import GameDetails
+
 
 def epoch_to_formatted_date(epoch_s: int) -> str:
     dt = datetime.fromtimestamp(epoch_s, timezone.utc)
@@ -35,7 +37,7 @@ def compute_hash_for_largest_files_in_zip(zip_path, n=5):
     return file_hashes
 
 
-def fetch_game_details(igdb_client, igdb_id) -> dict:
+def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails:
     details = igdb_client.get_game_details(igdb_id)
 
     genres = igdb_client.get_genres(details["genres"])
@@ -47,13 +49,14 @@ def fetch_game_details(igdb_client, igdb_id) -> dict:
     companies_string = ", ".join(companies)
 
     cover_url = igdb_client.get_cover_url(details["cover"])
-    return {
-        "summary": details["summary"] if "summary" in details else "",
-        "genres": genres_string,
-        "release_date": release_epoch,
-        "publisher": companies_string,
-        "cover": cover_url,
-    }
+    return GameDetails(
+        release_date=release_epoch,
+        genre=genres_string,
+        summary=details["summary"] if "summary" in details else "",
+        publisher=companies_string,
+        cover_url=cover_url,
+        igdb_id=igdb_id,
+    )
 
 
 def get_dosbox_version(dosbox_exec: str) -> str:

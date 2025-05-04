@@ -3,7 +3,7 @@ import queue
 import sqlite3
 import threading
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
@@ -28,6 +28,7 @@ class GameDetails:
     summary: Optional[str]
     publisher: Optional[str]
     cover_url: Optional[str]
+    igdb_id: Optional[int] = None
 
 
 @dataclass
@@ -186,21 +187,18 @@ class GameDatabase:
         :param game_archive_name: game archive name (without path)
         :return: 1 if successfully added and 0 if the game already exists
         """
-        conn = self._connection
-        cursor = conn.cursor()
+        with self.transaction() as conn:
+            cursor = conn.cursor()
 
-        cursor.execute("SELECT count(*) FROM local_versions WHERE version_id = ?", (version_id,))
-        rows = cursor.fetchall()
-        if rows[0][0] > 0:
-            conn.close()
-            return 0
+            cursor.execute("SELECT count(*) FROM local_versions WHERE version_id = ?", (version_id,))
+            rows = cursor.fetchall()
+            if rows[0][0] > 0:
+                return 0
 
-        cursor.execute(
-            "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive_name)
-        )
-        conn.commit()
-        conn.close()
-        return 1
+            cursor.execute(
+                "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive_name)
+            )
+            return 1
 
     def _check_version(self):
         try:
@@ -354,9 +352,7 @@ class GameDatabase:
                 )
             return None
 
-    def update_game_details(
-        self, igdb_id: int, summary: str, release_date: str, genre: str, publisher: str, cover_url: str
-    ) -> None:
+    def update_game_details(self, igdb_id: int, details: GameDetails) -> None:
         """Update game details for a game with the given IGDB ID.
 
         Args:
@@ -375,10 +371,10 @@ class GameDatabase:
                 SET summary = ?, release_date = ?, genre = ?, publisher = ?, cover_url = ?
                 WHERE igdb_id = ?
                 """,
-                (summary, release_date, genre, publisher, cover_url, igdb_id),
+                (details.summary, details.release_date, details.genre, details.publisher, details.cover_url, igdb_id),
             )
 
-    def insert_game_with_details(self, game_name: str, details: Dict[str, Any], igdb_id: int) -> int:
+    def insert_game_with_details(self, game_name: str, details: GameDetails) -> int:
         """Insert a game with details from IGDB and return its ID."""
         with self.transaction() as conn:
             cursor = conn.cursor()
@@ -389,15 +385,15 @@ class GameDatabase:
                 """,
                 (
                     game_name,
-                    details["summary"],
-                    details["release_date"],
-                    details["genres"],
-                    details["publisher"],
-                    igdb_id,
-                    details["cover"],
+                    details.summary,
+                    details.release_date,
+                    details.genre,
+                    details.publisher,
+                    details.igdb_id,
+                    details.cover_url,
                 ),
             )
-            return cursor.lastrowid
+        return cursor.lastrowid
 
     #
     # Version related methods
@@ -423,13 +419,13 @@ class GameDatabase:
                     cycles,
                 ),
             )
-            return cursor.lastrowid
+        return cursor.lastrowid
 
     #
     # Hash related methods
     #
 
-    def insert_multiple_hashes(self, version_id: int, hashes: List[Tuple[str, int, str]]) -> None:
+    def insert_multiple_hashes(self, version_id: int, hashes: list[tuple[str, int, str]]) -> None:
         """Insert multiple hashes for a game version."""
         with self.transaction() as conn:
             cursor = conn.cursor()
@@ -437,36 +433,6 @@ class GameDatabase:
                 "INSERT INTO hashes (version_id, file_name, hash) VALUES " + ",".join(["(?, ?, ?)"] * len(hashes)),
                 [item for f, _, h in hashes for item in (version_id, f, h)],
             )
-
-    def get_game_launch_info(self, game_id: int) -> Optional[GameVersionInfo]:
-        """Retrieve the information needed to launch a game by its IGDB ID.
-
-        This method is deprecated. Use get_version_info(game_id, detailed=True) to get all versions
-        of a game, or get_version_launch_info(version_id) to get information for a specific version.
-        """
-        with self.read_only_transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT v.id, v.version, lv.archive, v.executable, v.config, v.cycles
-                FROM games g
-                JOIN versions v ON g.id = v.game_id
-                JOIN local_versions lv ON v.id = lv.version_id
-                WHERE g.igdb_id = ?
-                """,
-                (game_id,),
-            )
-            row = cursor.fetchone()
-            if row:
-                return GameVersionInfo(
-                    version_id=row[0],
-                    version_name=row[1],
-                    archive=row[2],
-                    executable=row[3],
-                    config=row[4],
-                    cycles=row[5],
-                )
-            return None
 
     def get_version_launch_info(self, version_id: int) -> Optional[GameVersionInfo]:
         """Retrieve the information needed to launch a specific version of a game.
@@ -498,9 +464,9 @@ class GameDatabase:
                     config=row[3],
                     cycles=row[4],
                 )
-            return None
+        return None
 
-    def get_version_info(self, game_id: int, detailed: bool = False) -> List[GameVersionInfo]:
+    def get_version_info(self, game_id: int, detailed: bool = False) -> list[GameVersionInfo]:
         """Retrieve version information for a game by its IGDB ID.
 
         Args:
@@ -552,38 +518,6 @@ class GameDatabase:
                 else:
                     result.append(GameVersionInfo(version_id=row[0], version_name=row[1], archive=row[2]))
             return result
-
-    # For backward compatibility
-    def get_version_info_by_game_id(self, game_id: int) -> Optional[GameVersionInfo]:
-        """Retrieve version information for a game by its IGDB ID.
-
-        This method is deprecated. Use get_version_info(game_id) to get all versions of a game.
-        This method only returns the first version found, which may not be what you want.
-
-        Args:
-            game_id: The IGDB ID of the game
-
-        Returns:
-            A GameVersionInfo object or None if not found
-        """
-        versions = self.get_version_info(game_id)
-        return versions[0] if versions else None
-
-    # For backward compatibility
-    def get_version_details_by_game_id(self, game_id: int) -> Optional[GameVersionInfo]:
-        """Retrieve detailed version information for a game by its IGDB ID.
-
-        This method is deprecated. Use get_version_info(game_id, detailed=True) to get all versions of a game.
-        This method only returns the first version found, which may not be what you want.
-
-        Args:
-            game_id: The IGDB ID of the game
-
-        Returns:
-            A GameVersionInfo object or None if not found
-        """
-        versions = self.get_version_info(game_id, detailed=True)
-        return versions[0] if versions else None
 
     def get_games_with_local_versions(self) -> list[LocalGameDetails]:
         """Retrieve all games that have local versions installed.
@@ -771,7 +705,7 @@ class GameDatabase:
             query = f"UPDATE versions SET {', '.join(update_fields)} WHERE id = ?"
             cursor.execute(query, params)
 
-    def find_game_by_hashes(self, hashes: List[str]) -> Optional[int]:
+    def find_game_by_hashes(self, hashes: list[str]) -> Optional[int]:
         """Find a game version by matching multiple file hashes.
 
         Args:
@@ -798,7 +732,7 @@ class GameDatabase:
             """
             cursor.execute(query, hashes)
             result = cursor.fetchone()
-            return result[0] if result else None
+        return result[0] if result else None
 
     #
     # Utility methods

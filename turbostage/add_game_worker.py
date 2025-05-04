@@ -46,22 +46,21 @@ class AddGameWorker(QRunnable):
             game_id = game[0]  # The first column is the ID
         else:
             # 2.1 query IGDB for extra info
-            details = utils.fetch_game_details(self._igdb_client, self._igdb_id)
+            details = utils.fetch_game_details_online(self._igdb_client, self._igdb_id)
             # 2.2 add game entry in games table
-            game_id = db.insert_game_with_details(self._game_name, details, self._igdb_id)
+            game_id = db.insert_game_with_details(self._game_name, details)
 
         # Get the archive basename
         archive_basename = os.path.basename(self._game_archive)
 
         # 2.5 Check that this version does not already exist
         existing_versions = db.get_version_info(game_id)
-        if existing_versions is not None:
-            for existing_version in existing_versions:
-                if existing_version.version_name == self._version_name:
-                    # Version already exists, just update the local version entry
-                    db.insert_local_version(existing_version.version_id, archive_basename)
-                    self.signals.task_finished.emit()
-                    return
+        for existing_version in existing_versions:
+            if existing_version.version_name == self._version_name:
+                # Version already exists, just update the local version entry
+                db.insert_local_version(existing_version.version_id, archive_basename)
+                self.signals.task_finished.emit()
+                return
 
         # 3. add game version in version table
         version_id = db.insert_game_version(
