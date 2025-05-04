@@ -198,7 +198,7 @@ class GameDatabase:
             cursor.execute(
                 "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive_name)
             )
-            return 1
+        return 1
 
     def _check_version(self):
         try:
@@ -324,7 +324,7 @@ class GameDatabase:
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM games WHERE igdb_id = ?", (igdb_id,))
-            return cursor.fetchone()
+        return cursor.fetchone()
 
     def get_game_details_by_igdb_id(self, igdb_id: int) -> Optional[GameDetails]:
         """Retrieve game details by IGDB ID.
@@ -350,7 +350,7 @@ class GameDatabase:
                 return GameDetails(
                     release_date=row[0], genre=row[1], summary=row[2], publisher=row[3], cover_url=row[4]
                 )
-            return None
+        return None
 
     def update_game_details(self, igdb_id: int, details: GameDetails) -> None:
         """Update game details for a game with the given IGDB ID.
@@ -517,7 +517,7 @@ class GameDatabase:
                     )
                 else:
                     result.append(GameVersionInfo(version_id=row[0], version_name=row[1], archive=row[2]))
-            return result
+        return result
 
     def get_games_with_local_versions(self) -> list[LocalGameDetails]:
         """Retrieve all games that have local versions installed.
@@ -535,7 +535,7 @@ class GameDatabase:
                 ORDER BY g.title
                 """
             )
-            return [LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0]) for row in cursor.fetchall()]
+        return [LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0]) for row in cursor.fetchall()]
 
     #
     # Config file related methods
@@ -552,9 +552,9 @@ class GameDatabase:
                 """,
                 (version_id, file_type),
             )
-            return cursor.fetchall()
+        return cursor.fetchall()
 
-    def add_extra_files(self, files: Dict[str, bytes], version_id: int, file_type: int) -> None:
+    def add_extra_files(self, files: dict[str, bytes], version_id: int, file_type: int) -> None:
         """Add or update extra files (config files, save games) in the database.
 
         Args:
