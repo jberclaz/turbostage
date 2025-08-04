@@ -324,7 +324,7 @@ class GameDatabase:
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM games WHERE igdb_id = ?", (igdb_id,))
-        return cursor.fetchone()
+            return cursor.fetchone()
 
     def get_game_details_by_igdb_id(self, igdb_id: int) -> Optional[GameDetails]:
         """Retrieve game details by IGDB ID.
@@ -393,7 +393,7 @@ class GameDatabase:
                     details.cover_url,
                 ),
             )
-        return cursor.lastrowid
+            return cursor.lastrowid
 
     #
     # Version related methods
@@ -419,7 +419,7 @@ class GameDatabase:
                     cycles,
                 ),
             )
-        return cursor.lastrowid
+            return cursor.lastrowid
 
     #
     # Hash related methods
@@ -478,28 +478,22 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
+            select_query = ""
             if detailed:
-                cursor.execute(
-                    """
-                    SELECT v.id, v.version, lv.archive, v.executable, v.config, v.cycles
-                    FROM versions v
-                    JOIN games g ON v.game_id = g.id
-                    JOIN local_versions lv ON v.id = lv.version_id
-                    WHERE g.igdb_id = ?
-                    """,
-                    (game_id,),
-                )
+                select_query = "SELECT v.id, v.version, lv.archive, v.executable, v.config, v.cycles"
             else:
-                cursor.execute(
-                    """
-                    SELECT v.id, v.version, lv.archive
+                select_query = "SELECT v.id, v.version, lv.archive"
+
+            cursor.execute(
+                f"""
+                    {select_query}
                     FROM versions v
                     JOIN games g ON v.game_id = g.id
                     JOIN local_versions lv ON v.id = lv.version_id
                     WHERE g.igdb_id = ?
                     """,
-                    (game_id,),
-                )
+                (game_id,),
+            )
 
             rows = cursor.fetchall()
             result = []
@@ -535,7 +529,7 @@ class GameDatabase:
                 ORDER BY g.title
                 """
             )
-        return [LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0]) for row in cursor.fetchall()]
+            return [LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0]) for row in cursor.fetchall()]
 
     #
     # Config file related methods
@@ -552,7 +546,7 @@ class GameDatabase:
                 """,
                 (version_id, file_type),
             )
-        return cursor.fetchall()
+            return cursor.fetchall()
 
     def add_extra_files(self, files: dict[str, bytes], version_id: int, file_type: int) -> None:
         """Add or update extra files (config files, save games) in the database.
