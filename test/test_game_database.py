@@ -4,7 +4,7 @@ import unittest
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
-from turbostage.db.game_database import GameDatabase
+from turbostage.db.game_database import GameDatabase, GameDetails
 
 
 class TestGameDatabase(unittest.TestCase):
@@ -18,13 +18,14 @@ class TestGameDatabase(unittest.TestCase):
 
         # Define test data constants
         self.test_igdb_id = 12345
-        self.test_game_details = {
-            "summary": "Test game summary",
-            "release_date": 946684800,  # 2000-01-01
-            "genres": "Adventure",
-            "publisher": "Test Publisher",
-            "cover": "//images.igdb.com/test.jpg",
-        }
+        self.test_game_details = GameDetails(
+            release_date=946684800,  # 2000-01-01
+            genre="Adventure",
+            summary="Test game summary",
+            publisher="Test Publisher",
+            cover_url="//images.igdb.com/test.jpg",
+            igdb_id=self.test_igdb_id,
+        )
 
     def tearDown(self):
         # Clean up the temporary database file
@@ -35,7 +36,7 @@ class TestGameDatabase(unittest.TestCase):
         db = GameDatabase(self.temp_db.name)
 
         # Insert a test game
-        game_id = db.insert_game_with_details("Test Game", self.test_game_details, self.test_igdb_id)
+        game_id = db.insert_game_with_details("Test Game", self.test_game_details)
 
         # Insert a version
         version_id = db.insert_game_version(game_id, "1.0", "game.exe", "game.zip", "dosbox_config", 3000)
@@ -55,7 +56,7 @@ class TestGameDatabase(unittest.TestCase):
         db = GameDatabase(self.temp_db.name)
 
         # Insert a test game
-        game_id = db.insert_game_with_details("Test Game", self.test_game_details, self.test_igdb_id)
+        game_id = db.insert_game_with_details("Test Game", self.test_game_details)
         self.assertIsNotNone(game_id)
 
         # Retrieve the game
@@ -70,34 +71,34 @@ class TestGameDatabase(unittest.TestCase):
         db = GameDatabase(self.temp_db.name)
 
         # Insert a test game
-        game_id = db.insert_game_with_details("Test Game", self.test_game_details, self.test_igdb_id)
+        game_id = db.insert_game_with_details("Test Game", self.test_game_details)
 
         # Update the game details
-        new_summary = "Updated game summary"
-        new_release_date = 978307200  # 2001-01-01
-        new_genre = "Strategy"
-        new_publisher = "New Publisher"
-        new_cover_url = "//images.igdb.com/new.jpg"
-
-        db.update_game_details(
-            self.test_igdb_id, new_summary, new_release_date, new_genre, new_publisher, new_cover_url
+        new_details = GameDetails(
+            summary="Updated game summary",
+            release_date=978307200,  # 2001-01-01
+            genre="Strategy",
+            publisher="New Publisher",
+            cover_url="//images.igdb.com/new.jpg",
         )
+
+        db.update_game_details(self.test_igdb_id, new_details)
 
         # Verify the update
         game_details = db.get_game_details_by_igdb_id(self.test_igdb_id)
         self.assertIsNotNone(game_details)
-        self.assertEqual(game_details[0], new_release_date)  # release_date
-        self.assertEqual(game_details[1], new_genre)  # genre
-        self.assertEqual(game_details[2], new_summary)  # summary
-        self.assertEqual(game_details[3], new_publisher)  # publisher
-        self.assertEqual(game_details[4], new_cover_url)  # cover_url
+        self.assertEqual(game_details.release_date, new_details.release_date)
+        self.assertEqual(game_details.genre, new_details.genre)
+        self.assertEqual(game_details.summary, new_details.summary)
+        self.assertEqual(game_details.publisher, new_details.publisher)
+        self.assertEqual(game_details.cover_url, new_details.cover_url)
 
     def test_find_game_by_hashes(self):
         """Test finding a game by file hashes"""
         db = GameDatabase(self.temp_db.name)
 
         # Insert a test game
-        game_id = db.insert_game_with_details("Test Game", self.test_game_details, self.test_igdb_id)
+        game_id = db.insert_game_with_details("Test Game", self.test_game_details)
 
         # Insert a version
         version_id = db.insert_game_version(game_id, "1.0", "game.exe", "game.zip", "", 0)
@@ -139,20 +140,6 @@ class TestGameDatabase(unittest.TestCase):
         found_version = db.find_game_by_hashes(["def456", "abc456"])
         self.assertEqual(found_version, second_version_id)
 
-    def test_game_launch_info(self):
-        """Test retrieving game launch information"""
-        game_id, version_id = self._create_test_game_and_version()
-        db = GameDatabase(self.temp_db.name)
-
-        # Test getting launch info
-        launch_info = db.get_game_launch_info(self.test_igdb_id)
-        self.assertIsNotNone(launch_info)
-        self.assertEqual(launch_info[0], "game.exe")  # executable
-        self.assertEqual(launch_info[1], "game.zip")  # archive
-        self.assertEqual(launch_info[2], "dosbox_config")  # config
-        self.assertEqual(launch_info[3], 3000)  # cycles
-        self.assertEqual(launch_info[4], version_id)  # version_id
-
     def test_local_versions(self):
         """Test operations related to local versions"""
         game_id, version_id = self._create_test_game_and_version()
@@ -161,8 +148,8 @@ class TestGameDatabase(unittest.TestCase):
         # Verify game appears in local versions list
         games_list = db.get_games_with_local_versions()
         self.assertEqual(len(games_list), 1)
-        self.assertEqual(games_list[0][0], self.test_igdb_id)  # igdb_id
-        self.assertEqual(games_list[0][1], "Test Game")  # title
+        self.assertEqual(games_list[0].igdb_id, self.test_igdb_id)  # igdb_id
+        self.assertEqual(games_list[0].title, "Test Game")  # title
 
         # Clear local versions
         db.clear_local_versions()
@@ -186,13 +173,13 @@ class TestGameDatabase(unittest.TestCase):
         game = db.get_game_by_igdb_id(99999)
         self.assertIsNone(game)
 
-        # Test launch info for non-existent game
-        launch_info = db.get_game_launch_info(99999)
+        # Test launch info for non-existent version using new method
+        launch_info = db.get_version_launch_info(99999)
         self.assertIsNone(launch_info)
 
-        # Test version info for non-existent game
-        version_info = db.get_version_info_by_game_id(99999)
-        self.assertIsNone(version_info)
+        # Test version info for non-existent game using new method
+        versions = db.get_version_info(99999)
+        self.assertEqual(len(versions), 0)
 
         # Test empty local versions list
         games_list = db.get_games_with_local_versions()

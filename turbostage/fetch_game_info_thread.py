@@ -10,7 +10,7 @@ class FetchGameInfoWorker(QObject):
 
     def __init__(self, game_id: int, igdb_client: IgdbClient, db_path: str, cancel_flag):
         super().__init__()
-        self._game_id = game_id
+        self._igdb_id = game_id
         self._igdb_client = igdb_client
         self._cancel_flag = cancel_flag
         self._db_path = db_path
@@ -20,35 +20,26 @@ class FetchGameInfoWorker(QObject):
             return
 
         db = GameDatabase(self._db_path)
-        game_details = db.get_game_details_by_igdb_id(self._game_id)
+        game_details = db.get_game_details_by_igdb_id(self._igdb_id)
 
         if not game_details:
-            raise RuntimeError(f"No database entry for game {self._game_id}")
+            raise RuntimeError(f"No database entry for game {self._igdb_id}")
 
-        release_date, genre, summary, publisher, cover_url = game_details
-
-        if release_date is not None:
+        if game_details.release_date is not None:
             self.finished.emit(
-                summary,
-                "http:" + cover_url.replace("t_thumb", "t_cover_big"),
-                utils.epoch_to_formatted_date(release_date),
-                genre,
-                publisher,
+                game_details.summary,
+                "http:" + game_details.cover_url.replace("t_thumb", "t_cover_big"),
+                utils.epoch_to_formatted_date(game_details.release_date),
+                game_details.genre,
+                game_details.publisher,
             )
             return
 
         # If we don't have complete details, fetch them from IGDB
-        details = utils.fetch_game_details(self._igdb_client, self._game_id)
+        details = utils.fetch_game_details_online(self._igdb_client, self._igdb_id)
 
         # Update the database with the fetched details
-        db.update_game_details(
-            self._game_id,
-            details["summary"],
-            details["release_date"],
-            details["genres"],
-            details["publisher"],
-            details["cover"],
-        )
+        db.update_game_details(self._igdb_id, details)
 
         self.finished.emit(
             details["summary"],

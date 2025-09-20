@@ -163,9 +163,10 @@ class MainWindow(QMainWindow):
             self.game_table.setRowHidden(row, not match)
 
     def launch_game(self):
-        game_id, _ = self.selected_game
+        game_ids, _ = self.selected_game
+        _, version_id = game_ids
         gl = GameLauncher(track_change=True)
-        gl.launch_game(game_id, self._gamedb)
+        gl.launch_game(version_id, self._gamedb)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
@@ -183,39 +184,39 @@ class MainWindow(QMainWindow):
             self._current_fetch_cancel_flag.cancelled = True
 
         name_row = selected_items[0]
-        game_id = name_row.data(Qt.UserRole)
+        igdb_id, _ = name_row.data(Qt.UserRole)
         game_name = name_row.text()
 
         self.right_info_tab.set_game_name(game_name)
-        self.right_setup_tab.set_game(game_id, self._gamedb)
+        self.right_setup_tab.set_game(igdb_id, self._gamedb)
 
         settings = QSettings("jberclaz", "TurboStage")
         dosbox_exec = str(settings.value("app/emulator_path", ""))
         self.launch_button.setEnabled(dosbox_exec != "")
 
         cancel_flag = utils.CancellationFlag()
-        fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, self.db_path, cancel_flag)
+        fetch_worker = FetchGameInfoWorker(igdb_id, self._igdb_client, self.db_path, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
         fetch_worker.finished.connect(self.right_info_tab.set_game_info)
         fetch_task = FetchGameInfoTask(fetch_worker)
         self._thread_pool.start(fetch_task)
 
     def load_games(self):
-        rows = self._gamedb.get_games_with_local_versions()
+        games = self._gamedb.get_games_with_local_versions()
 
         self.game_table.setSortingEnabled(False)
-        self.game_table.setRowCount(len(rows))
-        for row_num, row in enumerate(rows):
+        self.game_table.setRowCount(len(games))
+        for row_num, game in enumerate(games):
             # row format: (igdb_id, title, release_date, genre, version)
-            game_name = QTableWidgetItem(row[1])
-            game_name.setData(Qt.UserRole, row[0])  # igdb_id
-            dt_object = datetime.fromtimestamp(row[2], timezone.utc)
+            game_title = QTableWidgetItem(game.title)
+            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id))  # version_id
+            dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
 
-            self.game_table.setItem(row_num, 0, game_name)
+            self.game_table.setItem(row_num, 0, game_title)
             self.game_table.setItem(row_num, 1, QTableWidgetItem(release_date))
-            self.game_table.setItem(row_num, 2, QTableWidgetItem(row[3]))
-            self.game_table.setItem(row_num, 3, QTableWidgetItem(row[4]))
+            self.game_table.setItem(row_num, 2, QTableWidgetItem(game.genre))
+            self.game_table.setItem(row_num, 3, QTableWidgetItem(game.version))
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
 
@@ -387,12 +388,15 @@ class MainWindow(QMainWindow):
 
     def _on_run_game_setup(self):
         game_id, _ = self.selected_game
-        version_info = self._gamedb.get_version_info_by_game_id(game_id)
-        if not version_info:
+        versions = self._gamedb.get_version_info(game_id)
+        if not versions:
             return
 
-        # version_info format: (version_id, executable, config, cycles, archive)
-        version_id, _, game_archive = version_info
+        # Use the first version for now
+        # TODO: Allow user to select which version to set up
+        version_info = versions[0]
+        version_id = version_info.version_id
+        game_archive = version_info.archive
 
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))

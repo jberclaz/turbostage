@@ -22,26 +22,21 @@ class GameLauncher:
 
     def launch_game(
         self,
-        game_id: int,
+        version_id: int,
         db: GameDatabase,
         save_games: bool = True,
         config_files: bool = True,
         binary: str | None = None,
     ):
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
-        game_info = db.get_game_launch_info(game_id)
 
-        if not game_info:
-            QGuiApplication.restoreOverrideCursor()
-            QMessageBox.critical(
-                None,
-                "Game not found",
-                f"Cannot find game with ID {game_id} in the database.",
-                QMessageBox.Ok,
-            )
-            return
+        game_info = db.get_version_launch_info(version_id)
 
-        executable, archive, config, cpu_cycles, self._version_id = game_info
+        executable = game_info.executable
+        archive = game_info.archive
+        config = game_info.config
+        cpu_cycles = game_info.cycles
+        self._version_id = game_info.version_id
         if binary is not None:
             executable = binary
 
