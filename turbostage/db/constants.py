@@ -6,7 +6,7 @@ and schema definitions.
 """
 
 # Current database version - used for new installations and migrations
-DB_VERSION = "0.6.0"
+DB_VERSION = "0.7.0"
 
 # Original schema version - for reference
 ORIGINAL_VERSION = "0.5.0"
@@ -31,6 +31,7 @@ SCHEMA_TABLES = {
             game_id INTEGER NOT NULL,
             version TEXT,
             executable TEXT,
+            config_executable TEXT,
             archive TEXT,
             config TEXT,
             cycles INTEGER DEFAULT 0

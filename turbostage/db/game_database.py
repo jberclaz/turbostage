@@ -3,7 +3,7 @@ import queue
 import sqlite3
 import threading
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
@@ -478,7 +478,6 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            select_query = ""
             if detailed:
                 select_query = "SELECT v.id, v.version, lv.archive, v.executable, v.config, v.cycles"
             else:

@@ -164,8 +164,7 @@ class MainWindow(QMainWindow):
             self.game_table.setRowHidden(row, not match)
 
     def launch_game(self):
-        game_ids, _ = self.selected_game
-        _, version_id = game_ids
+        _, version_id, _ = self.selected_game
         gl = GameLauncher(track_change=True)
         gl.launch_game(version_id, self._gamedb)
         if gl.new_files or gl.modified_files:
@@ -292,6 +291,7 @@ class MainWindow(QMainWindow):
             new_game_wizard.igdb_id,
             game_path,
             new_game_wizard.game_executable,
+            new_game_wizard.game_config,
             new_game_wizard.cpu,
             new_game_wizard.dosbox_config,
             self.db_path,
@@ -376,7 +376,7 @@ class MainWindow(QMainWindow):
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
     def _on_delete_selected_game(self):
-        game_id, game_name = self.selected_game
+        game_id, _, game_name = self.selected_game
 
         reply = QMessageBox.question(
             self,
@@ -391,15 +391,18 @@ class MainWindow(QMainWindow):
             self.load_games()
 
     def _on_run_game_setup(self):
-        game_id, _ = self.selected_game
+        game_id, version_id, _ = self.selected_game
         versions = self._gamedb.get_version_info(game_id)
         if not versions:
             return
 
-        # Use the first version for now
-        # TODO: Allow user to select which version to set up
-        version_info = versions[0]
-        version_id = version_info.version_id
+        version_info = None
+        for v in versions:
+            if v.version_id == version_id:
+                version_info = v
+                break
+        if version_info is None:
+            return
         game_archive = version_info.archive
 
         settings = QSettings("jberclaz", "TurboStage")
@@ -435,11 +438,11 @@ class MainWindow(QMainWindow):
         return str(settings.value("app/games_path", ""))
 
     @property
-    def selected_game(self) -> tuple[int, str]:
+    def selected_game(self) -> tuple[int, int, str]:
         selected_items = self.game_table.selectedItems()
         if len(selected_items) != 4:
             raise RuntimeError("Invalid game selection")
         name_row = selected_items[0]
-        game_id = name_row.data(Qt.UserRole)
+        game_id, version_id = name_row.data(Qt.UserRole)
         game_name = name_row.text()
-        return game_id, game_name
+        return game_id, version_id, game_name

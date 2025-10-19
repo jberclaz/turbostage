@@ -19,6 +19,7 @@ class AddGameWorker(QRunnable):
         igdb_id: int,
         game_archive: str,
         binary: str,
+        config_binary: str | None,
         cpu_cycles: int,
         config: str,
         db_path: str,
@@ -31,6 +32,7 @@ class AddGameWorker(QRunnable):
         self._igdb_id = igdb_id
         self._game_archive = game_archive
         self._binary = binary
+        self._config_binary = config_binary
         self._cpu_cycles = cpu_cycles
         self._config = config
         self._db_path = db_path

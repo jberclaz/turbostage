@@ -136,3 +136,9 @@ def migrate_to_0_6_0(conn: sqlite3.Connection) -> None:
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_config_files_version_id ON config_files(version_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_config_files_version_path ON config_files(version_id, path, type)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_local_versions_version_id ON local_versions(version_id)")
+
+
+@migration("0.7.0")
+def migrate_to_0_7_0(conn: sqlite3.Connection) -> None:
+    cursor = conn.cursor()
+    cursor.execute("ALTER TABLE versions ADD COLUMN config_executable TEXT")
