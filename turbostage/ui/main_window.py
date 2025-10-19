@@ -38,6 +38,7 @@ from turbostage.scanning_thread import ScanningThread
 from turbostage.ui.game_info_widget import GameInfoWidget
 from turbostage.ui.game_setup_dialog import GameSetupDialog
 from turbostage.ui.game_setup_widget import GameSetupWidget
+from turbostage.ui.locked_file_dialog import LockedFileDialog
 from turbostage.ui.new_game_wizard import NewGameWizard
 from turbostage.ui.settings_dialog import SettingsDialog
 
@@ -269,9 +270,12 @@ class MainWindow(QMainWindow):
 
     def _on_add_new_game(self):
         games_path = self.games_path
-        game_path, _ = QFileDialog.getOpenFileName(self, "Select game archive", games_path, "Game archives (*.zip)")
-        if not game_path:
+        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip)")
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if not dialog.exec():
             return
+        game_path = dialog.selectedFiles()[0]
+
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
         version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
         if version_id is not None:
