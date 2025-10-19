@@ -108,7 +108,6 @@ class GameSetupWidget(QWidget):
         game_config = version_details.config
         cpu_cycles = version_details.cycles
         game_archive = version_details.archive
-        game_version = version_details.version_name
 
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))

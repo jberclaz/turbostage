@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from turbostage import __version__, constants, utils
 from turbostage.add_game_worker import AddGameWorker
+from turbostage.constants import CPU_CYCLES
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
@@ -292,7 +293,7 @@ class MainWindow(QMainWindow):
             game_path,
             new_game_wizard.game_executable,
             new_game_wizard.game_config,
-            new_game_wizard.cpu,
+            list(CPU_CYCLES.values())[new_game_wizard.cpu],
             new_game_wizard.dosbox_config,
             self.db_path,
             self._igdb_client,
