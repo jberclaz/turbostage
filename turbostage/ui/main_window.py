@@ -1,7 +1,6 @@
 import importlib
 import json
 import os
-import sqlite3
 import tempfile
 from datetime import datetime, timezone
 
@@ -29,9 +28,9 @@ from PySide6.QtWidgets import (
 
 from turbostage import __version__, constants, utils
 from turbostage.add_game_worker import AddGameWorker
-from turbostage.db.populate_db import initialize_database
+from turbostage.db.database_manager import DatabaseManager
+from turbostage.db.game_database import GameDatabase
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
-from turbostage.game_database import GameDatabase
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
@@ -165,12 +164,13 @@ class MainWindow(QMainWindow):
             self.game_table.setRowHidden(row, not match)
 
     def launch_game(self):
-        game_id, _ = self.selected_game
+        game_ids, _ = self.selected_game
+        _, version_id = game_ids
         gl = GameLauncher(track_change=True)
-        gl.launch_game(game_id, self.db_path)
+        gl.launch_game(version_id, self._gamedb)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
-            utils.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME, self.db_path)
+            self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
 
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
@@ -185,49 +185,39 @@ class MainWindow(QMainWindow):
             self._current_fetch_cancel_flag.cancelled = True
 
         name_row = selected_items[0]
-        game_id = name_row.data(Qt.UserRole)
+        igdb_id, _ = name_row.data(Qt.UserRole)
         game_name = name_row.text()
 
         self.right_info_tab.set_game_name(game_name)
-        self.right_setup_tab.set_game(game_id, self.db_path)
+        self.right_setup_tab.set_game(igdb_id, self._gamedb)
 
         settings = QSettings("jberclaz", "TurboStage")
         dosbox_exec = str(settings.value("app/emulator_path", ""))
         self.launch_button.setEnabled(dosbox_exec != "")
 
         cancel_flag = utils.CancellationFlag()
-        fetch_worker = FetchGameInfoWorker(game_id, self._igdb_client, self.db_path, cancel_flag)
+        fetch_worker = FetchGameInfoWorker(igdb_id, self._igdb_client, self.db_path, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
         fetch_worker.finished.connect(self.right_info_tab.set_game_info)
         fetch_task = FetchGameInfoTask(fetch_worker)
         self._thread_pool.start(fetch_task)
 
     def load_games(self):
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT g.title, g.release_date, g.genre, v.version, g.igdb_id
-            FROM games g
-                     JOIN versions v ON g.id = v.game_id
-                     JOIN local_versions lv ON v.id = lv.version_id;
-            """
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        games = self._gamedb.get_games_with_local_versions()
 
         self.game_table.setSortingEnabled(False)
-        self.game_table.setRowCount(len(rows))
-        for row_num, row in enumerate(rows):
-            game_name = QTableWidgetItem(row[0])
-            game_name.setData(Qt.UserRole, row[4])
-            dt_object = datetime.fromtimestamp(row[1], timezone.utc)
+        self.game_table.setRowCount(len(games))
+        for row_num, game in enumerate(games):
+            # row format: (igdb_id, title, release_date, genre, version)
+            game_title = QTableWidgetItem(game.title)
+            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id))  # version_id
+            dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
 
-            self.game_table.setItem(row_num, 0, game_name)
+            self.game_table.setItem(row_num, 0, game_title)
             self.game_table.setItem(row_num, 1, QTableWidgetItem(release_date))
-            self.game_table.setItem(row_num, 2, QTableWidgetItem(row[2]))
-            self.game_table.setItem(row_num, 3, QTableWidgetItem(row[3]))
+            self.game_table.setItem(row_num, 2, QTableWidgetItem(game.genre))
+            self.game_table.setItem(row_num, 3, QTableWidgetItem(game.version))
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
 
@@ -277,7 +267,7 @@ class MainWindow(QMainWindow):
         game_path = dialog.selectedFiles()[0]
 
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
-        version_id = utils.find_game_for_hashes([h[2] for h in hashes], self.db_path)
+        version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
             added = self._gamedb.add_local_game(version_id, os.path.basename(game_path))
             if added == 0:
@@ -397,52 +387,46 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
-            utils.delete_local_game(game_id, self.db_path)
+            self._gamedb.delete_local_game_by_igdb_id(game_id)
             self.load_games()
 
     def _on_run_game_setup(self):
         game_id, _ = self.selected_game
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT lv.archive, v.id
-            FROM games g
-                     JOIN versions v ON g.id = v.game_id
-                     JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.igdb_id = ?
-            """,
-            (game_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
+        versions = self._gamedb.get_version_info(game_id)
+        if not versions:
+            return
+
+        # Use the first version for now
+        # TODO: Allow user to select which version to set up
+        version_info = versions[0]
+        version_id = version_info.version_id
+        game_archive = version_info.archive
 
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))
 
-        game_archive, version_id = rows[0]
         game_archive_url = os.path.join(games_path, game_archive)
         setup_dialog = GameSetupDialog(game_archive_url)
         if setup_dialog.exec() != QDialog.Accepted:
             return
         gl = GameLauncher(track_change=True)
-        gl.launch_game(game_id, self.db_path, False, False, setup_dialog.selected_binary)
+        gl.launch_game(game_id, self._gamedb, False, False, setup_dialog.selected_binary)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
-            utils.add_extra_files(config_files, version_id, constants.FileType.CONFIG, self.db_path)
+            self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
 
     def _on_game_settings_saved(self):
         version_id = self.right_setup_tab.version_id
         binary = self.right_setup_tab.selected_binary
         config = self.right_setup_tab.dosbox_config_text.toPlainText()
         cycles = self.right_setup_tab.cpu_cycles
-        utils.update_version_info(version_id, None, binary, config, cycles, self.db_path)
+        self._gamedb.update_version_info(version_id, None, binary, config, cycles)
 
     @property
     def db_path(self):
         p = os.path.join(self._app_data_folder, self.DB_FILE)
         if not os.path.isfile(p):
-            initialize_database(p)
+            DatabaseManager.initialize_database(p)
         return p
 
     @property

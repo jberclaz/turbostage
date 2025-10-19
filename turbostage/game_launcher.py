@@ -1,6 +1,5 @@
 import importlib
 import os
-import sqlite3
 import subprocess
 import tempfile
 import zipfile
@@ -10,6 +9,7 @@ from PySide6.QtGui import QGuiApplication, Qt
 from PySide6.QtWidgets import QMessageBox
 
 from turbostage import constants, utils
+from turbostage.db.game_database import GameDatabase
 
 
 class GameLauncher:
@@ -21,24 +21,22 @@ class GameLauncher:
         self._version_id = None
 
     def launch_game(
-        self, game_id: int, db_path: str, save_games: bool = True, config_files: bool = True, binary: str | None = None
+        self,
+        version_id: int,
+        db: GameDatabase,
+        save_games: bool = True,
+        config_files: bool = True,
+        binary: str | None = None,
     ):
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT v.executable, lv.archive, v.config, v.cycles, v.id
-            FROM games g
-            JOIN versions v ON g.id = v.game_id
-            JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.igdb_id = ?
-            """,
-            (game_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        executable, archive, config, cpu_cycles, self._version_id = rows[0]
+
+        game_info = db.get_version_launch_info(version_id)
+
+        executable = game_info.executable
+        archive = game_info.archive
+        config = game_info.config
+        cpu_cycles = game_info.cycles
+        self._version_id = game_info.version_id
         if binary is not None:
             executable = binary
 
@@ -63,10 +61,10 @@ class GameLauncher:
                 zip_ref.extractall(temp_dir)
 
             if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db_path, constants.FileType.CONFIG)
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
 
             if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db_path, constants.FileType.SAVEGAME)
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
 
             if self._track_change:
                 self._original_files = utils.list_files_with_md5(temp_dir)
@@ -108,19 +106,10 @@ class GameLauncher:
                 self._modified_files[os.path.relpath(file_after_setup, temp_dir)] = content
 
     @staticmethod
-    def _write_game_extra_files(version_id: int, temp_dir: str, db_path: str, file_type: int):
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT path, content FROM config_files
-            WHERE version_id = ? AND type = ?
-            """,
-            (version_id, file_type),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        for config_file_path, content in rows:
+    def _write_game_extra_files(version_id: int, temp_dir: str, db: GameDatabase, file_type: int):
+        config_files = db.get_config_files_with_content(version_id, file_type)
+
+        for config_file_path, content in config_files:
             folder = os.path.join(temp_dir, os.path.dirname(config_file_path))
             if not os.path.isdir(folder):
                 os.makedirs(folder)

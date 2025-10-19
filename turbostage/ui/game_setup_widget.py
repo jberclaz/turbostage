@@ -1,5 +1,4 @@
 import os
-import sqlite3
 import zipfile
 
 from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, QSettings, Qt, Signal
@@ -16,6 +15,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import constants
+from turbostage.db.game_database import GameDatabase
 
 
 class BinaryListModel(QAbstractListModel):
@@ -85,30 +85,31 @@ class GameSetupWidget(QWidget):
         self.save_button.clicked.connect(self._on_save)
         self.layout.addWidget(self.save_button, alignment=Qt.AlignmentFlag.AlignRight)
 
-    def set_game(self, game_id: int | None, db_path: str):
+    def set_game(self, game_id: int | None, db: GameDatabase):
         enabled = game_id is not None
         self.binary_list_view.setEnabled(enabled)
         self.cpu_combobox.setEnabled(enabled)
         self.dosbox_config_text.setEnabled(enabled)
         if not enabled:
             return
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        cursor.execute(
-            """
-            SELECT v.executable, lv.archive, v.config, v.cycles, v.version, v.id
-            FROM games g
-            JOIN versions v ON g.id = v.game_id
-            JOIN local_versions lv ON v.id = lv.version_id
-            WHERE g.igdb_id = ?
-            """,
-            (game_id,),
-        )
-        rows = cursor.fetchall()
-        conn.close()
-        if len(rows) != 1:
+
+        versions = db.get_version_info(game_id, detailed=True)
+
+        if not versions:
             raise RuntimeError(f"Unable to get game details for '{game_id}'")
-        game_binary, game_archive, game_config, cpu_cycles, game_version, self.version_id = rows[0]
+
+        # Use the first version for now
+        # TODO: Allow user to select which version to configure
+        version_details = versions[0]
+
+        # Access the version details from the GameVersionInfo object
+        self.version_id = version_details.version_id
+        game_binary = version_details.executable
+        game_config = version_details.config
+        cpu_cycles = version_details.cycles
+        game_archive = version_details.archive
+        game_version = version_details.version_name
+
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))
         game_archive_path = os.path.join(games_path, game_archive)
