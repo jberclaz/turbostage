@@ -1,3 +1,5 @@
+import importlib.resources
+import json
 import os
 import sqlite3
 import zipfile
@@ -5,187 +7,85 @@ import zipfile
 from PySide6.QtCore import QStandardPaths
 
 from turbostage import utils
-
-DB_VERSION = "0.5.0"
-
-GAME_DATA = [
-    {
-        "title": "The Secret of Monkey Island",
-        "versions": [
-            {
-                "version": "vga",
-                "executable": "monkey/MONKEY.EXE",
-                "archive": "monkey_vga.zip",
-                "config": "",
-            }
-        ],
-        "igdb_id": 60,
-    },
-    {
-        "title": "Prince of Persia",
-        "versions": [
-            {
-                "version": "v1.4",
-                "executable": "pop/PRINCE.EXE",
-                "archive": "pop-1.4.zip",
-                "config": "",
-            }
-        ],
-        "igdb_id": 284766,
-    },
-    {
-        "title": "Prince of Persia 2: The Shadow and the Flame",
-        "versions": [
-            {
-                "version": "en",
-                "executable": "pop2/prince.exe",
-                "archive": "pop2-en.zip",
-                "config": "",
-            }
-        ],
-        "igdb_id": 3164,
-    },
-    {
-        "title": "Comanche: Maximum Overkill",
-        "versions": [
-            {
-                "version": "en",
-                "executable": "COMANCHE/C.EXE",
-                "archive": "comanche.zip",
-                "config": "[midi]\nmididevice = mt32\n",
-            }
-        ],
-        "igdb_id": 7494,
-    },
-    {
-        "title": "Power Drive",
-        "versions": [
-            {
-                "version": "en",
-                "executable": "pd/PDRIVE.EXE",
-                "archive": "powerdrive.zip",
-                "config": "[cpu]\ncpu_cycles = 12000\n",
-            }
-        ],
-        "igdb_id": 12720,
-    },
-]
+from turbostage.db.constants import DB_VERSION
+from turbostage.db.database_manager import DatabaseManager
 
 
-def initialize_database(db_path: str):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS games (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            title TEXT NOT NULL,
-            release_date INTEGER,
-            genre TEXT,
-            summary TEXT,
-            publisher TEXT,
-            igdb_id INTEGER,
-            cover_url TEXT
-        );
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS versions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            game_id INTEGER NOT NULL,
-            version TEXT,
-            executable TEXT,
-            archive TEXT,
-            config TEXT,
-            cycles INTEGER DEFAULT 0
-        );
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS hashes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            version_id INTEGER NOT NULL,
-            file_name TEXT,
-            hash TEXT
-        );
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS local_versions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            version_id INTEGER UNIQUE NOT NULL,
-            archive TEXT
-        );
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS config_files (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            version_id INTEGER NOT NULL,
-            type INTEGER NOT NULL,
-            path TEXT,
-            content BLOB
-        )
-        """
-    )
-    cursor.execute(
-        """
-        CREATE TABLE IF NOT EXISTS db_version (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          version TEXT NOT NULL
-        );
-        """
-    )
+def load_sample_game_data():
+    """Load sample game data from JSON file.
 
-    cursor.execute("""INSERT INTO db_version (version) VALUES (?)""", (DB_VERSION,))
-
-    conn.commit()
-    conn.close()
+    Returns:
+        List of game dictionaries with title, versions, and igdb_id
+    """
+    try:
+        # Use importlib.resources for a more robust way to access package resources
+        sample_games_path = importlib.resources.files("turbostage.content").joinpath("sample_games.json")
+        with open(sample_games_path, "r") as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Error loading sample game data: {e}")
+        return []
 
 
 def populate_database(db_path, games):
+    """Populate the database with sample game data.
+
+    Args:
+        db_path: Path to the SQLite database file
+        games: List of game dictionaries with title, versions, and igdb_id
+    """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM db_version;")
-    cursor.execute("""INSERT INTO db_version (version) VALUES (?)""", (DB_VERSION,))
+    # Ensure the database version is correct
+    cursor.execute("DELETE FROM db_version")
+    cursor.execute("INSERT INTO db_version (version) VALUES (?)", (DB_VERSION,))
 
+    # Add game data
     for game in games:
         cursor.execute(
             """
             INSERT INTO games (title, igdb_id)
             VALUES (?, ?)
-        """,
+            """,
             (game["title"], game["igdb_id"]),
         )
         game_id = cursor.lastrowid
+
         for version in game["versions"]:
+            # Convert cycles if present, otherwise use default value 0
+            cycles = version.get("cycles", 0)
+
             cursor.execute(
                 """
-                INSERT INTO versions (game_id, version, executable, archive, config)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO versions (game_id, version, executable, archive, config, cycles)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (game_id, version["version"], version["executable"], version["archive"], version["config"]),
+                (game_id, version["version"], version["executable"], version["archive"], version["config"], cycles),
             )
             version_id = cursor.lastrowid
+
+            # Process game files and create hashes
             game_archive = os.path.join("games", version["archive"])
             if not os.path.isfile(game_archive):
                 print(f"Game {game['title']} not found on disk")
                 continue
+
             hashes = utils.compute_hash_for_largest_files_in_zip(game_archive, n=4)
+
+            # Ensure the executable is included in hashes
             if not version["executable"] in [h[0] for h in hashes]:
                 with zipfile.ZipFile(game_archive, "r") as zf:
                     h = utils.compute_md5_from_zip(zf, version["executable"])
                     hashes.append((version["executable"], 0, h))
+
+            # Add hashes to database
             for h in hashes:
                 cursor.execute(
                     """
                     INSERT INTO hashes (version_id, file_name, hash)
-                    VALUES (?, ?, ?)""",
+                    VALUES (?, ?, ?)
+                    """,
                     (version_id, h[0], h[2]),
                 )
 
@@ -197,7 +97,17 @@ def populate_database(db_path, games):
 if __name__ == "__main__":
     db_path = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
     db_file = os.path.join(db_path, "turbostage.db")
+
+    # For development purposes, remove existing database before recreating
     if os.path.exists(db_file):
         os.remove(db_file)
-    initialize_database(db_file)
-    populate_database(db_file, GAME_DATA)
+
+    # Initialize the database using the centralized manager
+    DatabaseManager.initialize_database(db_file)
+
+    # Load game data from the JSON file
+    game_data = load_sample_game_data()
+    if game_data:
+        populate_database(db_file, game_data)
+    else:
+        print("Warning: No game data loaded, database will be empty")

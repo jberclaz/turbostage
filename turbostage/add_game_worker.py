@@ -1,10 +1,10 @@
 import os
-import sqlite3
 import zipfile
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from turbostage import utils
+from turbostage.db.game_database import GameDatabase
 
 
 class WorkerSignals(QObject):
@@ -37,65 +37,46 @@ class AddGameWorker(QRunnable):
         self._igdb_client = igdb_client
 
     def run(self):
+        # Create database instance
+        db = GameDatabase(self._db_path)
+
         # 1. check if game exists in db
-        conn = sqlite3.connect(self._db_path)
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM games WHERE igdb_id = ?", (self._igdb_id,))
-        rows = cursor.fetchall()
-        if len(rows) > 0:
-            game_id = rows[0][0]
+        game = db.get_game_by_igdb_id(self._igdb_id)
+        if game:
+            game_id = game[0]  # The first column is the ID
         else:
             # 2.1 query IGDB for extra info
-            details = utils.fetch_game_details(self._igdb_client, self._igdb_id)
+            details = utils.fetch_game_details_online(self._igdb_client, self._igdb_id)
             # 2.2 add game entry in games table
-            cursor.execute(
-                """
-                INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    self._game_name,
-                    details["summary"],
-                    details["release_date"],
-                    details["genres"],
-                    details["publisher"],
-                    self._igdb_id,
-                    details["cover"],
-                ),
-            )
-            game_id = cursor.lastrowid
-        # 2.5 TODO: check that this version does not already exist.
+            game_id = db.insert_game_with_details(self._game_name, details)
+
+        # Get the archive basename
+        archive_basename = os.path.basename(self._game_archive)
+
+        # 2.5 Check that this version does not already exist
+        existing_versions = db.get_version_info(game_id)
+        for existing_version in existing_versions:
+            if existing_version.version_name == self._version_name:
+                # Version already exists, just update the local version entry
+                db.insert_local_version(existing_version.version_id, archive_basename)
+                self.signals.task_finished.emit()
+                return
+
         # 3. add game version in version table
-        cursor.execute(
-            """
-            INSERT INTO versions (game_id, version, executable, archive, config, cycles)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            (
-                game_id,
-                self._version_name,
-                self._binary,
-                os.path.basename(self._game_archive),
-                self._config,
-                self._cpu_cycles,
-            ),
+        version_id = db.insert_game_version(
+            game_id, self._version_name, self._binary, archive_basename, self._config, self._cpu_cycles
         )
-        version_id = cursor.lastrowid
+
         # 4. add hashes
         hashes = utils.compute_hash_for_largest_files_in_zip(self._game_archive, n=4)
         if not self._binary in [h[0] for h in hashes]:
             with zipfile.ZipFile(self._game_archive, "r") as zf:
                 h = utils.compute_md5_from_zip(zf, self._binary)
                 hashes.append((self._binary, 0, h))
-        cursor.execute(
-            "INSERT INTO hashes (version_id, file_name, hash) VALUES " + ",".join(["(?, ?, ?)"] * len(hashes)),
-            [item for f, _, h in hashes for item in (version_id, f, h)],
-        )
+
+        db.insert_multiple_hashes(version_id, hashes)
+
         # 5. add local version
-        cursor.execute(
-            "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)",
-            (version_id, os.path.basename(self._game_archive)),
-        )
-        conn.commit()
-        conn.close()
+        db.insert_local_version(version_id, archive_basename)
+
         self.signals.task_finished.emit()
