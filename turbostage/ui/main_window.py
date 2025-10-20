@@ -269,7 +269,7 @@ class MainWindow(QMainWindow):
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
         version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
-            added = self._gamedb.add_local_game(version_id, os.path.basename(game_path))
+            added = self._gamedb.add_local_game_version(version_id, os.path.basename(game_path))
             if added == 0:
                 QMessageBox.warning(
                     self, "Game already installed", "The game you tried to add is already installed in TurboStage"
@@ -393,7 +393,7 @@ class MainWindow(QMainWindow):
 
     def _on_run_game_setup(self):
         game_id, version_id, _ = self.selected_game
-        versions = self._gamedb.get_version_info(game_id)
+        versions = self._gamedb.get_all_game_versions(game_id, True)
         if not versions:
             return
 
@@ -410,11 +410,15 @@ class MainWindow(QMainWindow):
         games_path = str(settings.value("app/games_path", ""))
 
         game_archive_url = os.path.join(games_path, game_archive)
-        setup_dialog = GameSetupDialog(game_archive_url)
-        if setup_dialog.exec() != QDialog.Accepted:
-            return
+        if version_info.config_executable is None:
+            setup_dialog = GameSetupDialog(game_archive_url)
+            if setup_dialog.exec() != QDialog.Accepted:
+                return
+            config_executable = setup_dialog.selected_binary
+        else:
+            config_executable = version_info.config_executable
         gl = GameLauncher(track_change=True)
-        gl.launch_game(game_id, self._gamedb, False, False, setup_dialog.selected_binary)
+        gl.launch_game(version_id, self._gamedb, False, False, config_executable)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)

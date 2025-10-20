@@ -6,7 +6,7 @@ and schema definitions.
 """
 
 # Current database version - used for new installations and migrations
-DB_VERSION = "0.7.0"
+DB_VERSION = "0.8.0"
 
 # Original schema version - for reference
 ORIGINAL_VERSION = "0.5.0"
@@ -15,13 +15,12 @@ ORIGINAL_VERSION = "0.5.0"
 SCHEMA_TABLES = {
     "games": """
         CREATE TABLE IF NOT EXISTS games (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            igdb_id INTEGER PRIMARY KEY,
             title TEXT NOT NULL,
             release_date INTEGER,
             genre TEXT,
             summary TEXT,
             publisher TEXT,
-            igdb_id INTEGER,
             cover_url TEXT
         );
     """,

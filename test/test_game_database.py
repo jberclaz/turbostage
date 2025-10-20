@@ -174,11 +174,11 @@ class TestGameDatabase(unittest.TestCase):
         self.assertIsNone(game)
 
         # Test launch info for non-existent version using new method
-        launch_info = db.get_version_launch_info(99999)
+        launch_info = db.get_version_by_version_id(99999)
         self.assertIsNone(launch_info)
 
         # Test version info for non-existent game using new method
-        versions = db.get_version_info(99999)
+        versions = db.get_all_game_versions(99999)
         self.assertEqual(len(versions), 0)
 
         # Test empty local versions list

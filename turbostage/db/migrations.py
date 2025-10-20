@@ -142,3 +142,18 @@ def migrate_to_0_6_0(conn: sqlite3.Connection) -> None:
 def migrate_to_0_7_0(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
     cursor.execute("ALTER TABLE versions ADD COLUMN config_executable TEXT")
+
+
+@migration("0.8.0")
+def migrate_to_0_8_0(conn: sqlite3.Connection) -> None:
+    cursor = conn.cursor()
+    cursor.execute(
+        "CREATE TABLE new_games (igdb_id INTEGER PRIMARY KEY, title TEXT, release_date INTEGER, genre TEXT, summary TEXT, publisher TEXT, cover_url TEXT)"
+    )
+    cursor.execute(
+        "INSERT INTO new_games (igdb_id, title, release_date, genre, summary, publisher, cover_url) SELECT igdb_id, title, release_date, genre, summary, publisher, cover_url FROM games"
+    )
+    cursor.execute("UPDATE versions SET game_id = (SELECT igdb_id FROM games WHERE games.id = versions.game_id)")
+    cursor.execute("DROP TABLE games")
+    cursor.execute("ALTER TABLE new_games RENAME TO games")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id)")

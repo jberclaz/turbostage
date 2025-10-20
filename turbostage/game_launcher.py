@@ -30,7 +30,7 @@ class GameLauncher:
     ):
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
 
-        game_info = db.get_version_launch_info(version_id)
+        game_info = db.get_version_by_version_id(version_id)
 
         executable = game_info.executable
         archive = game_info.archive
