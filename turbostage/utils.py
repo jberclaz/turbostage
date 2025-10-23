@@ -50,6 +50,7 @@ def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails:
 
     cover_url = igdb_client.get_cover_url(details["cover"])
     return GameDetails(
+        title=None,
         release_date=release_epoch,
         genre=genres_string,
         summary=details["summary"] if "summary" in details else "",

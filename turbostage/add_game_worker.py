@@ -64,7 +64,7 @@ class AddGameWorker(QRunnable):
 
         # 3. add game version in version table
         version_id = db.insert_game_version(
-            game_id,
+            self._igdb_id,
             self._version_name,
             self._binary,
             self._config_binary,

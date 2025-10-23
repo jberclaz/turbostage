@@ -23,6 +23,7 @@ class LocalGameDetails:
 class GameDetails:
     """Details about a game retrieved from the database."""
 
+    title: Optional[str]
     release_date: Optional[int]
     genre: Optional[str]
     summary: Optional[str]
@@ -313,7 +314,7 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT release_date, genre, summary, publisher, cover_url
+                SELECT release_date, genre, summary, publisher, cover_url, title
                 FROM games
                 WHERE igdb_id = ?
                 """,
@@ -322,7 +323,7 @@ class GameDatabase:
             row = cursor.fetchone()
             if row:
                 return GameDetails(
-                    release_date=row[0], genre=row[1], summary=row[2], publisher=row[3], cover_url=row[4]
+                    title=row[5], release_date=row[0], genre=row[1], summary=row[2], publisher=row[3], cover_url=row[4]
                 )
         return None
 
@@ -330,12 +331,8 @@ class GameDatabase:
         """Update game details for a game with the given IGDB ID.
 
         Args:
-            igdb_id: The IGDB ID of the game to update
-            summary: Game summary text
-            release_date: Formatted release date
-            genre: Game genre(s)
-            publisher: Game publisher
-            cover_url: URL to game cover image
+            :param igdb_id: The IGDB ID of the game to update
+            :param details:
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
@@ -448,11 +445,11 @@ class GameDatabase:
                 )
         return None
 
-    def get_all_game_versions(self, game_id: int, detailed: bool = False) -> list[GameVersionInfo]:
+    def get_all_game_versions(self, igdb_id: int, detailed: bool = False) -> list[GameVersionInfo]:
         """Retrieve version information for a game by its IGDB ID.
 
         Args:
-            game_id: The IGDB ID of the game
+            igdb_id: The IGDB ID of the game
             detailed: Whether to include detailed information (executable, config, cycles)
 
         Returns:
@@ -471,11 +468,10 @@ class GameDatabase:
                 f"""
                     {select_query}
                     FROM versions v
-                    JOIN games g ON v.game_id = g.id
                     JOIN local_versions lv ON v.id = lv.version_id
-                    WHERE g.igdb_id = ?
+                    WHERE v.game_id = ?
                     """,
-                (game_id,),
+                (igdb_id,),
             )
 
             rows = cursor.fetchall()
@@ -508,7 +504,7 @@ class GameDatabase:
             cursor.execute(
                 """
                 SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id
-                FROM games g JOIN versions v ON g.id = v.game_id
+                FROM games g JOIN versions v ON g.igdb_id = v.game_id
                 JOIN local_versions lv ON v.id = lv.version_id
                 ORDER BY g.title
                 """
@@ -626,7 +622,7 @@ class GameDatabase:
         in the database for future use.
 
         Args:
-            igdb_id: IGDB ID of the game to delete
+            :param igdb_id: IGDB ID of the game to delete
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
@@ -635,8 +631,7 @@ class GameDatabase:
                 """
                 SELECT v.id
                 FROM versions v
-                JOIN games g ON v.game_id = g.id
-                WHERE g.igdb_id = ?
+                WHERE v.game_id = ?
                 """,
                 (igdb_id,),
             )

@@ -19,6 +19,7 @@ class TestGameDatabase(unittest.TestCase):
         # Define test data constants
         self.test_igdb_id = 12345
         self.test_game_details = GameDetails(
+            title="Test Game",
             release_date=946684800,  # 2000-01-01
             genre="Adventure",
             summary="Test game summary",
@@ -39,10 +40,10 @@ class TestGameDatabase(unittest.TestCase):
         game_id = db.insert_game_with_details("Test Game", self.test_game_details)
 
         # Insert a version
-        version_id = db.insert_game_version(game_id, "1.0", "game.exe", "game.zip", "dosbox_config", 3000)
+        version_id = db.insert_game_version(game_id, "1.0", "game.exe", "setup.exe", "game.zip", "dosbox_config", 3000)
 
         # Insert a local version
-        db.insert_local_version(version_id, "game.zip")
+        db.add_local_game_version(version_id, "game.zip")
 
         return game_id, version_id
 
@@ -60,11 +61,10 @@ class TestGameDatabase(unittest.TestCase):
         self.assertIsNotNone(game_id)
 
         # Retrieve the game
-        game = db.get_game_by_igdb_id(self.test_igdb_id)
+        game = db.get_game_details_by_igdb_id(self.test_igdb_id)
         self.assertIsNotNone(game)
-        self.assertEqual(game[1], "Test Game")  # title
-        self.assertEqual(game[4], "Test game summary")  # summary
-        self.assertEqual(game[6], self.test_igdb_id)  # igdb_id
+        self.assertEqual(game.title, "Test Game")  # title
+        self.assertEqual(game.summary, "Test game summary")  # summary
 
     def test_update_game_details(self):
         """Test updating game details"""
@@ -75,6 +75,7 @@ class TestGameDatabase(unittest.TestCase):
 
         # Update the game details
         new_details = GameDetails(
+            title="Test Game",
             summary="Updated game summary",
             release_date=978307200,  # 2001-01-01
             genre="Strategy",
@@ -101,7 +102,7 @@ class TestGameDatabase(unittest.TestCase):
         game_id = db.insert_game_with_details("Test Game", self.test_game_details)
 
         # Insert a version
-        version_id = db.insert_game_version(game_id, "1.0", "game.exe", "game.zip", "", 0)
+        version_id = db.insert_game_version(game_id, "1.0", "game.exe", "setup.exe", "game.zip", "", 0)
 
         # Insert some hashes
         test_hashes = [("game.exe", 1000, "abc123"), ("data.dat", 5000, "def456"), ("music.mp3", 3000, "ghi789")]
@@ -126,7 +127,7 @@ class TestGameDatabase(unittest.TestCase):
 
         # Test finding when multiple versions match but with different hash counts
         # Insert a second version with some overlapping hashes
-        second_version_id = db.insert_game_version(game_id, "2.0", "game2.exe", "game2.zip", "", 0)
+        second_version_id = db.insert_game_version(game_id, "2.0", "game2.exe", "setup.exe", "game2.zip", "", 0)
 
         second_hashes = [("game2.exe", 1000, "abc456"), ("data.dat", 5000, "def456")]  # Same hash as in first version
 
@@ -159,7 +160,7 @@ class TestGameDatabase(unittest.TestCase):
         self.assertEqual(len(games_list), 0)
 
         # Re-add local version
-        db.insert_local_version(version_id, "game.zip")
+        db.add_local_game_version(version_id, "game.zip")
 
         # Verify it's back
         games_list = db.get_games_with_local_versions()
@@ -170,7 +171,7 @@ class TestGameDatabase(unittest.TestCase):
         db = GameDatabase(self.temp_db.name)
 
         # Test non-existent game
-        game = db.get_game_by_igdb_id(99999)
+        game = db.get_game_details_by_igdb_id(99999)
         self.assertIsNone(game)
 
         # Test launch info for non-existent version using new method
