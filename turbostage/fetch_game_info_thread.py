@@ -42,11 +42,11 @@ class FetchGameInfoWorker(QObject):
         db.update_game_details(self._igdb_id, details)
 
         self.finished.emit(
-            details["summary"],
-            "http:" + details["cover"].replace("t_thumb", "t_cover_big"),
-            details["release_date"],
-            details["genres"],
-            details["publisher"],
+            details.summary,
+            "http:" + details.cover_url.replace("t_thumb", "t_cover_big"),
+            details.release_date,
+            details.genre,
+            details.publisher,
         )
 
 
