@@ -49,7 +49,7 @@ class IgdbClient:
         fields
             name,
             summary,
-            aggregated_rating,
+            rating,
             cover.image_id,
             genres.name,
             screenshots.image_id,
@@ -114,6 +114,6 @@ class IgdbClient:
             "genres": [g["name"] for g in game_data.get("genres", [])],
             "publisher": ", ".join(publishers) or None,
             "developer": ", ".join(developers) or None,
-            "rating": game_data.get("aggregated_rating"),
+            "rating": game_data.get("rating"),
             "screenshot_urls": screenshot_urls,
         }
