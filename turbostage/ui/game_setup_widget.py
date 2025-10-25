@@ -93,7 +93,7 @@ class GameSetupWidget(QWidget):
         if not enabled:
             return
 
-        versions = db.get_version_info(game_id, detailed=True)
+        versions = db.get_all_game_versions(game_id, detailed=True)
 
         if not versions:
             raise RuntimeError(f"Unable to get game details for '{game_id}'")
@@ -108,7 +108,6 @@ class GameSetupWidget(QWidget):
         game_config = version_details.config
         cpu_cycles = version_details.cycles
         game_archive = version_details.archive
-        game_version = version_details.version_name
 
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))

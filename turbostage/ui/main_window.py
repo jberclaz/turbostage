@@ -28,6 +28,7 @@ from PySide6.QtWidgets import (
 
 from turbostage import __version__, constants, utils
 from turbostage.add_game_worker import AddGameWorker
+from turbostage.constants import CPU_CYCLES
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
@@ -37,6 +38,7 @@ from turbostage.scanning_thread import ScanningThread
 from turbostage.ui.game_info_widget import GameInfoWidget
 from turbostage.ui.game_setup_dialog import GameSetupDialog
 from turbostage.ui.game_setup_widget import GameSetupWidget
+from turbostage.ui.locked_file_dialog import LockedFileDialog
 from turbostage.ui.new_game_wizard import NewGameWizard
 from turbostage.ui.settings_dialog import SettingsDialog
 
@@ -163,8 +165,7 @@ class MainWindow(QMainWindow):
             self.game_table.setRowHidden(row, not match)
 
     def launch_game(self):
-        game_ids, _ = self.selected_game
-        _, version_id = game_ids
+        _, version_id, _ = self.selected_game
         gl = GameLauncher(track_change=True)
         gl.launch_game(version_id, self._gamedb)
         if gl.new_files or gl.modified_files:
@@ -259,13 +260,16 @@ class MainWindow(QMainWindow):
 
     def _on_add_new_game(self):
         games_path = self.games_path
-        game_path, _ = QFileDialog.getOpenFileName(self, "Select game archive", games_path, "Game archives (*.zip)")
-        if not game_path:
+        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip)")
+        dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
+        if not dialog.exec():
             return
+        game_path = dialog.selectedFiles()[0]
+
         hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
         version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
-            added = self._gamedb.add_local_game(version_id, os.path.basename(game_path))
+            added = self._gamedb.add_local_game_version(version_id, os.path.basename(game_path))
             if added == 0:
                 QMessageBox.warning(
                     self, "Game already installed", "The game you tried to add is already installed in TurboStage"
@@ -288,7 +292,8 @@ class MainWindow(QMainWindow):
             new_game_wizard.igdb_id,
             game_path,
             new_game_wizard.game_executable,
-            new_game_wizard.cpu,
+            new_game_wizard.game_config,
+            list(CPU_CYCLES.values())[new_game_wizard.cpu],
             new_game_wizard.dosbox_config,
             self.db_path,
             self._igdb_client,
@@ -372,7 +377,7 @@ class MainWindow(QMainWindow):
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
     def _on_delete_selected_game(self):
-        game_id, game_name = self.selected_game
+        game_id, _, game_name = self.selected_game
 
         reply = QMessageBox.question(
             self,
@@ -387,26 +392,33 @@ class MainWindow(QMainWindow):
             self.load_games()
 
     def _on_run_game_setup(self):
-        game_id, _ = self.selected_game
-        versions = self._gamedb.get_version_info(game_id)
+        game_id, version_id, _ = self.selected_game
+        versions = self._gamedb.get_all_game_versions(game_id, True)
         if not versions:
             return
 
-        # Use the first version for now
-        # TODO: Allow user to select which version to set up
-        version_info = versions[0]
-        version_id = version_info.version_id
+        version_info = None
+        for v in versions:
+            if v.version_id == version_id:
+                version_info = v
+                break
+        if version_info is None:
+            return
         game_archive = version_info.archive
 
         settings = QSettings("jberclaz", "TurboStage")
         games_path = str(settings.value("app/games_path", ""))
 
         game_archive_url = os.path.join(games_path, game_archive)
-        setup_dialog = GameSetupDialog(game_archive_url)
-        if setup_dialog.exec() != QDialog.Accepted:
-            return
+        if version_info.config_executable is None:
+            setup_dialog = GameSetupDialog(game_archive_url)
+            if setup_dialog.exec() != QDialog.Accepted:
+                return
+            config_executable = setup_dialog.selected_binary
+        else:
+            config_executable = version_info.config_executable
         gl = GameLauncher(track_change=True)
-        gl.launch_game(game_id, self._gamedb, False, False, setup_dialog.selected_binary)
+        gl.launch_game(version_id, self._gamedb, False, False, config_executable)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
@@ -431,11 +443,11 @@ class MainWindow(QMainWindow):
         return str(settings.value("app/games_path", ""))
 
     @property
-    def selected_game(self) -> tuple[int, str]:
+    def selected_game(self) -> tuple[int, int, str]:
         selected_items = self.game_table.selectedItems()
         if len(selected_items) != 4:
             raise RuntimeError("Invalid game selection")
         name_row = selected_items[0]
-        game_id = name_row.data(Qt.UserRole)
+        game_id, version_id = name_row.data(Qt.UserRole)
         game_name = name_row.text()
-        return game_id, game_name
+        return game_id, version_id, game_name

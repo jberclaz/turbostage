@@ -29,7 +29,7 @@ class ScanningThread(QThread):
             # Use GameDatabase to find game by hashes
             version_id = db.find_game_by_hashes(hash_values)
             if version_id is not None:
-                db.insert_local_version(version_id, game_archive)
+                db.add_local_game_version(version_id, game_archive)
             self.progress.emit(index + 1)
 
         self.load_games.emit()

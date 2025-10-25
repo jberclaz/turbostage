@@ -3,7 +3,7 @@ import queue
 import sqlite3
 import threading
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Optional, Tuple
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
@@ -23,6 +23,7 @@ class LocalGameDetails:
 class GameDetails:
     """Details about a game retrieved from the database."""
 
+    title: Optional[str]
     release_date: Optional[int]
     genre: Optional[str]
     summary: Optional[str]
@@ -39,6 +40,7 @@ class GameVersionInfo:
     version_name: str
     archive: str
     executable: Optional[str] = None
+    config_executable: Optional[str] = None
     config: Optional[str] = None
     cycles: Optional[int] = None
 
@@ -180,26 +182,6 @@ class GameDatabase:
         finally:
             input_conn.close()
 
-    def add_local_game(self, version_id: int, game_archive_name: str) -> int:
-        """
-        Add a new game to the local version database
-        :param version_id: game version id
-        :param game_archive_name: game archive name (without path)
-        :return: 1 if successfully added and 0 if the game already exists
-        """
-        with self.transaction() as conn:
-            cursor = conn.cursor()
-
-            cursor.execute("SELECT count(*) FROM local_versions WHERE version_id = ?", (version_id,))
-            rows = cursor.fetchall()
-            if rows[0][0] > 0:
-                return 0
-
-            cursor.execute(
-                "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive_name)
-            )
-        return 1
-
     def _check_version(self):
         try:
             current_version, needs_upgrade = DatabaseManager.check_and_upgrade_version(self._db_file)
@@ -319,13 +301,6 @@ class GameDatabase:
     # Game related methods
     #
 
-    def get_game_by_igdb_id(self, igdb_id: int) -> Optional[Tuple]:
-        """Retrieve a game by its IGDB ID."""
-        with self.read_only_transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM games WHERE igdb_id = ?", (igdb_id,))
-            return cursor.fetchone()
-
     def get_game_details_by_igdb_id(self, igdb_id: int) -> Optional[GameDetails]:
         """Retrieve game details by IGDB ID.
 
@@ -339,7 +314,7 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT release_date, genre, summary, publisher, cover_url
+                SELECT release_date, genre, summary, publisher, cover_url, title
                 FROM games
                 WHERE igdb_id = ?
                 """,
@@ -348,7 +323,7 @@ class GameDatabase:
             row = cursor.fetchone()
             if row:
                 return GameDetails(
-                    release_date=row[0], genre=row[1], summary=row[2], publisher=row[3], cover_url=row[4]
+                    title=row[5], release_date=row[0], genre=row[1], summary=row[2], publisher=row[3], cover_url=row[4]
                 )
         return None
 
@@ -356,12 +331,8 @@ class GameDatabase:
         """Update game details for a game with the given IGDB ID.
 
         Args:
-            igdb_id: The IGDB ID of the game to update
-            summary: Game summary text
-            release_date: Formatted release date
-            genre: Game genre(s)
-            publisher: Game publisher
-            cover_url: URL to game cover image
+            :param igdb_id: The IGDB ID of the game to update
+            :param details:
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
@@ -400,20 +371,28 @@ class GameDatabase:
     #
 
     def insert_game_version(
-        self, game_id: int, version: str, executable: str, archive: str, config: str, cycles: int
+        self,
+        game_id: int,
+        version: str,
+        executable: str,
+        config_executable: str | None,
+        archive: str,
+        config: str,
+        cycles: int,
     ) -> int:
         """Insert a game version with all details and return its ID."""
         with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO versions (game_id, version, executable, archive, config, cycles)
-                VALUES (?, ?, ?, ?, ?, ?)
+                INSERT INTO versions (game_id, version, executable, config_executable, archive, config, cycles)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     game_id,
                     version,
                     executable,
+                    config_executable,
                     archive,
                     config,
                     cycles,
@@ -434,7 +413,7 @@ class GameDatabase:
                 [item for f, _, h in hashes for item in (version_id, f, h)],
             )
 
-    def get_version_launch_info(self, version_id: int) -> Optional[GameVersionInfo]:
+    def get_version_by_version_id(self, version_id: int) -> Optional[GameVersionInfo]:
         """Retrieve the information needed to launch a specific version of a game.
 
         Args:
@@ -466,11 +445,11 @@ class GameDatabase:
                 )
         return None
 
-    def get_version_info(self, game_id: int, detailed: bool = False) -> list[GameVersionInfo]:
+    def get_all_game_versions(self, igdb_id: int, detailed: bool = False) -> list[GameVersionInfo]:
         """Retrieve version information for a game by its IGDB ID.
 
         Args:
-            game_id: The IGDB ID of the game
+            igdb_id: The IGDB ID of the game
             detailed: Whether to include detailed information (executable, config, cycles)
 
         Returns:
@@ -478,9 +457,10 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            select_query = ""
             if detailed:
-                select_query = "SELECT v.id, v.version, lv.archive, v.executable, v.config, v.cycles"
+                select_query = (
+                    "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, v.config, v.cycles"
+                )
             else:
                 select_query = "SELECT v.id, v.version, lv.archive"
 
@@ -488,11 +468,10 @@ class GameDatabase:
                 f"""
                     {select_query}
                     FROM versions v
-                    JOIN games g ON v.game_id = g.id
                     JOIN local_versions lv ON v.id = lv.version_id
-                    WHERE g.igdb_id = ?
+                    WHERE v.game_id = ?
                     """,
-                (game_id,),
+                (igdb_id,),
             )
 
             rows = cursor.fetchall()
@@ -505,8 +484,9 @@ class GameDatabase:
                             version_name=row[1],
                             archive=row[2],
                             executable=row[3],
-                            config=row[4],
-                            cycles=row[5],
+                            config_executable=row[4],
+                            config=row[5],
+                            cycles=row[6],
                         )
                     )
                 else:
@@ -524,7 +504,7 @@ class GameDatabase:
             cursor.execute(
                 """
                 SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id
-                FROM games g JOIN versions v ON g.id = v.game_id
+                FROM games g JOIN versions v ON g.igdb_id = v.game_id
                 JOIN local_versions lv ON v.id = lv.version_id
                 ORDER BY g.title
                 """
@@ -607,12 +587,25 @@ class GameDatabase:
 
             # Transaction context manager handles commit and rollback automatically
 
-    def insert_local_version(self, version_id: int, archive: str) -> int:
-        """Insert a local version into the database and return its ID."""
+    def add_local_game_version(self, version_id: int, game_archive_name: str) -> int:
+        """
+        Add a new game to the local version database
+        :param version_id: game version id
+        :param game_archive_name: game archive name (without path)
+        :return: 1 if successfully added and 0 if the game already exists
+        """
         with self.transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, archive))
-            return cursor.lastrowid
+
+            cursor.execute("SELECT count(*) FROM local_versions WHERE version_id = ?", (version_id,))
+            rows = cursor.fetchall()
+            if rows[0][0] > 0:
+                return 0
+
+            cursor.execute(
+                "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive_name)
+            )
+        return 1
 
     def clear_local_versions(self) -> None:
         """Remove all local game versions from the database."""
@@ -629,7 +622,7 @@ class GameDatabase:
         in the database for future use.
 
         Args:
-            igdb_id: IGDB ID of the game to delete
+            :param igdb_id: IGDB ID of the game to delete
         """
         with self.transaction() as conn:
             cursor = conn.cursor()
@@ -638,8 +631,7 @@ class GameDatabase:
                 """
                 SELECT v.id
                 FROM versions v
-                JOIN games g ON v.game_id = g.id
-                WHERE g.igdb_id = ?
+                WHERE v.game_id = ?
                 """,
                 (igdb_id,),
             )

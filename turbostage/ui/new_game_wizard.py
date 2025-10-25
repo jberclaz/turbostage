@@ -44,11 +44,6 @@ class NewGameWizard(QWizard):
         self.addPage(CPUPage())
         self.addPage(DosBoxOptions())
 
-        self.accepted.connect(self.on_finish)
-
-    def on_finish(self):
-        print("Done")
-
     @property
     def game_title(self) -> str:
         return self.field("game.title")[0]

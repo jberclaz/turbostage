@@ -25,11 +25,14 @@ class TestUtils(TestCase):
             filenames = ["MK/MK.EXE", "MK/GAME.DAT", "MK/SOUND.DAT", "MK/START.BAT"]
             self.create_mockup_archive(archive_path, filenames)
             binary = "MK/MK.EXE"
+            config_binary = None
             config = "[sdl]\nfull_screen = True\n"
             db_path = os.path.join(tempdir, "test.db")
             cpu_cycles = 12000
             DatabaseManager.initialize_database(db_path)
-            worker = AddGameWorker(name, version, game_id, archive_path, binary, cpu_cycles, config, db_path, client)
+            worker = AddGameWorker(
+                name, version, game_id, archive_path, binary, config_binary, cpu_cycles, config, db_path, client
+            )
             worker.run()
 
             conn = sqlite3.connect(db_path)
