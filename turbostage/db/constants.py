@@ -6,7 +6,7 @@ and schema definitions.
 """
 
 # Current database version - used for new installations and migrations
-DB_VERSION = "0.8.0"
+DB_VERSION = "0.9.0"
 
 # Original schema version - for reference
 ORIGINAL_VERSION = "0.5.0"
@@ -21,7 +21,10 @@ SCHEMA_TABLES = {
             genre TEXT,
             summary TEXT,
             publisher TEXT,
-            cover_url TEXT
+            developer TEXT,
+            cover_url TEXT,
+            screenshot_urls TEXT,
+            rating INTEGER
         );
     """,
     "versions": """

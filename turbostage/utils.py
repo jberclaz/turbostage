@@ -49,6 +49,9 @@ def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails:
         publisher=details["publisher"] if "publisher" in details else "",
         cover_url=details["cover_url"] if "cover_url" in details else "",
         igdb_id=igdb_id,
+        developer=details["developer"],
+        screenshot_urls=details["screenshot_urls"],
+        rating=details["rating"],
     )
 
 

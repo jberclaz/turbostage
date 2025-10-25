@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 
 from PySide6.QtCore import QStandardPaths, Qt, QUrl, Slot
@@ -12,8 +13,11 @@ class GameInfoWidget(QWidget):
         super().__init__()
 
         app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-        self._covers_cache_folder = os.path.join(app_data_folder, "covers")
+        self._cache_folder = os.path.join(app_data_folder, "image_cache")
+        self._covers_cache_folder = os.path.join(self._cache_folder, "covers")
+        self._screenshots_cache_folder = os.path.join(self._cache_folder, "screenshots")
         os.makedirs(self._covers_cache_folder, exist_ok=True)
+        os.makedirs(self._screenshots_cache_folder, exist_ok=True)
 
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.finished.connect(self.on_image_download_finished)
@@ -61,7 +65,7 @@ class GameInfoWidget(QWidget):
         self.screenshots_title.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 15px;")
         self.screenshots_scroll_area = QScrollArea()
         self.screenshots_scroll_area.setWidgetResizable(True)
-        self.screenshots_scroll_area.setFixedHeight(120)  # Fixed height for the gallery
+        self.screenshots_scroll_area.setFixedHeight(180)  # Fixed height for the gallery
         self.screenshots_widget = QWidget()
         self.screenshots_layout = QHBoxLayout(self.screenshots_widget)
         self.screenshots_scroll_area.setWidget(self.screenshots_widget)
@@ -72,7 +76,7 @@ class GameInfoWidget(QWidget):
         self.main_layout.addWidget(self.summary_label)
         self.main_layout.addWidget(self.screenshots_title)
         self.main_layout.addWidget(self.screenshots_scroll_area)
-        self.main_layout.addStretch()  # Pushes everything up
+        # self.main_layout.addStretch()  # Pushes everything up
 
         self.clear_info()
 
@@ -98,7 +102,15 @@ class GameInfoWidget(QWidget):
         self.title_label.setText(game_name)
 
     def set_game_info(
-        self, summary: str, cover_url: str, release_date: str = None, genres: str = None, publisher: str = None
+        self,
+        summary: str,
+        cover_url: str,
+        release_date: str = None,
+        genres: str = None,
+        publisher: str = None,
+        developer: str = None,
+        screenshot_urls: str = None,
+        rating: int = None,
     ):
         self.clear_info()
 
@@ -109,9 +121,25 @@ class GameInfoWidget(QWidget):
         self.release_date_label.setText(release_date or "-")
         self.genres_label.setText(genres)
         self.publisher_label.setText(publisher or "-")
+        self.developer_label.setText(developer or "-")
+        if rating is None or rating == 0:
+            rating_str = "N/A"
+        else:
+            rating_str = str(rating / 10)
+        self.rating_label.setText(rating_str)
 
         if cover_url:
             self._load_image(cover_url, self._covers_cache_folder, self.on_cover_loaded)
+
+        if screenshot_urls is not None and screenshot_urls != "[]":
+            urls = json.loads(screenshot_urls)
+            self.screenshots_title.show()
+            self.screenshots_scroll_area.show()
+            for url in urls:
+                self._load_image(url, self._screenshots_cache_folder, self.on_screenshot_loaded)
+        else:
+            self.screenshots_title.hide()
+            self.screenshots_scroll_area.hide()
 
     def _load_image(self, url: str, cache_folder: str, callback_slot):
         """Checks cache for an image and requests it if not found."""
@@ -142,8 +170,8 @@ class GameInfoWidget(QWidget):
         screenshot_label = QLabel()
         screenshot_label.setPixmap(
             pixmap.scaled(
-                160,
-                90,  # 16:9 aspect ratio
+                240,
+                135,  # 16:9 aspect ratio
                 Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation,
             )
