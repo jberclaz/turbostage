@@ -35,8 +35,8 @@ class FetchGameInfoWorker(QObject):
                 game_details.genre,
                 game_details.publisher,
                 game_details.developer,
-                json.dumps(game_details.screenshot_urls),
-                game_details.rating,
+                game_details.screenshot_urls,
+                game_details.rating or 0,
             )
             return
 
@@ -53,7 +53,7 @@ class FetchGameInfoWorker(QObject):
             details.genre,
             details.publisher,
             details.developer,
-            json.dumps(details.screenshot_urls),
+            details.screenshot_urls,
             details.rating,
         )
 

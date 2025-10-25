@@ -33,7 +33,7 @@ class GameDetails:
     cover_url: Optional[str]
     rating: Optional[int]
     igdb_id: Optional[int] = None
-    screenshot_urls: Optional[list[str]] = None
+    screenshot_urls: Optional[str] = None
 
 
 @dataclass
@@ -334,7 +334,7 @@ class GameDatabase:
                     publisher=row[3],
                     cover_url=row[4],
                     developer=row[6],
-                    screenshot_urls=json.loads(row[7]),
+                    screenshot_urls=row[7],
                     rating=row[8],
                 )
         return None
