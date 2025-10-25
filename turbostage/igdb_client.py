@@ -84,3 +84,6 @@ class IgdbClient:
         response = self.query("covers", ["url"], f"id={cover_id}")
         assert len(response) == 1
         return response[0]["url"]
+
+    def get_screenshots(self):
+        pass
