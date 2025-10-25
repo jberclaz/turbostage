@@ -157,11 +157,12 @@ def migrate_to_0_8_0(conn: sqlite3.Connection) -> None:
     cursor.execute("DROP TABLE games")
     cursor.execute("ALTER TABLE new_games RENAME TO games")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id)")
+    cursor.execute("UPDATE games SET cover_url = 'https:' || cover_url WHERE cover_url NOT LIKE 'https:%';")
 
 
 @migration("0.9.0")
 def migrate_to_0_9_0(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
     cursor.execute("ALTER TABLE games ADD COLUMN developer TEXT")
-    cursor.execute("ALTER TABLE games ADD COLUMN screenshot_urls TEXT")
-    cursor.execute("ALTER TABLE games ADD COLUMN rating INTEGER")
+    cursor.execute("ALTER TABLE games ADD COLUMN screenshot_urls TEXT DEFAULT '[]'")
+    cursor.execute("ALTER TABLE games ADD COLUMN rating INTEGER DEFAULT 0")
