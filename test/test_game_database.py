@@ -26,6 +26,8 @@ class TestGameDatabase(unittest.TestCase):
             publisher="Test Publisher",
             cover_url="//images.igdb.com/test.jpg",
             igdb_id=self.test_igdb_id,
+            developer="Test Developer",
+            rating=78,
         )
 
     def tearDown(self):
@@ -81,6 +83,8 @@ class TestGameDatabase(unittest.TestCase):
             genre="Strategy",
             publisher="New Publisher",
             cover_url="//images.igdb.com/new.jpg",
+            developer="New Developer",
+            rating=56,
         )
 
         db.update_game_details(self.test_igdb_id, new_details)
