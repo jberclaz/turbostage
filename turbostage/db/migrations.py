@@ -5,9 +5,11 @@ This module handles database schema migrations, allowing safe upgrades
 between different database versions without data loss or requiring users
 to delete their database files.
 """
-
+import json
 import sqlite3
 from typing import Callable, Dict, List, Tuple
+
+from turbostage.igdb_client import IgdbClient
 
 # Migration version format: major.minor.patch
 # Each migration function handles the upgrade from the previous version to this version
@@ -166,3 +168,13 @@ def migrate_to_0_9_0(conn: sqlite3.Connection) -> None:
     cursor.execute("ALTER TABLE games ADD COLUMN developer TEXT")
     cursor.execute("ALTER TABLE games ADD COLUMN screenshot_urls TEXT DEFAULT '[]'")
     cursor.execute("ALTER TABLE games ADD COLUMN rating INTEGER DEFAULT 0")
+
+    cursor.execute("SELECT igdb_id FROM games")
+    rows = cursor.fetchall()
+    igdb_client = IgdbClient()
+    for igdb_id in rows[0]:
+        info = igdb_client.get_game_info(igdb_id)
+        cursor.execute(
+            "UPDATE games SET developer = ?, screenshot_urls = ?, rating = ? WHERE igdb_id = ?",
+            (info["developer"], json.dumps(info["screenshot_urls"]), info["rating"], igdb_id),
+        )
