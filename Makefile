@@ -33,7 +33,9 @@ dist/turbostage: venv turbostage/*.py pyproject.toml
 	( \
 	. venv/bin/activate; \
 	poetry-dynamic-versioning; \
-	pyinstaller --onefile --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py; \
+	pyinstaller --onefile \
+                    --add-data "turbostage/content:turbostage/content" \
+                    -n turbostage turbostage/main.py; \
 	deactivate; \
 	)
 
