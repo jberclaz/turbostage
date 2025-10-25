@@ -1,4 +1,6 @@
 import json
+from datetime import datetime
+from typing import Any
 
 import requests
 from igdb.wrapper import IGDBWrapper
@@ -14,76 +16,104 @@ class IgdbClient:
         self._wrapper = IGDBWrapper(IGDB_CLIENT_ID, self._auth_token)
 
     @staticmethod
-    def _get_auth():
-        request_url = f"https://id.twitch.tv/oauth2/token?client_id={IGDB_CLIENT_ID}&client_secret={IGDB_CLIENT_SECRET}&grant_type=client_credentials"
+    def _get_auth() -> str:
+        request_url = (
+            f"https://id.twitch.tv/oauth2/token?client_id={IGDB_CLIENT_ID}"
+            f"&client_secret={IGDB_CLIENT_SECRET}&grant_type=client_credentials"
+        )
         response = requests.post(request_url)
-        if response.status_code != 200:
-            raise RuntimeError("Unable to authenticate to IGDB.com")
-        payload = json.loads(response.content)
-        if "access_token" not in payload:
-            raise RuntimeError("Malformed answer from IGDB.com")
-        return payload["access_token"]
+        response.raise_for_status()  # A better way to handle HTTP errors
+        return response.json()["access_token"]
 
-    def query(self, endpoint: str, fields: list[str], where_clause: str = "", limit: int = 10, sort: str = ""):
-        query = f"fields {','.join(fields)}; limit {limit};"
-        if where_clause:
-            query += f" where {where_clause};"
-        if sort:
-            query += f" sort {sort};"
-        byte_array = self._wrapper.api_request(endpoint, query)
+    def _format_image_url(self, image_hash: str, size: str = "t_cover_big") -> str:
+        """Constructs a full image URL from an IGDB image hash."""
+        return f"https://images.igdb.com/igdb/image/upload/{size}/{image_hash}.jpg"
+
+    def search_games(self, search_query: str) -> list[dict[str, Any]]:
+        """Searches for games and returns a list of basic info."""
+        query = f"""
+        search "{search_query}";
+        fields name;
+        where platforms = ({IGDB_DOS_PLATFORM_ID});
+        limit 20;
+        """
+        byte_array = self._wrapper.api_request("games", query)
         return json.loads(byte_array)
 
-    def search(self, endpoint: str, fields: list[str], search_query: str, where_clause: str = ""):
-        query = f"""search "{search_query}"; fields {','.join(fields)};"""
-        if where_clause:
-            query += f" where {where_clause};"
-        byte_array = self._wrapper.api_request(endpoint, query)
-        return json.loads(byte_array)
+    def get_game_info(self, igdb_id: int) -> dict[str, Any] | None:
+        """
+        Fetches all necessary game details in a single, efficient API call.
+        """
+        # This single query fetches the game and all related (nested) data.
+        query = f"""
+        fields
+            name,
+            summary,
+            aggregated_rating,
+            cover.image_id,
+            genres.name,
+            screenshots.image_id,
+            involved_companies.publisher,
+            involved_companies.developer,
+            involved_companies.company.name,
+            release_dates.date,
+            release_dates.platform;
+        where id = {igdb_id};
+        """
+        byte_array = self._wrapper.api_request("games", query)
+        results = json.loads(byte_array)
 
-    def get_genres(self, genre_ids: list[int]) -> list[str]:
-        response = self.query("genres", ["name"], f"id=({','.join([str(i) for i in genre_ids])})")
-        return [r["name"] for r in response]
+        if not results:
+            return None
 
-    def get_release_date(self, release_date_ids: list[int]) -> list[int]:
-        response = self.query(
-            "release_dates", ["date", "platform"], f"id=({','.join([str(d) for d in release_date_ids])})", sort="date"
-        )
-        for r in response:
-            if r["platform"] == IGDB_DOS_PLATFORM_ID:
-                return r["date"]
-        # if no release date for msdos, return first release date
-        return response[0]["date"]
+        game_data = results[0]
 
-    def get_companies(self, company_ids: list[int]) -> list[str]:
-        response = self.query(
-            "involved_companies",
-            ["company", "developer", "publisher"],
-            f"id=({','.join(str(i) for i in company_ids)})",
-        )
-        company_ids = set(r["company"] for r in response if r["developer"])
-        if not company_ids:
-            # if no developer, show publisher
-            company_ids = set(r["company"] for r in response if r["publisher"])
-            if not company_ids:
-                # if neither developer nor publisher, show any of the other related company
-                company_ids = set(r["company"] for r in response)
-        if company_ids:
-            response = self.query("companies", ["name"], f"id=({','.join(str(i) for i in company_ids)})")
-            return [r["name"] for r in response]
-        return []
+        # --- Process the API data into a clean dictionary ---
 
-    def get_game_details(self, igdb_id: int) -> dict:
-        result = self.query(
-            "games", ["release_dates", "genres", "summary", "involved_companies", "cover"], f"id={igdb_id}"
-        )
-        if len(result) != 1:
-            raise RuntimeError(f"Unexpected response from IGDB: {result}")
-        return result[0]
+        # Developers and Publishers
+        developers = []
+        publishers = []
+        if "involved_companies" in game_data:
+            for company in game_data["involved_companies"]:
+                # The company data might not always be present
+                if "company" in company and "name" in company["company"]:
+                    if company.get("developer"):
+                        developers.append(company["company"]["name"])
+                    if company.get("publisher"):
+                        publishers.append(company["company"]["name"])
 
-    def get_cover_url(self, cover_id: int) -> str:
-        response = self.query("covers", ["url"], f"id={cover_id}")
-        assert len(response) == 1
-        return response[0]["url"]
+        # Release Date
+        release_date = None
+        if "release_dates" in game_data:
+            dos_release = next(
+                (rd for rd in game_data["release_dates"] if rd["platform"] == IGDB_DOS_PLATFORM_ID), None
+            )
+            # Fallback to the first release date if no specific DOS date is found
+            chosen_release = dos_release or game_data["release_dates"][0]
+            if "date" in chosen_release:
+                release_date = chosen_release["date"]
 
-    def get_screenshots(self):
-        pass
+        # Cover URL
+        cover_url = ""
+        if "cover" in game_data and "image_id" in game_data["cover"]:
+            cover_url = self._format_image_url(game_data["cover"]["image_id"], "t_cover_big")
+
+        # Screenshot URLs
+        screenshot_urls = []
+        if "screenshots" in game_data:
+            screenshot_urls = [
+                self._format_image_url(s["image_id"], "t_screenshot_big") for s in game_data["screenshots"]
+            ]
+
+        # Assemble the final dictionary, matching the UI widget's needs
+        return {
+            "name": game_data.get("name"),
+            "summary": game_data.get("summary", "No summary available."),
+            "cover_url": cover_url,
+            "release_date": release_date,
+            "genres": [g["name"] for g in game_data.get("genres", [])],
+            "publisher": ", ".join(publishers) or None,
+            "developer": ", ".join(developers) or None,
+            "rating": game_data.get("aggregated_rating"),
+            "screenshot_urls": screenshot_urls,
+        }

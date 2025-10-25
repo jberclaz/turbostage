@@ -28,7 +28,7 @@ class FetchGameInfoWorker(QObject):
         if game_details.release_date is not None:
             self.finished.emit(
                 game_details.summary,
-                "http:" + game_details.cover_url.replace("t_thumb", "t_cover_big"),
+                game_details.cover_url.replace("t_thumb", "t_cover_big"),
                 utils.epoch_to_formatted_date(game_details.release_date),
                 game_details.genre,
                 game_details.publisher,
