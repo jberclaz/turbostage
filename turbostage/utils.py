@@ -38,25 +38,20 @@ def compute_hash_for_largest_files_in_zip(zip_path, n=5):
 
 
 def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails:
-    details = igdb_client.get_game_details(igdb_id)
-
-    genres = igdb_client.get_genres(details["genres"])
-    genres_string = ", ".join(genres)
-
-    release_epoch = igdb_client.get_release_date(details["release_dates"])
-
-    companies = igdb_client.get_companies(details["involved_companies"])
-    companies_string = ", ".join(companies)
-
-    cover_url = igdb_client.get_cover_url(details["cover"])
+    details = igdb_client.get_game_info(igdb_id)
+    genres_string = ", ".join(details["genres"])
+    release_epoch = details["release_date"]
     return GameDetails(
         title=None,
         release_date=release_epoch,
         genre=genres_string,
         summary=details["summary"] if "summary" in details else "",
-        publisher=companies_string,
-        cover_url=cover_url,
+        publisher=details["publisher"] if "publisher" in details else "",
+        cover_url=details["cover_url"] if "cover_url" in details else "",
         igdb_id=igdb_id,
+        developer=details["developer"],
+        screenshot_urls=details["screenshot_urls"],
+        rating=details["rating"],
     )
 
 

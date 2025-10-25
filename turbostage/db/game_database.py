@@ -1,3 +1,4 @@
+import json
 import os
 import queue
 import sqlite3
@@ -28,8 +29,11 @@ class GameDetails:
     genre: Optional[str]
     summary: Optional[str]
     publisher: Optional[str]
+    developer: Optional[str]
     cover_url: Optional[str]
+    rating: Optional[int]
     igdb_id: Optional[int] = None
+    screenshot_urls: Optional[str] = None
 
 
 @dataclass
@@ -314,7 +318,7 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT release_date, genre, summary, publisher, cover_url, title
+                SELECT release_date, genre, summary, publisher, cover_url, title, developer, screenshot_urls, rating
                 FROM games
                 WHERE igdb_id = ?
                 """,
@@ -323,7 +327,15 @@ class GameDatabase:
             row = cursor.fetchone()
             if row:
                 return GameDetails(
-                    title=row[5], release_date=row[0], genre=row[1], summary=row[2], publisher=row[3], cover_url=row[4]
+                    title=row[5],
+                    release_date=row[0],
+                    genre=row[1],
+                    summary=row[2],
+                    publisher=row[3],
+                    cover_url=row[4],
+                    developer=row[6],
+                    screenshot_urls=row[7],
+                    rating=row[8],
                 )
         return None
 
@@ -351,8 +363,8 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url, rating, developer, screenshot_urls)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ? , ? ,?)
                 """,
                 (
                     game_name,
@@ -362,6 +374,9 @@ class GameDatabase:
                     details.publisher,
                     details.igdb_id,
                     details.cover_url,
+                    details.rating,
+                    details.developer,
+                    json.dumps(details.screenshot_urls),
                 ),
             )
             return cursor.lastrowid

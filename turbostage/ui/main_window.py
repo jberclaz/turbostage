@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressDialog,
     QPushButton,
+    QScrollArea,
     QSplitter,
     QTableWidget,
     QTableWidgetItem,
@@ -136,7 +137,11 @@ class MainWindow(QMainWindow):
 
         # Right panel: Game info display
         self.right_panel = QTabWidget()
-        self.right_info_tab = GameInfoWidget()
+        self.right_info_tab = QScrollArea()
+        self.right_info_tab.setWidgetResizable(True)
+        # self.right_info_tab.setHorizontalScrollBarPolicy(Qt.ScrollBa)
+        self._game_info = GameInfoWidget()
+        self.right_info_tab.setWidget(self._game_info)
         self.right_setup_tab = GameSetupWidget()
         self.right_setup_tab.settings_applied.connect(self._on_game_settings_saved)
         self.right_panel.addTab(self.right_info_tab, "Info")
@@ -175,7 +180,7 @@ class MainWindow(QMainWindow):
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
         if not selected_items:
-            self.right_info_tab.set_game_name("")
+            self._game_info.set_game_name("")
             self.right_setup_tab.set_game(None)
             self.launch_button.setEnabled(False)
             return
@@ -188,7 +193,7 @@ class MainWindow(QMainWindow):
         igdb_id, _ = name_row.data(Qt.UserRole)
         game_name = name_row.text()
 
-        self.right_info_tab.set_game_name(game_name)
+        self._game_info.set_game_name(game_name)
         self.right_setup_tab.set_game(igdb_id, self._gamedb)
 
         settings = QSettings("jberclaz", "TurboStage")
@@ -198,7 +203,7 @@ class MainWindow(QMainWindow):
         cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(igdb_id, self._igdb_client, self.db_path, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
-        fetch_worker.finished.connect(self.right_info_tab.set_game_info)
+        fetch_worker.finished.connect(self._game_info.set_game_info)
         fetch_task = FetchGameInfoTask(fetch_worker)
         self._thread_pool.start(fetch_task)
 

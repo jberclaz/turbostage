@@ -1,3 +1,5 @@
+import json
+
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from turbostage import utils
@@ -6,7 +8,7 @@ from turbostage.igdb_client import IgdbClient
 
 
 class FetchGameInfoWorker(QObject):
-    finished = Signal(str, str, str, str, str)
+    finished = Signal(str, str, str, str, str, str, str, int)
 
     def __init__(self, game_id: int, igdb_client: IgdbClient, db_path: str, cancel_flag):
         super().__init__()
@@ -28,10 +30,13 @@ class FetchGameInfoWorker(QObject):
         if game_details.release_date is not None:
             self.finished.emit(
                 game_details.summary,
-                "http:" + game_details.cover_url.replace("t_thumb", "t_cover_big"),
+                game_details.cover_url.replace("t_thumb", "t_cover_big"),
                 utils.epoch_to_formatted_date(game_details.release_date),
                 game_details.genre,
                 game_details.publisher,
+                game_details.developer,
+                game_details.screenshot_urls,
+                game_details.rating or 0,
             )
             return
 
@@ -43,10 +48,13 @@ class FetchGameInfoWorker(QObject):
 
         self.finished.emit(
             details.summary,
-            "http:" + details.cover_url.replace("t_thumb", "t_cover_big"),
+            details.cover_url.replace("t_thumb", "t_cover_big"),
             details.release_date,
             details.genre,
             details.publisher,
+            details.developer,
+            details.screenshot_urls,
+            details.rating,
         )
 
 
