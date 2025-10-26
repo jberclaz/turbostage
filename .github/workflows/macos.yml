@@ -37,11 +37,10 @@ jobs:
         run: |
           brew install create-dmg
           create-dmg --volname "TurboStage" \
-                     --dmg-title="TurboStage Installer" \
                      --overwrite \
                      --background "turbostage/content/splash.jpg" \
                      --app-drop-link 300 200 \
-                     "dist/turbostage.app" "dist/"
+                     "dist/TurboStage Installer.dmg" "dist/turbostage.app"
 
       - name: Upload Release Asset
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda
