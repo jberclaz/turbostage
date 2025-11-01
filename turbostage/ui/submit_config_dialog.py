@@ -1,21 +1,7 @@
-# submit_local_config_dialog.py
-import json
 from typing import List, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QCheckBox,
-    QDialog,
-    QDialogButtonBox,
-    QHBoxLayout,
-    QLabel,
-    QListWidget,
-    QListWidgetItem,
-    QMessageBox,
-    QPushButton,
-    QTextEdit,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QDialog, QDialogButtonBox, QLabel, QListWidget, QListWidgetItem, QMessageBox, QVBoxLayout
 
 
 class SubmitLocalConfigDialog(QDialog):
@@ -112,23 +98,3 @@ class SubmitLocalConfigDialog(QDialog):
 
         self.configsSelected.emit(selected_ids)
         self.accept()
-
-    # --------------------------------------------------------------------- #
-    # Public helper (used by the menu handler)
-    # --------------------------------------------------------------------- #
-    @staticmethod
-    def get_selected_version_ids(local_versions: List[tuple[int, str, str]], parent=None) -> Optional[List[int]]:
-        """
-        Convenience static method – shows the dialog and returns the chosen
-        version_ids or ``None`` if the user cancelled.
-        """
-        dlg = SubmitLocalConfigDialog(local_versions, parent)
-        if dlg.exec() == QDialog.Accepted:
-            # The signal is connected internally; we just return the list
-            # (the dialog stores it in a temporary attribute for simplicity)
-            return dlg._last_selected
-        return None
-
-    # Called from _on_submit via signal (kept for clarity)
-    def _store_last_selection(self, ids: List[int]):
-        self._last_selected = ids
