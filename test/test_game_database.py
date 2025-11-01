@@ -84,7 +84,7 @@ class TestGameDatabase(unittest.TestCase):
         game_id = db.insert_game_with_details("Test Game", self.test_game_details)
 
         # Insert a version
-        version_id = db.insert_game_version(game_id, "1.0", "game.exe", "setup.exe", "game.zip", "dosbox_config", 3000)
+        version_id = db.insert_game_version(game_id, "1.0", "game.exe", "setup.exe", "dosbox_config", 3000)
 
         # Insert a local version
         db.add_local_game_version(version_id, "game.zip")
@@ -148,7 +148,7 @@ class TestGameDatabase(unittest.TestCase):
         game_id = db.insert_game_with_details("Test Game", self.test_game_details)
 
         # Insert a version
-        version_id = db.insert_game_version(game_id, "1.0", "game.exe", "setup.exe", "game.zip", "", 0)
+        version_id = db.insert_game_version(game_id, "1.0", "game.exe", "setup.exe", "", 0)
 
         # Insert some hashes
         test_hashes = [("game.exe", 1000, "abc123"), ("data.dat", 5000, "def456"), ("music.mp3", 3000, "ghi789")]
@@ -173,7 +173,7 @@ class TestGameDatabase(unittest.TestCase):
 
         # Test finding when multiple versions match but with different hash counts
         # Insert a second version with some overlapping hashes
-        second_version_id = db.insert_game_version(game_id, "2.0", "game2.exe", "setup.exe", "game2.zip", "", 0)
+        second_version_id = db.insert_game_version(game_id, "2.0", "game2.exe", "setup.exe", "", 0)
 
         second_hashes = [("game2.exe", 1000, "abc456"), ("data.dat", 5000, "def456")]  # Same hash as in first version
 
