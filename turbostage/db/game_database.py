@@ -232,29 +232,6 @@ class GameDatabase:
 
         return f"Remote DB: +{inserted_games} games, +{inserted_versions} versions"
 
-    # def merge_with(self, db_file):
-    #     input_conn = sqlite3.connect(db_file)
-    #     input_cursor = input_conn.cursor()
-    #
-    #     try:
-    #         with self.transaction() as output_conn:
-    #             output_cursor = output_conn.cursor()
-    #
-    #             # The transaction context manager will handle commit/rollback automatically
-    #             game_id_mapping = GameDatabase._copy_game_table(input_cursor, output_cursor)
-    #             version_id_mapping = GameDatabase._copy_versions(input_cursor, output_cursor, game_id_mapping)
-    #             GameDatabase._copy_table("hashes", input_cursor, output_cursor, version_id_mapping)
-    #             GameDatabase._copy_table("config_files", input_cursor, output_cursor, version_id_mapping, "type = 1")
-    #
-    #             # No explicit commit needed - handled by transaction context manager
-    #             return ""
-    #     except sqlite3.Error as error:
-    #         return f"Database error: {error}"
-    #     except Exception as e:
-    #         return f"Error while updating game database: {e}"
-    #     finally:
-    #         input_conn.close()
-
     def _check_version(self):
         try:
             current_version, needs_upgrade = DatabaseManager.check_and_upgrade_version(self._db_file)
