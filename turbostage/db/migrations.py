@@ -178,3 +178,10 @@ def migrate_to_0_9_0(conn: sqlite3.Connection) -> None:
             "UPDATE games SET developer = ?, screenshot_urls = ?, rating = ? WHERE igdb_id = ?",
             (info["developer"], json.dumps(info["screenshot_urls"]), info["rating"], igdb_id),
         )
+
+
+@migration("0.9.1")
+def migrate_to_0_9_1(conn: sqlite3.Connection) -> None:
+    cursor = conn.cursor()
+    cursor.execute("ALTER TABLE versions ADD COLUMN source TEXT DEFAULT 'local'")
+    cursor.execute("ALTER TABLE versions DROP COLUMN archive")

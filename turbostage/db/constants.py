@@ -6,7 +6,7 @@ and schema definitions.
 """
 
 # Current database version - used for new installations and migrations
-DB_VERSION = "0.9.0"
+DB_VERSION = "0.9.1"
 
 # Original schema version - for reference
 ORIGINAL_VERSION = "0.5.0"
@@ -24,7 +24,8 @@ SCHEMA_TABLES = {
             developer TEXT,
             cover_url TEXT,
             screenshot_urls TEXT,
-            rating INTEGER
+            rating INTEGER,
+            last_updated INTEGER
         );
     """,
     "versions": """
@@ -34,9 +35,9 @@ SCHEMA_TABLES = {
             version TEXT,
             executable TEXT,
             config_executable TEXT,
-            archive TEXT,
             config TEXT,
-            cycles INTEGER DEFAULT 0
+            cycles INTEGER DEFAULT 0,
+            source TEXT DEFAULT 'local'
         );
     """,
     "hashes": """

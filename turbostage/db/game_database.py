@@ -4,7 +4,7 @@ import queue
 import sqlite3
 import threading
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
@@ -163,28 +163,105 @@ class GameDatabase:
             rows = cursor.fetchall()
             return rows[0][0] if rows else "unknown"
 
-    def merge_with(self, db_file):
-        input_conn = sqlite3.connect(db_file)
-        input_cursor = input_conn.cursor()
+    def merge_remote_json(self, data: dict) -> str:
+        inserted_games = inserted_versions = 0
+        remote_version = data.get("db_version", 0)
 
-        try:
-            with self.transaction() as output_conn:
-                output_cursor = output_conn.cursor()
+        with self.transaction() as conn:
+            cur = conn.cursor()
 
-                # The transaction context manager will handle commit/rollback automatically
-                game_id_mapping = GameDatabase._copy_game_table(input_cursor, output_cursor)
-                version_id_mapping = GameDatabase._copy_versions(input_cursor, output_cursor, game_id_mapping)
-                GameDatabase._copy_table("hashes", input_cursor, output_cursor, version_id_mapping)
-                GameDatabase._copy_table("config_files", input_cursor, output_cursor, version_id_mapping, "type = 1")
+            # ---- 1. Store remote version -------------------------------------------------
+            cur.execute("INSERT OR REPLACE INTO global_db_version (id, version) VALUES (1, ?)", (remote_version,))
 
-                # No explicit commit needed - handled by transaction context manager
-                return ""
-        except sqlite3.Error as error:
-            return f"Database error: {error}"
-        except Exception as e:
-            return f"Error while updating game database: {e}"
-        finally:
-            input_conn.close()
+            # ---- 2. Games ---------------------------------------------------------------
+            for g in data.get("games", []):
+                igdb = g["igdb_id"]
+                cur.execute("SELECT 1 FROM games WHERE igdb_id = ?", (igdb,))
+                if not cur.fetchone():
+                    cur.execute(
+                        """INSERT INTO games
+                           (igdb_id, title, release_date, genre, summary, publisher,
+                            developer, cover_url, screenshot_urls, rating, last_updated)
+                           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                        (
+                            igdb,
+                            g.get("title", ""),
+                            g.get("release_date"),
+                            g.get("genre"),
+                            g.get("summary"),
+                            g.get("publisher"),
+                            g.get("developer"),
+                            g.get("cover_url"),
+                            json.dumps(g.get("screenshot_urls", [])),
+                            g.get("rating"),
+                            int(datetime.utcnow().timestamp()),
+                        ),
+                    )
+                    inserted_games += 1
+
+            # ---- 3. Versions + Hashes ---------------------------------------------------
+            for g in data.get("games", []):
+                igdb = g["igdb_id"]
+                for v in g.get("versions", []):
+                    # Insert version (ignore if already present – we keep user edits)
+                    cur.execute(
+                        """INSERT OR IGNORE INTO versions
+                           (game_id, version, executable, config_executable,
+                            archive, config, cycles, source)
+                           VALUES (?,?,?,?,?,?,?,?)""",
+                        (
+                            igdb,
+                            v["version_name"],
+                            v.get("executable"),
+                            v.get("config_executable"),
+                            v.get("archive"),
+                            v.get("config"),
+                            v.get("cycles"),
+                            "global",
+                        ),
+                    )
+                    version_id = (
+                        cur.lastrowid
+                        or cur.execute(
+                            "SELECT id FROM versions WHERE game_id=? AND version=?", (igdb, v["version_name"])
+                        ).fetchone()[0]
+                    )
+
+                    # Hashes (with optional size)
+                    for fname, h in v.get("hashes", {}).items():
+                        size = v["hashes_meta"].get(fname, {}).get("size")
+                        cur.execute(
+                            """INSERT OR IGNORE INTO hashes
+                               (version_id, file_name, hash)
+                               VALUES (?,?,?)""",
+                            (version_id, fname, h),
+                        )
+                    inserted_versions += 1
+
+        return f"Remote DB v{remote_version}: +{inserted_games} games, +{inserted_versions} versions"
+
+    # def merge_with(self, db_file):
+    #     input_conn = sqlite3.connect(db_file)
+    #     input_cursor = input_conn.cursor()
+    #
+    #     try:
+    #         with self.transaction() as output_conn:
+    #             output_cursor = output_conn.cursor()
+    #
+    #             # The transaction context manager will handle commit/rollback automatically
+    #             game_id_mapping = GameDatabase._copy_game_table(input_cursor, output_cursor)
+    #             version_id_mapping = GameDatabase._copy_versions(input_cursor, output_cursor, game_id_mapping)
+    #             GameDatabase._copy_table("hashes", input_cursor, output_cursor, version_id_mapping)
+    #             GameDatabase._copy_table("config_files", input_cursor, output_cursor, version_id_mapping, "type = 1")
+    #
+    #             # No explicit commit needed - handled by transaction context manager
+    #             return ""
+    #     except sqlite3.Error as error:
+    #         return f"Database error: {error}"
+    #     except Exception as e:
+    #         return f"Error while updating game database: {e}"
+    #     finally:
+    #         input_conn.close()
 
     def _check_version(self):
         try:
@@ -391,7 +468,6 @@ class GameDatabase:
         version: str,
         executable: str,
         config_executable: str | None,
-        archive: str,
         config: str,
         cycles: int,
     ) -> int:
@@ -400,15 +476,14 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO versions (game_id, version, executable, config_executable, archive, config, cycles)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO versions (game_id, version, executable, config_executable, config, cycles)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     game_id,
                     version,
                     executable,
                     config_executable,
-                    archive,
                     config,
                     cycles,
                 ),
@@ -526,6 +601,19 @@ class GameDatabase:
             )
             return [LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0]) for row in cursor.fetchall()]
 
+    def get_all_local_version_for_export(self):
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT id, game_id, version, executable, config_executable, config, cycles
+                FROM versions
+                WHERE source = 'local'
+                ORDER BY game_id
+                """
+            )
+            return cursor.fetchall()
+
     #
     # Config file related methods
     #
@@ -622,6 +710,18 @@ class GameDatabase:
             )
         return 1
 
+    def get_locally_modified_game_versions(self):
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+            SELECT g.title, g.igdb_id, v.id, v.version
+            FROM games g JOIN versions v ON g.igdb_id = v.game_id
+            WHERE v.source = 'local'
+            """
+            )
+            return cursor.fetchall()
+
     def clear_local_versions(self) -> None:
         """Remove all local game versions from the database."""
         with self.transaction() as conn:
@@ -703,7 +803,7 @@ class GameDatabase:
 
         with self.transaction() as conn:
             cursor = conn.cursor()
-            query = f"UPDATE versions SET {', '.join(update_fields)} WHERE id = ?"
+            query = f"UPDATE versions SET source='local', {', '.join(update_fields)} WHERE id = ?"
             cursor.execute(query, params)
 
     def find_game_by_hashes(self, hashes: list[str]) -> Optional[int]:
@@ -734,6 +834,13 @@ class GameDatabase:
             cursor.execute(query, hashes)
             result = cursor.fetchone()
         return result[0] if result else None
+
+    def get_version_hashes(self, version_id: int) -> list[tuple[str, str]]:
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            query = "SELECT file_name, hash FROM hashes where version_id = ?"
+            cursor.execute(query, [version_id])
+            return cursor.fetchall()
 
     #
     # Utility methods

@@ -32,6 +32,7 @@ from turbostage.add_game_worker import AddGameWorker
 from turbostage.constants import CPU_CYCLES
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase
+from turbostage.db.remote_db import RemoteDB
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
@@ -42,12 +43,12 @@ from turbostage.ui.game_setup_widget import GameSetupWidget
 from turbostage.ui.locked_file_dialog import LockedFileDialog
 from turbostage.ui.new_game_wizard import NewGameWizard
 from turbostage.ui.settings_dialog import SettingsDialog
+from turbostage.ui.submit_config_dialog import SubmitLocalConfigDialog
 
 
 class MainWindow(QMainWindow):
     DB_FILE = "turbostage.db"
-    ONLINE_DB_URL = "https://github.com/jberclaz/turbostage_data/raw/refs/heads/master/turbostage.db"
-    ONLINE_DB_VERSION_URL = "https://raw.githubusercontent.com/jberclaz/turbostage_data/refs/heads/master/version.json"
+    ONLINE_DB_URL = "https://github.com/jberclaz/turbostage_data/raw/refs/heads/master/database.json.gz"
 
     def __init__(self):
         QMainWindow.__init__(self)
@@ -87,6 +88,10 @@ class MainWindow(QMainWindow):
         update_db_action = QAction("Update game database", self)
         update_db_action.triggered.connect(self._on_update_game_database)
 
+        # Update game database
+        submit_local_config_action = QAction("Upload local config", self)
+        submit_local_config_action.triggered.connect(self._on_submit_local_config)
+
         # Settings
         settings_action = QAction("Settings", self)
         settings_action.triggered.connect(self._on_show_settings_dialog)
@@ -94,6 +99,7 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction(add_action)
         self.file_menu.addAction(scan_action)
         self.file_menu.addAction(update_db_action)
+        self.file_menu.addAction(submit_local_config_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(settings_action)
         self.file_menu.addSeparator()
@@ -319,36 +325,7 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     def _on_update_game_database(self):
-        version = self._gamedb.get_version()
-
-        response = requests.get(self.ONLINE_DB_VERSION_URL)
-        if response.status_code != 200:
-            QMessageBox.critical(
-                self,
-                "Online database unavailable",
-                "Unable to access online database. Please retry in a few minutes.",
-                QMessageBox.Ok,
-            )
-            return
-
-        online_version = json.loads(response.content)["version"]
-
-        if version > online_version:
-            QMessageBox.warning(
-                self,
-                "Database NOT updated",
-                "The game database was not updated because the online version is too old.",
-                QMessageBox.Ok,
-            )
-            return
-        if version < online_version:
-            QMessageBox.warning(
-                self,
-                "Database NOT updated",
-                "The game database was not updated because the online version is too old. Please upgrade TurboStage to the latest version.",
-                QMessageBox.Ok,
-            )
-            return
+        local_version = self._gamedb.get_version()
 
         response = requests.get(self.ONLINE_DB_URL)
         if response.status_code != 200:
@@ -434,6 +411,24 @@ class MainWindow(QMainWindow):
         config = self.right_setup_tab.dosbox_config_text.toPlainText()
         cycles = self.right_setup_tab.cpu_cycles
         self._gamedb.update_version_info(version_id, None, binary, config, cycles)
+
+    def _on_submit_local_config(self):
+        local_versions = self._gamedb.get_locally_modified_game_versions()
+        if not local_versions:
+            QMessageBox.information(
+                self,
+                "No local configuration to upload",
+                "There are no local configuration to upload.",
+                QMessageBox.Ok,
+            )
+            return
+        dlg = SubmitLocalConfigDialog(local_versions, self)
+        dlg.configsSelected.connect(self._export_and_open_github)
+        dlg.exec()
+
+    def _export_and_open_github(self, version_ids):
+        export = RemoteDB(self._gamedb).export_specific_versions(version_ids)
+        RemoteDB.open_github_with_payload(self, json.dumps(export))
 
     @property
     def db_path(self):
