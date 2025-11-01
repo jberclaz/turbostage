@@ -50,13 +50,17 @@ class SettingsDialog(QDialog):
 
         self.games_path_input = ClickableLineEdit(self)
         self.games_path_input.setText(str(self.settings.value("app/games_path", "")))
-        self.games_path_input.clicked.connect(self._select_games_path)
+        self.games_path_input.clicked.connect(
+            lambda: self._select_directory(self.games_path_input, "Select the Games folder")
+        )
         form_layout.addRow("Games Path", self.games_path_input)
 
         self.mt32_path_input = ClickableLineEdit(self)
         mt32_roms_path = str(self.settings.value("app/mt32_path", ""))
         self.mt32_path_input.setText(mt32_roms_path)
-        self.mt32_path_input.clicked.connect(self._select_mt32_path)
+        self.mt32_path_input.clicked.connect(
+            lambda: self._select_directory(self.mt32_path_input, "Select the MT-32 ROMs folder")
+        )
         self.mt32_download_button = QPushButton("Download", self)
         self.mt32_download_button.clicked.connect(self._download_mt32_roms)
         self.mt32_download_button.setEnabled(mt32_roms_path == "")
@@ -102,15 +106,10 @@ class SettingsDialog(QDialog):
                     QMessageBox.Ok,
                 )
 
-    def _select_games_path(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select the Games folder", "", QFileDialog.ShowDirsOnly)
+    def _select_directory(self, target_widget, dialog_title):
+        folder = QFileDialog.getExistingDirectory(self, dialog_title, "", QFileDialog.ShowDirsOnly)
         if folder:
-            self.games_path_input.setText(folder)
-
-    def _select_mt32_path(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select the MT-32 ROMs folder", "", QFileDialog.ShowDirsOnly)
-        if folder:
-            self.mt32_path_input.setText(folder)
+            target_widget.setText(folder)
 
     def _download_mt32_roms(self):
         app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))

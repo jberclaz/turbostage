@@ -17,8 +17,9 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import constants
-from turbostage.igdb_client import IgdbClient
 from turbostage.ui.game_setup_widget import BinaryListModel
+
+EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
 
 
 class NewGameWizard(QWizard):
@@ -75,14 +76,12 @@ class NewGameWizard(QWizard):
 
     @staticmethod
     def get_executables_from_archive(game_archive: str) -> list[str]:
-        executables = []
         with zipfile.ZipFile(game_archive, "r") as zf:
-            for info in zf.infolist():
-                _, extension = os.path.splitext(info.filename)
-                if extension.lower() not in [".exe", ".bat", ".com"]:
-                    continue
-                executables.append(info.filename)
-        return executables
+            return [
+                info.filename
+                for info in zf.infolist()
+                if os.path.splitext(info.filename)[1].lower() in EXECUTABLE_EXTENSIONS
+            ]
 
 
 class GameTitlePage(QWizardPage):
