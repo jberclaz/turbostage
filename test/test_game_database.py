@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import MagicMock
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
@@ -232,6 +233,30 @@ class TestGameDatabase(unittest.TestCase):
         self.assertEqual(len(games_list), 0)
 
     def test_merge_remote(self):
-        igdb_client = IgdbClient()
+        igdb_client = MagicMock()
+        igdb_client.get_game_info.side_effect = [
+            {
+                "name": "name",
+                "release_date": 2,
+                "genres": ["action"],
+                "summary": "resume",
+                "publisher": "me",
+                "developer": "my brother",
+                "cover_url": "http://image.png",
+                "rating": 3,
+                "screenshot_urls": "",
+            },
+            {
+                "name": "name2",
+                "release_date": 3,
+                "genres": ["action"],
+                "summary": "resume2",
+                "publisher": "me",
+                "developer": "my brother",
+                "cover_url": "http://image.png",
+                "rating": 3,
+                "screenshot_urls": "",
+            },
+        ]
         db = GameDatabase(self.temp_db.name)
         db.merge_remote_json(SUBMISSION_DATA, igdb_client)
