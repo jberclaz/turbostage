@@ -5,6 +5,47 @@ import unittest
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase, GameDetails
+from turbostage.igdb_client import IgdbClient
+
+SUBMISSION_DATA = {
+    "generated_at": "2025-11-01T14:24:29.992062",
+    "games": {
+        7494: {
+            "versions": {
+                "default": {
+                    "executable": "COMANCHE/COMANCHE.EXE",
+                    "config_executable": "COMANCHE/SOUNDSET.EXE",
+                    "config": None,
+                    "cycles": 0,
+                    "hashes": {
+                        "C2.DTA": "3e1c2630f375acc3c72e46b240acbc28",
+                        "C3.DTA": "f5a63082dc80b282b9bbd74bd0112aa7",
+                        "C4.DTA": "27a8eb41f6ebe1aa953b45aa7d0486c4",
+                        "D3.DTA": "d8326fde92627036f6066a02eabd7f32",
+                        "COMANCHE.EXE": "a5f3ec228ce9c9c6e6e455281bde75ef",
+                    },
+                }
+            }
+        },
+        273066: {
+            "versions": {
+                "default": {
+                    "executable": "Arkanoid_2_-_Revenge_of_Doh/DOH.EXE",
+                    "config_executable": None,
+                    "config": None,
+                    "cycles": 0,
+                    "hashes": {
+                        "REVOFDOH.EGA": "4726a22b0b3f73a48f57e3f1796ae10b",
+                        "REVOFDOH.DAT": "f66b0b2f8b3f888d254b5ecf3317ec78",
+                        "REVOFDOH.CGA": "e3e0c075ca8593517afa222b9757541e",
+                        "REVOFDOH.TGA": "20079499b7f54471cbdaa3eda9a07f21",
+                        "DOH.EXE": "ab2cd958cbe3aa314d1f3264f8d439e3",
+                    },
+                }
+            }
+        },
+    },
+}
 
 
 class TestGameDatabase(unittest.TestCase):
@@ -189,3 +230,8 @@ class TestGameDatabase(unittest.TestCase):
         # Test empty local versions list
         games_list = db.get_games_with_local_versions()
         self.assertEqual(len(games_list), 0)
+
+    def test_merge_remote(self):
+        igdb_client = IgdbClient()
+        db = GameDatabase(self.temp_db.name)
+        db.merge_remote_json(SUBMISSION_DATA, igdb_client)

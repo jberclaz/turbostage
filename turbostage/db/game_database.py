@@ -163,82 +163,74 @@ class GameDatabase:
             rows = cursor.fetchall()
             return rows[0][0] if rows else "unknown"
 
-    def merge_remote_json(self, data: dict) -> str:
+    def merge_remote_json(self, data: dict, igdb_client) -> str:
         inserted_games = inserted_versions = 0
-        remote_version = data.get("db_version", 0)
 
         with self.transaction() as conn:
             cur = conn.cursor()
 
-            # ---- 1. Store remote version -------------------------------------------------
-            cur.execute("INSERT OR REPLACE INTO global_db_version (id, version) VALUES (1, ?)", (remote_version,))
-
             # ---- 2. Games ---------------------------------------------------------------
-            for g in data.get("games", []):
-                igdb = g["igdb_id"]
-                cur.execute("SELECT 1 FROM games WHERE igdb_id = ?", (igdb,))
+            for igdb_id in data.get("games"):
+                cur.execute("SELECT 1 FROM games WHERE igdb_id = ?", (igdb_id,))
                 if not cur.fetchone():
-                    cur.execute(
-                        """INSERT INTO games
-                           (igdb_id, title, release_date, genre, summary, publisher,
-                            developer, cover_url, screenshot_urls, rating, last_updated)
-                           VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                        (
-                            igdb,
-                            g.get("title", ""),
-                            g.get("release_date"),
-                            g.get("genre"),
-                            g.get("summary"),
-                            g.get("publisher"),
-                            g.get("developer"),
-                            g.get("cover_url"),
-                            json.dumps(g.get("screenshot_urls", [])),
-                            g.get("rating"),
-                            int(datetime.utcnow().timestamp()),
+                    game_info = igdb_client.get_game_info(igdb_id)
+                    self.insert_game_with_details(
+                        game_info["name"],
+                        GameDetails(
+                            game_info["name"],
+                            game_info["release_date"],
+                            ", ".join(game_info["genres"]),
+                            game_info["summary"],
+                            game_info["publisher"],
+                            game_info["developer"],
+                            game_info["cover_url"],
+                            game_info["rating"],
+                            igdb_id,
+                            game_info["screenshot_urls"],
                         ),
                     )
                     inserted_games += 1
 
             # ---- 3. Versions + Hashes ---------------------------------------------------
-            for g in data.get("games", []):
-                igdb = g["igdb_id"]
-                for v in g.get("versions", []):
-                    # Insert version (ignore if already present – we keep user edits)
+            for igdb_id in data.get("games"):
+                for version_name, version_data in data["games"][igdb_id].get("versions").items():
+                    cur.execute("SELECT 1 FROM versions WHERE game_id = ? AND version = ?", (igdb_id, version_name))
+                    if cur.fetchone():
+                        continue
+                    # Insert version
                     cur.execute(
-                        """INSERT OR IGNORE INTO versions
+                        """INSERT INTO versions
                            (game_id, version, executable, config_executable,
-                            archive, config, cycles, source)
-                           VALUES (?,?,?,?,?,?,?,?)""",
+                            config, cycles, source)
+                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
                         (
-                            igdb,
-                            v["version_name"],
-                            v.get("executable"),
-                            v.get("config_executable"),
-                            v.get("archive"),
-                            v.get("config"),
-                            v.get("cycles"),
+                            igdb_id,
+                            version_name,
+                            version_data.get("executable"),
+                            version_data.get("config_executable"),
+                            version_data.get("config"),
+                            version_data.get("cycles"),
                             "global",
                         ),
                     )
                     version_id = (
                         cur.lastrowid
                         or cur.execute(
-                            "SELECT id FROM versions WHERE game_id=? AND version=?", (igdb, v["version_name"])
+                            "SELECT id FROM versions WHERE game_id=? AND version=?", (igdb_id, version_name)
                         ).fetchone()[0]
                     )
 
-                    # Hashes (with optional size)
-                    for fname, h in v.get("hashes", {}).items():
-                        size = v["hashes_meta"].get(fname, {}).get("size")
+                    # Hashes
+                    for fname, h in version_data.get("hashes", {}).items():
                         cur.execute(
                             """INSERT OR IGNORE INTO hashes
-                               (version_id, file_name, hash)
-                               VALUES (?,?,?)""",
+                                   (version_id, file_name, hash)
+                               VALUES (?, ?, ?)""",
                             (version_id, fname, h),
                         )
                     inserted_versions += 1
 
-        return f"Remote DB v{remote_version}: +{inserted_games} games, +{inserted_versions} versions"
+        return f"Remote DB: +{inserted_games} games, +{inserted_versions} versions"
 
     # def merge_with(self, db_file):
     #     input_conn = sqlite3.connect(db_file)
@@ -395,7 +387,15 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT release_date, genre, summary, publisher, cover_url, title, developer, screenshot_urls, rating
+                SELECT release_date,
+                       genre,
+                       summary,
+                       publisher,
+                       cover_url,
+                       title,
+                       developer,
+                       screenshot_urls,
+                       rating
                 FROM games
                 WHERE igdb_id = ?
                 """,
@@ -428,7 +428,11 @@ class GameDatabase:
             cursor.execute(
                 """
                 UPDATE games
-                SET summary = ?, release_date = ?, genre = ?, publisher = ?, cover_url = ?
+                SET summary      = ?,
+                    release_date = ?,
+                    genre        = ?,
+                    publisher    = ?,
+                    cover_url    = ?
                 WHERE igdb_id = ?
                 """,
                 (details.summary, details.release_date, details.genre, details.publisher, details.cover_url, igdb_id),
@@ -440,8 +444,9 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url, rating, developer, screenshot_urls)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ? , ? ,?)
+                INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url, rating,
+                                   developer, screenshot_urls)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     game_name,
@@ -518,7 +523,7 @@ class GameDatabase:
                 """
                 SELECT v.version, lv.archive, v.executable, v.config, v.cycles
                 FROM versions v
-                JOIN local_versions lv ON v.id = lv.version_id
+                         JOIN local_versions lv ON v.id = lv.version_id
                 WHERE v.id = ?
                 """,
                 (version_id,),
@@ -594,8 +599,9 @@ class GameDatabase:
             cursor.execute(
                 """
                 SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id
-                FROM games g JOIN versions v ON g.igdb_id = v.game_id
-                JOIN local_versions lv ON v.id = lv.version_id
+                FROM games g
+                         JOIN versions v ON g.igdb_id = v.game_id
+                         JOIN local_versions lv ON v.id = lv.version_id
                 ORDER BY g.title
                 """
             )
@@ -624,8 +630,10 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT path, content FROM config_files
-                WHERE version_id = ? AND type = ?
+                SELECT path, content
+                FROM config_files
+                WHERE version_id = ?
+                  AND type = ?
                 """,
                 (version_id, file_type),
             )
@@ -648,8 +656,10 @@ class GameDatabase:
             # First, get all existing files of this type for this version to reduce lookups
             cursor.execute(
                 """
-                SELECT id, path FROM config_files
-                WHERE version_id = ? AND type = ?
+                SELECT id, path
+                FROM config_files
+                WHERE version_id = ?
+                  AND type = ?
                 """,
                 (version_id, file_type),
             )
@@ -672,7 +682,8 @@ class GameDatabase:
                 cursor.executemany(
                     """
                     UPDATE config_files
-                    SET content = ?, name = ?
+                    SET content = ?,
+                        name    = ?
                     WHERE id = ?
                     """,
                     updates,
@@ -715,10 +726,11 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-            SELECT g.title, g.igdb_id, v.id, v.version
-            FROM games g JOIN versions v ON g.igdb_id = v.game_id
-            WHERE v.source = 'local'
-            """
+                SELECT g.title, g.igdb_id, v.id, v.version
+                FROM games g
+                         JOIN versions v ON g.igdb_id = v.game_id
+                WHERE v.source = 'local'
+                """
             )
             return cursor.fetchall()
 

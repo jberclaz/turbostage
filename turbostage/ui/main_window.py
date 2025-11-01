@@ -1,3 +1,4 @@
+import gzip
 import importlib
 import json
 import os
@@ -48,7 +49,7 @@ from turbostage.ui.submit_config_dialog import SubmitLocalConfigDialog
 
 class MainWindow(QMainWindow):
     DB_FILE = "turbostage.db"
-    ONLINE_DB_URL = "https://github.com/jberclaz/turbostage_data/raw/refs/heads/master/database.json.gz"
+    ONLINE_DB_URL = "https://github.com/jberclaz/turbostage_data/raw/refs/heads/master/archive/database.json.gz"
 
     def __init__(self):
         QMainWindow.__init__(self)
@@ -335,11 +336,9 @@ class MainWindow(QMainWindow):
                 "Unable to access online database. Please retry in a few minutes.",
                 QMessageBox.Ok,
             )
-        with tempfile.NamedTemporaryFile() as temp_file:
-            temp_file.write(response.content)
-            error = self._gamedb.merge_with(temp_file.name)
-            if error:
-                QMessageBox.warning(self, "Could not update database", error, QMessageBox.Ok)
+        data = gzip.decompress(response.content)
+        database = json.loads(data.decode("utf-8"))
+        self._gamedb.merge_remote_json(database, self._igdb_client)
 
         QMessageBox.information(
             self, "Database updated", "The game database has been updated to the latest version.", QMessageBox.Ok
