@@ -68,7 +68,6 @@ class AddGameWorker(QRunnable):
             self._version_name,
             self._binary,
             self._config_binary,
-            archive_basename,
             self._config,
             self._cpu_cycles,
         )
