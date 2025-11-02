@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any
 
 import requests
@@ -59,7 +60,15 @@ class IgdbClient:
             release_dates.platform;
         where id = {igdb_id};
         """
-        byte_array = self._wrapper.api_request("games", query)
+        while True:
+            try:
+                byte_array = self._wrapper.api_request("games", query)
+                break
+            except requests.exceptions.HTTPError as err:
+                if err.response.status_code == 429:
+                    time.sleep(1)
+                else:
+                    raise err
         results = json.loads(byte_array)
 
         if not results:

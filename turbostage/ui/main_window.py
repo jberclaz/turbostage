@@ -98,8 +98,10 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(self._on_show_settings_dialog)
 
         self.file_menu.addAction(add_action)
+        self.file_menu.addSeparator()
         self.file_menu.addAction(scan_action)
         self.file_menu.addAction(update_db_action)
+        self.file_menu.addSeparator()
         self.file_menu.addAction(submit_local_config_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(settings_action)
