@@ -180,10 +180,21 @@ class MainWindow(QMainWindow):
             self.game_table.setRowHidden(row, not match)
 
     def launch_game(self):
-        _, version_id, _ = self.selected_game
+        # Check if we're in install mode
+        needs_install = getattr(self, "_current_needs_install", False)
+        version_id = getattr(self, "_current_version_id", None)
+
+        if version_id is None:
+            return
+
         gl = GameLauncher(track_change=True)
-        gl.launch_game(version_id, self._gamedb)
-        if gl.new_files or gl.modified_files:
+        gl.launch_game(version_id, self._gamedb, install_mode=needs_install)
+
+        # If we were in install mode and it succeeded, refresh the game list
+        if needs_install:
+            self.load_games()
+            self.on_game_change()  # Update button text
+        elif gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
 
@@ -200,7 +211,8 @@ class MainWindow(QMainWindow):
             self._current_fetch_cancel_flag.cancelled = True
 
         name_row = selected_items[0]
-        igdb_id, _ = name_row.data(Qt.UserRole)
+        user_data = name_row.data(Qt.UserRole)
+        igdb_id, version_id, needs_install = user_data if len(user_data) == 3 else (user_data[0], user_data[1], False)
         game_name = name_row.text()
 
         self._game_info.set_game_name(game_name)
@@ -208,7 +220,18 @@ class MainWindow(QMainWindow):
 
         settings = QSettings("jberclaz", "TurboStage")
         dosbox_exec = str(settings.value("app/emulator_path", ""))
-        self.launch_button.setEnabled(dosbox_exec != "")
+
+        # Update launch button based on installation status
+        if needs_install:
+            self.launch_button.setText("Install Game")
+            self.launch_button.setEnabled(dosbox_exec != "")
+        else:
+            self.launch_button.setText("Launch Game")
+            self.launch_button.setEnabled(dosbox_exec != "")
+
+        # Store current game info for launch
+        self._current_version_id = version_id
+        self._current_needs_install = needs_install
 
         cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(igdb_id, self._igdb_client, self.db_path, cancel_flag)
@@ -225,7 +248,22 @@ class MainWindow(QMainWindow):
         for row_num, game in enumerate(games):
             # row format: (igdb_id, title, release_date, genre, version)
             game_title = QTableWidgetItem(game.title)
-            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id))  # version_id
+
+            # Check if this game needs installation (ISO with no install)
+            archive_type = self._gamedb.get_archive_type(game.version_id)
+            needs_install = False
+            if archive_type == "iso":
+                is_installed, _ = self._gamedb.get_installation_status(game.version_id)
+                needs_install = not is_installed
+
+            # Store version_id, igdb_id, and installation status
+            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install))
+
+            # Gray out games that need installation
+            if needs_install:
+                game_title.setFlags(game_title.flags() & ~Qt.ItemIsEnabled)
+                game_title.setToolTip("Click 'Install' to install this game")
+
             dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
 
@@ -246,7 +284,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.Ok,
             )
             return
-        local_game_archives = [file for file in os.listdir(games_path) if file.endswith(".zip")]
+        local_game_archives = [file for file in os.listdir(games_path) if file.endswith((".zip", ".iso"))]
 
         self.scan_progress_dialog = QProgressDialog(
             "Scanning local games...", "Cancel", 0, len(local_game_archives), self
@@ -275,16 +313,27 @@ class MainWindow(QMainWindow):
 
     def _on_add_new_game(self):
         games_path = self.games_path
-        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip)")
+        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip *.iso)")
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         if not dialog.exec():
             return
         game_path = dialog.selectedFiles()[0]
 
-        hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
+        # Compute hashes based on archive type
+        from turbostage import iso_utils
+
+        if iso_utils.is_iso_file(game_path):
+            hashes = iso_utils.compute_hash_for_largest_files_in_iso(game_path, 4)
+            archive_type = "iso"
+        else:
+            hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
+            archive_type = "zip"
+
         version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
-            added = self._gamedb.add_local_game_version(version_id, os.path.basename(game_path))
+            added = self._gamedb.add_local_game_version(
+                version_id, os.path.basename(game_path), archive_type=archive_type
+            )
             if added == 0:
                 QMessageBox.warning(
                     self, "Game already installed", "The game you tried to add is already installed in TurboStage"
@@ -312,6 +361,7 @@ class MainWindow(QMainWindow):
             new_game_wizard.dosbox_config,
             self.db_path,
             self._igdb_client,
+            new_game_wizard.requires_install,
         )
         add_game_worker.signals.task_finished.connect(self._on_game_added)
         self._thread_pool.start(add_game_worker)

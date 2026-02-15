@@ -185,3 +185,45 @@ def migrate_to_0_9_1(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
     cursor.execute("ALTER TABLE versions ADD COLUMN source TEXT DEFAULT 'local'")
     cursor.execute("ALTER TABLE versions DROP COLUMN archive")
+
+
+@migration("0.9.2")
+def migrate_to_0_9_2(conn: sqlite3.Connection) -> None:
+    """Migration to version 0.9.2.
+
+    Adds executable and config_executable columns to local_versions table
+    to support different archive internal paths.
+    """
+    cursor = conn.cursor()
+    cursor.execute("ALTER TABLE local_versions ADD COLUMN executable TEXT")
+    cursor.execute("ALTER TABLE local_versions ADD COLUMN config_executable TEXT")
+
+
+@migration("0.10.0")
+def migrate_to_0_10_0(conn: sqlite3.Connection) -> None:
+    """Migration to version 0.10.0.
+
+    Adds archive_type column to local_versions table to support ISO archives
+    and creates installations table for hard drive installation tracking.
+    """
+    cursor = conn.cursor()
+
+    # Add archive_type column to local_versions
+    cursor.execute("ALTER TABLE local_versions ADD COLUMN archive_type TEXT DEFAULT 'zip'")
+
+    # Create installations table
+    cursor.execute(
+        """
+        CREATE TABLE IF NOT EXISTS installations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_id INTEGER UNIQUE NOT NULL,
+            install_path TEXT NOT NULL,
+            installed BOOLEAN DEFAULT FALSE,
+            install_date INTEGER,
+            FOREIGN KEY (version_id) REFERENCES versions(id)
+        )
+    """
+    )
+
+    # Create index for installations table
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_installations_version_id ON installations(version_id)")

@@ -1,10 +1,10 @@
 import importlib
 import os
-import zipfile
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFormLayout,
     QLabel,
@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QWizardPage,
 )
 
-from turbostage import constants
+from turbostage import constants, iso_utils
 from turbostage.ui.game_setup_widget import BinaryListModel
 
 EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
@@ -36,10 +36,18 @@ class NewGameWizard(QWizard):
             pixmap.loadFromData(file.read())
             self.setPixmap(QWizard.WizardPixmap.WatermarkPixmap, pixmap)
 
+        self._game_archive_path = game_archive_path
+        self._is_iso = iso_utils.is_iso_file(game_archive_path)
+        self._volume_label = None
+
         executables = self.get_executables_from_archive(game_archive_path)
 
+        # Get volume label for ISO files to use as default version name
+        if self._is_iso:
+            self._volume_label = iso_utils.get_iso_volume_label(game_archive_path)
+
         self.addPage(GameTitlePage(igdb_client, os.path.basename(game_archive_path)))
-        self.addPage(VersionPage())
+        self.addPage(VersionPage(self._volume_label, self._is_iso))
         self.addPage(ExecutablePage(executables))
         self.addPage(ConfigPage(executables))
         self.addPage(CPUPage())
@@ -74,14 +82,23 @@ class NewGameWizard(QWizard):
     def dosbox_config(self) -> str:
         return self.field("game.extra_config")
 
+    @property
+    def requires_install(self) -> bool:
+        return self.field("game.requires_install") if self._is_iso else False
+
     @staticmethod
     def get_executables_from_archive(game_archive: str) -> list[str]:
-        with zipfile.ZipFile(game_archive, "r") as zf:
-            return [
-                info.filename
-                for info in zf.infolist()
-                if os.path.splitext(info.filename)[1].lower() in EXECUTABLE_EXTENSIONS
-            ]
+        if iso_utils.is_iso_file(game_archive):
+            return iso_utils.list_executables_in_iso(game_archive)
+        else:
+            import zipfile
+
+            with zipfile.ZipFile(game_archive, "r") as zf:
+                return [
+                    info.filename
+                    for info in zf.infolist()
+                    if os.path.splitext(info.filename)[1].lower() in EXECUTABLE_EXTENSIONS
+                ]
 
 
 class GameTitlePage(QWizardPage):
@@ -136,8 +153,9 @@ class GameTitlePage(QWizardPage):
 
 
 class VersionPage(QWizardPage):
-    def __init__(self, parent=None):
+    def __init__(self, volume_label: str | None = None, is_iso: bool = False, parent=None):
         super().__init__(parent)
+        self._is_iso = is_iso
         self.setTitle("Game version")
         self.setSubTitle("Enter the game version")
 
@@ -146,8 +164,23 @@ class VersionPage(QWizardPage):
         self.version_label = QLabel("Version name")
         self.version_name = QLineEdit(self)
         self.version_name.setPlaceholderText("Eg: 'vga', 'en', '1.2', ...")
+
+        # Use volume label as default version name for ISO files
+        if volume_label:
+            self.version_name.setText(volume_label)
+
         layout.addWidget(self.version_label)
         layout.addWidget(self.version_name)
+
+        # Add checkbox for ISO games that require HD installation
+        if is_iso:
+            self.install_checkbox = QCheckBox("Requires hard drive installation")
+            self.install_checkbox.setToolTip(
+                "Check this if the game needs to be installed to the hard drive before playing"
+            )
+            layout.addWidget(self.install_checkbox)
+            self.registerField("game.requires_install", self.install_checkbox)
+
         self.setLayout(layout)
 
         self.registerField("game.version", self.version_name)

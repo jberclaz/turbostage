@@ -1,9 +1,9 @@
 import os
 import zipfile
 
-from PySide6.QtCore import QObject, QRunnable, Signal
+from PySide6.QtCore import QObject, QRunnable, QStandardPaths, Signal
 
-from turbostage import utils
+from turbostage import iso_utils, utils
 from turbostage.db.game_database import GameDatabase
 
 
@@ -24,6 +24,7 @@ class AddGameWorker(QRunnable):
         config: str,
         db_path: str,
         igdb_client,
+        requires_install: bool = False,
     ):
         super().__init__()
         self.signals = WorkerSignals()
@@ -37,10 +38,14 @@ class AddGameWorker(QRunnable):
         self._config = config
         self._db_path = db_path
         self._igdb_client = igdb_client
+        self._requires_install = requires_install
 
     def run(self):
         # Create database instance
         db = GameDatabase(self._db_path)
+
+        # Determine archive type
+        archive_type = iso_utils.get_archive_type(self._game_archive)
 
         # 1. check if game exists in db
         game = db.get_game_details_by_igdb_id(self._igdb_id)
@@ -58,7 +63,7 @@ class AddGameWorker(QRunnable):
         for existing_version in existing_versions:
             if existing_version.version_name == self._version_name:
                 # Version already exists, just update the local version entry
-                db.add_local_game_version(existing_version.version_id, archive_basename)
+                db.add_local_game_version(existing_version.version_id, archive_basename, archive_type=archive_type)
                 self.signals.task_finished.emit()
                 return
 
@@ -72,16 +77,31 @@ class AddGameWorker(QRunnable):
             self._cpu_cycles,
         )
 
-        # 4. add hashes
-        hashes = utils.compute_hash_for_largest_files_in_zip(self._game_archive, n=4)
-        if not self._binary in [h[0] for h in hashes]:
-            with zipfile.ZipFile(self._game_archive, "r") as zf:
-                h = utils.compute_md5_from_zip(zf, self._binary)
+        # 4. add hashes based on archive type
+        if archive_type == "iso":
+            hashes = iso_utils.compute_hash_for_largest_files_in_iso(self._game_archive, n=4)
+            if self._binary not in [h[0] for h in hashes]:
+                h = iso_utils.compute_md5_from_iso(self._game_archive, self._binary)
                 hashes.append((self._binary, 0, h))
+        else:
+            hashes = utils.compute_hash_for_largest_files_in_zip(self._game_archive, n=4)
+            if self._binary not in [h[0] for h in hashes]:
+                with zipfile.ZipFile(self._game_archive, "r") as zf:
+                    h = utils.compute_md5_from_zip(zf, self._binary)
+                    hashes.append((self._binary, 0, h))
 
         db.insert_multiple_hashes(version_id, hashes)
 
-        # 5. add local version
-        db.add_local_game_version(version_id, archive_basename)
+        # 5. add local version with archive type
+        db.add_local_game_version(version_id, archive_basename, archive_type=archive_type)
+
+        # 6. For ISO games that require installation, create installation record
+        if archive_type == "iso" and self._requires_install:
+            app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+            installs_folder = os.path.join(app_data_folder, "installs")
+            os.makedirs(installs_folder, exist_ok=True)
+            install_path = os.path.join(installs_folder, str(version_id))
+            os.makedirs(install_path, exist_ok=True)
+            db.create_installation(version_id, install_path)
 
         self.signals.task_finished.emit()
