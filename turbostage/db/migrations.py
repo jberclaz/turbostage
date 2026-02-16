@@ -195,8 +195,12 @@ def migrate_to_0_9_2(conn: sqlite3.Connection) -> None:
     to support different archive internal paths.
     """
     cursor = conn.cursor()
-    cursor.execute("ALTER TABLE local_versions ADD COLUMN executable TEXT")
-    cursor.execute("ALTER TABLE local_versions ADD COLUMN config_executable TEXT")
+    cursor.execute("PRAGMA table_info(local_versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "executable" not in columns:
+        cursor.execute("ALTER TABLE local_versions ADD COLUMN executable TEXT")
+    if "config_executable" not in columns:
+        cursor.execute("ALTER TABLE local_versions ADD COLUMN config_executable TEXT")
 
 
 @migration("0.10.0")
@@ -209,7 +213,10 @@ def migrate_to_0_10_0(conn: sqlite3.Connection) -> None:
     cursor = conn.cursor()
 
     # Add archive_type column to local_versions
-    cursor.execute("ALTER TABLE local_versions ADD COLUMN archive_type TEXT DEFAULT 'zip'")
+    cursor.execute("PRAGMA table_info(local_versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "archive_type" not in columns:
+        cursor.execute("ALTER TABLE local_versions ADD COLUMN archive_type TEXT DEFAULT 'zip'")
 
     # Create installations table
     cursor.execute(

@@ -496,16 +496,28 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
+            cursor.execute("PRAGMA table_info(local_versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+            has_local_executable = "executable" in columns
+            has_local_config_executable = "config_executable" in columns
+
+            if has_local_executable and has_local_config_executable:
+                select_query = """
                 SELECT v.version, lv.archive, v.executable, v.config_executable, v.config, v.cycles,
                        lv.executable as local_executable, lv.config_executable as local_config_executable
                 FROM versions v
                          JOIN local_versions lv ON v.id = lv.version_id
                 WHERE v.id = ?
-                """,
-                (version_id,),
-            )
+                """
+            else:
+                select_query = """
+                SELECT v.version, lv.archive, v.executable, v.config_executable, v.config, v.cycles,
+                       NULL as local_executable, NULL as local_config_executable
+                FROM versions v
+                         JOIN local_versions lv ON v.id = lv.version_id
+                WHERE v.id = ?
+                """
+            cursor.execute(select_query, (version_id,))
             row = cursor.fetchone()
             if row:
                 # Use local executable paths if available, otherwise fall back to version defaults
@@ -534,11 +546,22 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(local_versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+            has_local_executable = "executable" in columns
+            has_local_config_executable = "config_executable" in columns
+
             if detailed:
-                select_query = (
-                    "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
-                    "v.config, v.cycles, lv.executable as local_exec, lv.config_executable as local_config"
-                )
+                if has_local_executable and has_local_config_executable:
+                    select_query = (
+                        "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
+                        "v.config, v.cycles, lv.executable as local_exec, lv.config_executable as local_config"
+                    )
+                else:
+                    select_query = (
+                        "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
+                        "v.config, v.cycles, NULL as local_exec, NULL as local_config"
+                    )
             else:
                 select_query = "SELECT v.id, v.version, lv.archive"
 

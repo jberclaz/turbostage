@@ -58,30 +58,44 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         # Check if the database is properly initialized with tables
-        tables_exist = False
+        db_version_exists = False
+        has_tables = False
         if db_exists:
             try:
-                # Check if the db_version table exists
+                # Check if any tables exist
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                tables = cursor.fetchall()
+                has_tables = len(tables) > 0
+                # Check if db_version table exists
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='db_version'")
-                tables_exist = cursor.fetchone() is not None
+                db_version_exists = cursor.fetchone() is not None
             except sqlite3.Error:
                 # If there's an error, assume tables don't exist
-                tables_exist = False
+                has_tables = False
 
-        if not db_exists or not tables_exist:
+        if not db_exists or not has_tables:
             # New or uninitialized database, create the schema
             DatabaseManager.create_schema(conn)
             conn.commit()
             conn.close()
             return
 
-        # Existing database with tables, check version and migrate if needed
-        try:
-            cursor.execute("SELECT version FROM db_version ORDER BY id DESC LIMIT 1")
-            row = cursor.fetchone()
-            current_version = row[0] if row else ORIGINAL_VERSION
+        # Existing database with tables
+        if not db_version_exists:
+            # Old database without db_version table - need migrations
+            # Assume original version for databases created before version tracking
+            current_version = ORIGINAL_VERSION
+        else:
+            # Get current version
+            try:
+                cursor.execute("SELECT version FROM db_version ORDER BY id DESC LIMIT 1")
+                row = cursor.fetchone()
+                current_version = row[0] if row else ORIGINAL_VERSION
+            except sqlite3.Error:
+                current_version = ORIGINAL_VERSION
 
-            if current_version != DB_VERSION:
+        if current_version != DB_VERSION:
+            try:
                 # Import migrations module here to avoid circular imports
                 from turbostage.db.migrations import migrate_database
 
@@ -91,10 +105,12 @@ class DatabaseManager:
                 cursor.execute("DELETE FROM db_version")
                 cursor.execute("INSERT INTO db_version (version) VALUES (?)", (DB_VERSION,))
                 conn.commit()
-        except sqlite3.Error as e:
-            print(f"Database error during version check or migration: {e}")
-            raise
-        finally:
+            except sqlite3.Error as e:
+                print(f"Database error during version check or migration: {e}")
+                raise
+            finally:
+                conn.close()
+        else:
             conn.close()
 
     @staticmethod
