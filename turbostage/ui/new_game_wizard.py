@@ -49,11 +49,24 @@ class NewGameWizard(QWizard):
         self.addPage(GameTitlePage(igdb_client, os.path.basename(game_archive_path)))
         self.addPage(VersionPage(self._volume_label, self._is_iso))
         self.addPage(ExecutablePage(executables, is_iso=self._is_iso))
-        # Only add ConfigPage for non-ISO or ISO without installation
-        # For ISO with installation, the installation binary is selected in ExecutablePage
+        # ConfigPage will be conditionally skipped for ISO with installation
         self.addPage(ConfigPage(executables, is_iso=self._is_iso))
         self.addPage(CPUPage())
         self.addPage(DosBoxOptions())
+
+    def nextId(self):
+        # Get current page
+        current = self.currentPage()
+        current_id = self.pageId(current)
+
+        # Check if we're on VersionPage and requires_install is checked
+        if current_id == 1:  # VersionPage is typically the second page (index 1)
+            requires_install = current.field("game.requires_install")
+            if self._is_iso and requires_install:
+                # Skip ConfigPage (page 3) and go directly to CPUPage (page 4)
+                return current_id + 2
+
+        return super().nextId()
 
     @property
     def game_title(self) -> str:
