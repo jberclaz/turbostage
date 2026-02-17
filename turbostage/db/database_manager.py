@@ -99,7 +99,28 @@ class DatabaseManager:
             except sqlite3.Error:
                 current_version = ORIGINAL_VERSION
 
-        if current_version != DB_VERSION:
+        # Always run migrations if version doesn't match, OR if schema is missing expected columns
+        needs_migration = current_version != DB_VERSION
+        if not needs_migration:
+            # Double-check: verify critical columns exist in local_versions
+            # This handles case where version was set but migration didn't run properly
+            try:
+                cursor.execute("PRAGMA table_info(local_versions)")
+                columns = {row[1] for row in cursor.fetchall()}
+                missing_cols = []
+                if "executable" not in columns:
+                    missing_cols.append("executable")
+                if "config_executable" not in columns:
+                    missing_cols.append("config_executable")
+                if "archive_type" not in columns:
+                    missing_cols.append("archive_type")
+                if missing_cols:
+                    # Run migrations to add missing columns
+                    needs_migration = True
+            except sqlite3.Error:
+                pass
+
+        if needs_migration:
             try:
                 # Import migrations module here to avoid circular imports
                 from turbostage.db.migrations import migrate_database
