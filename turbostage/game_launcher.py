@@ -88,7 +88,7 @@ class GameLauncher:
             # Handle different archive types
             if archive_type == "iso":
                 # For ISO files, we mount as CD-ROM
-                self._launch_iso_game(
+                return self._launch_iso_game(
                     db,
                     command,
                     conf_file_path=None,
@@ -104,7 +104,7 @@ class GameLauncher:
                 )
             else:
                 # For ZIP files, extract to temp directory (existing behavior)
-                self._launch_zip_game(
+                return self._launch_zip_game(
                     db,
                     command,
                     temp_dir=temp_dir,
@@ -163,6 +163,8 @@ class GameLauncher:
 
         if self._track_change:
             self._extract_changed_files(temp_dir)
+
+        return (False, None)
 
     def _launch_iso_game(
         self,
