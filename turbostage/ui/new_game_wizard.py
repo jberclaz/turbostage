@@ -59,8 +59,8 @@ class NewGameWizard(QWizard):
         current_index = self.currentId()
         current_page = self.currentPage()
 
-        # Check if we're on VersionPage (page index 1) and requires_install is checked
-        if current_index == 1:  # VersionPage is the second page
+        # Check if we're on ExecutablePage (page index 2) and requires_install is checked
+        if current_index == 2:  # ExecutablePage is the third page
             requires_install = current_page.field("game.requires_install")
             if self._is_iso and requires_install:
                 # Skip ConfigPage (page index 3) and go directly to CPUPage (page index 4)
