@@ -208,9 +208,17 @@ class ExecutablePage(QWizardPage):
 
         self.registerField("game.executable", self, "selected_executable")
 
+    def initializePage(self):
+        # Check if this is ISO with install mode - if so, game executable is optional
+        requires_install = self.field("game.requires_install")
+        if self._is_iso and requires_install:
+            self.setSubTitle("Select the installation program (optional - can be selected after installation)")
+            self.setTitle("Installation program")
+
     def isComplete(self):
         # If ISO with install, game executable is optional (will be selected after installation)
-        if self._is_iso and self.field("game.requires_install"):
+        requires_install = self.field("game.requires_install")
+        if self._is_iso and requires_install:
             return True
         return len(self.binary_list_view.selectedIndexes()) == 1
 
