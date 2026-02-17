@@ -256,22 +256,23 @@ class ConfigPage(QWizardPage):
         layout.addWidget(self.binary_list_view)
         self.setLayout(layout)
 
-        self.registerField("game.config_file", self, "selected_config")
-
     def initializePage(self):
         # For ISO with installation, hide this page (both game binary and config will be selected after installation)
         if self._is_iso and self.field("game.requires_install"):
             self.setVisible(False)
+            # Remove the field registration so it's not validated
+            self.registerField("game.config_file", None)
         else:
             self.setVisible(True)
+            self.registerField("game.config_file", self, "selected_config")
             self.setSubTitle("Pick the executable file for game setup (optional)")
             self.label.setText("Configuration executable")
 
     def isComplete(self):
-        # For ISO with installation, this page is hidden so always allow moving forward
-        if self._is_iso and self.field("game.requires_install"):
-            return True
-        # Otherwise require at least one selection or none (optional)
+        return True
+
+    def validatePage(self):
+        # Always allow validation for this page
         return True
 
     @property
