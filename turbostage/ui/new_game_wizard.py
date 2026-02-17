@@ -49,6 +49,8 @@ class NewGameWizard(QWizard):
         self.addPage(GameTitlePage(igdb_client, os.path.basename(game_archive_path)))
         self.addPage(VersionPage(self._volume_label, self._is_iso))
         self.addPage(ExecutablePage(executables, is_iso=self._is_iso))
+        # Only add ConfigPage for non-ISO or ISO without installation
+        # For ISO with installation, the installation binary is selected in ExecutablePage
         self.addPage(ConfigPage(executables, is_iso=self._is_iso))
         self.addPage(CPUPage())
         self.addPage(DosBoxOptions())
@@ -257,11 +259,12 @@ class ConfigPage(QWizardPage):
         self.registerField("game.config_file", self, "selected_config")
 
     def initializePage(self):
-        # Update label based on whether this is an ISO with installation
+        # For ISO with installation, skip this page (use ExecutablePage for installation program)
         if self._is_iso and self.field("game.requires_install"):
-            self.setSubTitle("Pick the installation program to run (required for ISO with installation)")
-            self.label.setText("Installation program")
+            self.setSkip(True)
+            self.setSubTitle("Skipped for ISO with installation")
         else:
+            self.setSkip(False)
             self.setSubTitle("Pick the executable file for game setup (optional)")
             self.label.setText("Configuration executable")
 
