@@ -261,7 +261,10 @@ class MainWindow(QMainWindow):
 
             # Gray out games that need installation
             if needs_install:
-                game_title.setFlags(game_title.flags() & ~Qt.ItemIsEnabled)
+                for col in range(4):
+                    item = self.game_table.item(row_num, col)
+                    if item:
+                        item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
                 game_title.setToolTip("Click 'Install' to install this game")
 
             dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
