@@ -735,9 +735,27 @@ class GameDatabase:
             if rows[0][0] > 0:
                 return 0
 
+            # Check what columns exist in local_versions table
+            cursor.execute("PRAGMA table_info(local_versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            # Build INSERT statement based on available columns
+            col_names = ["version_id", "archive"]
+            values = [version_id, game_archive_name]
+
+            if "executable" in columns:
+                col_names.append("executable")
+                values.append(executable)
+            if "config_executable" in columns:
+                col_names.append("config_executable")
+                values.append(config_executable)
+            if "archive_type" in columns:
+                col_names.append("archive_type")
+                values.append(archive_type)
+
             cursor.execute(
-                "INSERT INTO local_versions (version_id, archive, executable, config_executable, archive_type) VALUES (?, ?, ?, ?, ?)",
-                (version_id, game_archive_name, executable, config_executable, archive_type),
+                f"INSERT INTO local_versions ({', '.join(col_names)}) VALUES ({', '.join(['?'] * len(values))})",
+                values,
             )
         return 1
 
