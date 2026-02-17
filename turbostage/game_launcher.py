@@ -195,7 +195,11 @@ class GameLauncher:
         # Build autoexec commands for mounting
         autoexec_commands = []
         autoexec_commands.append(f'mount c "{c_drive_path}"')
-        autoexec_commands.append(f'mount d "{archive_path}" -t iso')
+        # For ISO files, use cdrom type with iso filesystem
+        if archive_path.lower().endswith('.iso'):
+            autoexec_commands.append(f'mount d "{archive_path}" -t cdrom -fs iso')
+        else:
+            autoexec_commands.append(f'mount d "{archive_path}" -t cdrom')
         autoexec_commands.append("d:")
 
         # Change to the directory containing the executable if needed
