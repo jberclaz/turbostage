@@ -55,16 +55,16 @@ class NewGameWizard(QWizard):
         self.addPage(DosBoxOptions())
 
     def nextId(self):
-        # Get current page
-        current = self.currentPage()
-        current_id = self.page(current)
+        # Get current page index
+        current_index = self.currentId()
+        current_page = self.currentPage()
 
-        # Check if we're on VersionPage and requires_install is checked
-        if current_id == 1:  # VersionPage is typically the second page (index 1)
-            requires_install = current.field("game.requires_install")
+        # Check if we're on VersionPage (page index 1) and requires_install is checked
+        if current_index == 1:  # VersionPage is the second page
+            requires_install = current_page.field("game.requires_install")
             if self._is_iso and requires_install:
-                # Skip ConfigPage (page 3) and go directly to CPUPage (page 4)
-                return current_id + 2
+                # Skip ConfigPage (page index 3) and go directly to CPUPage (page index 4)
+                return 4
 
         return super().nextId()
 
