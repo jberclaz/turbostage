@@ -47,6 +47,10 @@ class AddGameWorker(QRunnable):
         # Determine archive type
         archive_type = iso_utils.get_archive_type(self._game_archive)
 
+        # Strip ISO version number (e.g., ;1) from executables
+        binary = self._binary.split(";")[0] if self._binary else None
+        config_binary = self._config_binary.split(";")[0] if self._config_binary else None
+
         # 1. check if game exists in db
         game = db.get_game_details_by_igdb_id(self._igdb_id)
         if game is None:
@@ -71,8 +75,8 @@ class AddGameWorker(QRunnable):
         version_id = db.insert_game_version(
             self._igdb_id,
             self._version_name,
-            self._binary,
-            self._config_binary,
+            binary,
+            config_binary,
             self._config,
             self._cpu_cycles,
         )
@@ -80,14 +84,14 @@ class AddGameWorker(QRunnable):
         # 4. add hashes based on archive type
         if archive_type == "iso":
             hashes = iso_utils.compute_hash_for_largest_files_in_iso(self._game_archive, n=4)
-            if self._binary not in [h[0] for h in hashes]:
-                h = iso_utils.compute_md5_from_iso(self._game_archive, self._binary)
-                hashes.append((self._binary, 0, h))
+            if binary not in [h[0] for h in hashes]:
+                h = iso_utils.compute_md5_from_iso(self._game_archive, binary)
+                hashes.append((binary, 0, h))
         else:
             hashes = utils.compute_hash_for_largest_files_in_zip(self._game_archive, n=4)
-            if self._binary not in [h[0] for h in hashes]:
+            if binary not in [h[0] for h in hashes]:
                 with zipfile.ZipFile(self._game_archive, "r") as zf:
-                    h = utils.compute_md5_from_zip(zf, self._binary)
+                    h = utils.compute_md5_from_zip(zf, binary)
                     hashes.append((self._binary, 0, h))
 
         db.insert_multiple_hashes(version_id, hashes)
