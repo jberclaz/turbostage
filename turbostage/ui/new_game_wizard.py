@@ -57,7 +57,7 @@ class NewGameWizard(QWizard):
     def nextId(self):
         # Get current page
         current = self.currentPage()
-        current_id = self.pageId(current)
+        current_id = self.page(current)
 
         # Check if we're on VersionPage and requires_install is checked
         if current_id == 1:  # VersionPage is typically the second page (index 1)
