@@ -86,6 +86,10 @@ def compute_md5_from_iso(iso, file_path: str) -> str:
 
     # Try different path types
     path_types = ["iso_path", "joliet_path", "rr_path"]
+    # Also try with ISO 9660 version number suffix (e.g., ;1)
+    paths_to_try = [file_path]
+    if ";" not in file_path:
+        paths_to_try.append(file_path + ";1")
     opened = False
 
     if isinstance(iso, str):
@@ -93,30 +97,36 @@ def compute_md5_from_iso(iso, file_path: str) -> str:
         iso_obj = pycdlib.PyCdlib()
         iso_obj.open(iso)
         try:
-            for path_type in path_types:
-                try:
-                    with iso_obj.open_file_from_iso(**{path_type: file_path}) as f:
-                        for chunk in iter(lambda: f.read(4096), b""):
-                            hash_md5.update(chunk)
-                        opened = True
-                        break
-                except Exception:
-                    continue
+            for path in paths_to_try:
+                for path_type in path_types:
+                    try:
+                        with iso_obj.open_file_from_iso(**{path_type: path}) as f:
+                            for chunk in iter(lambda: f.read(4096), b""):
+                                hash_md5.update(chunk)
+                            opened = True
+                            break
+                    except Exception:
+                        continue
+                if opened:
+                    break
             if not opened:
                 raise pycdlibexception.PyCdlibInvalidInput(f"Could not find path: {file_path}")
         finally:
             iso_obj.close()
     else:
         # iso is already an opened object
-        for path_type in path_types:
-            try:
-                with iso.open_file_from_iso(**{path_type: file_path}) as f:
-                    for chunk in iter(lambda: f.read(4096), b""):
-                        hash_md5.update(chunk)
-                    opened = True
-                    break
-            except Exception:
-                continue
+        for path in paths_to_try:
+            for path_type in path_types:
+                try:
+                    with iso.open_file_from_iso(**{path_type: path}) as f:
+                        for chunk in iter(lambda: f.read(4096), b""):
+                            hash_md5.update(chunk)
+                        opened = True
+                        break
+                except Exception:
+                    continue
+            if opened:
+                break
         if not opened:
             raise pycdlibexception.PyCdlibInvalidInput(f"Could not find path: {file_path}")
 
