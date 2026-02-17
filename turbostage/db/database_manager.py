@@ -52,6 +52,11 @@ class DatabaseManager:
         Args:
             db_path: Path to the SQLite database file
         """
+        # Create directory if it doesn't exist
+        db_dir = os.path.dirname(db_path)
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir)
+
         db_exists = os.path.exists(db_path)
 
         conn = sqlite3.connect(db_path)
