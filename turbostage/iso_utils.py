@@ -240,7 +240,7 @@ def list_executables_in_iso(iso_path: str) -> list[str]:
         # Strip ISO 9660 version number (e.g., ";1") before checking extension
         base_name = f.split(";")[0]
         if os.path.splitext(base_name)[1].lower() in EXECUTABLE_EXTENSIONS:
-            executables.append(f)
+            executables.append(base_name)
     return executables
 
 
