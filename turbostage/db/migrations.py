@@ -234,3 +234,17 @@ def migrate_to_0_10_0(conn: sqlite3.Connection) -> None:
 
     # Create index for installations table
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_installations_version_id ON installations(version_id)")
+
+
+@migration("0.10.1")
+def migrate_to_0_10_1(conn: sqlite3.Connection) -> None:
+    """Migration to version 0.10.1.
+
+    Adds requires_install column to local_versions table to track whether
+    a game requires hard drive installation.
+    """
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(local_versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "requires_install" not in columns:
+        cursor.execute("ALTER TABLE local_versions ADD COLUMN requires_install INTEGER DEFAULT 0")

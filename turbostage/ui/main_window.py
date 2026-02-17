@@ -203,8 +203,9 @@ class MainWindow(QMainWindow):
             self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
 
     def _prompt_for_game_binary(self, version_id: int, install_path: str):
-        """Prompt user to select game binary from installed files."""
-        from PySide6.QtWidgets import QFileDialog
+        """Prompt user to select game binary from installed files using a custom dialog."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QListView, QLabel, QDialogButtonBox, QAbstractItemView
+        from turbostage.ui.game_setup_widget import BinaryListModel
 
         # Get list of executables from install directory
         executables = []
@@ -224,40 +225,62 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Show dialog to select game executable
-        game_exe, ok = QFileDialog.getOpenFileName(
-            self,
-            "Select Game Executable",
-            install_path,
-            "Executables (*.exe *.bat *.com);;All files (*)",
-        )
+        # First dialog: select game executable
+        dialog1 = QDialog(self)
+        dialog1.setWindowTitle("Select Game Executable")
+        layout1 = QVBoxLayout(dialog1)
+        layout1.addWidget(QLabel("Select the game executable:"))
+        list_view1 = QListView(dialog1)
+        model1 = BinaryListModel()
+        model1.set_binaries(executables)
+        list_view1.setModel(model1)
+        list_view1.setSelectionMode(QAbstractItemView.SingleSelection)
+        layout1.addWidget(list_view1)
+        buttons1 = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog1)
+        layout1.addWidget(buttons1)
+        buttons1.accepted.connect(dialog1.accept)
+        buttons1.rejected.connect(dialog1.reject)
 
-        if not ok or not game_exe:
+        if dialog1.exec() != QDialog.Accepted:
             return
 
-        # Get relative path
-        rel_game_exe = os.path.relpath(game_exe, install_path)
+        selected = list_view1.selectedIndexes()
+        if not selected:
+            return
+        game_exe = model1.binaries[selected[0].row()]
 
-        # Ask for optional config executable
-        config_exe = ""
+        # Second dialog: optional config executable
         reply = QMessageBox.question(
             self,
             "Select Config Executable",
             "Do you want to select a configuration/setup executable?",
             QMessageBox.Yes | QMessageBox.No,
         )
-        if reply == QMessageBox.Yes:
-            config_file, ok = QFileDialog.getOpenFileName(
-                self,
-                "Select Config Executable",
-                install_path,
-                "Executables (*.exe *.bat *.com);;All files (*)",
-            )
-            if ok and config_file:
-                config_exe = os.path.relpath(config_file, install_path)
 
-        # Update database with game and config executables (binary is the game executable, config_executable is for setup)
-        self._gamedb.update_version_info(version_id, binary=rel_game_exe, config_executable=config_exe)
+        config_exe = ""
+        if reply == QMessageBox.Yes:
+            dialog2 = QDialog(self)
+            dialog2.setWindowTitle("Select Config Executable")
+            layout2 = QVBoxLayout(dialog2)
+            layout2.addWidget(QLabel("Select the configuration executable (optional):"))
+            list_view2 = QListView(dialog2)
+            model2 = BinaryListModel()
+            model2.set_binaries(executables)
+            list_view2.setModel(model2)
+            list_view2.setSelectionMode(QAbstractItemView.SingleSelection)
+            layout2.addWidget(list_view2)
+            buttons2 = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog2)
+            layout2.addWidget(buttons2)
+            buttons2.accepted.connect(dialog2.accept)
+            buttons2.rejected.connect(dialog2.reject)
+
+            if dialog2.exec() == QDialog.Accepted:
+                selected2 = list_view2.selectedIndexes()
+                if selected2:
+                    config_exe = model2.binaries[selected2[0].row()]
+
+        # Update database with game and config executables
+        self._gamedb.update_version_info(version_id, binary=game_exe, config_executable=config_exe)
 
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
@@ -310,10 +333,11 @@ class MainWindow(QMainWindow):
             # row format: (igdb_id, title, release_date, genre, version)
             game_title = QTableWidgetItem(game.title)
 
-            # Check if this game needs installation (ISO with no install)
+            # Check if this game needs installation (ISO with requires_install flag and not yet installed)
             archive_type = self._gamedb.get_archive_type(game.version_id)
+            requires_install = self._gamedb.get_requires_install(game.version_id)
             needs_install = False
-            if archive_type == "iso":
+            if archive_type == "iso" and requires_install:
                 is_installed, _ = self._gamedb.get_installation_status(game.version_id)
                 needs_install = not is_installed
 

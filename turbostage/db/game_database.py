@@ -717,6 +717,7 @@ class GameDatabase:
         executable: str | None = None,
         config_executable: str | None = None,
         archive_type: str = "zip",
+        requires_install: bool = False,
     ) -> int:
         """
         Add a new game to the local version database
@@ -725,6 +726,7 @@ class GameDatabase:
         :param executable: actual executable path in the user's archive (optional)
         :param config_executable: actual config executable path in the user's archive (optional)
         :param archive_type: type of archive ('zip' or 'iso')
+        :param requires_install: whether the game requires hard drive installation
         :return: 1 if successfully added and 0 if the game already exists
         """
         with self.transaction() as conn:
@@ -752,6 +754,9 @@ class GameDatabase:
             if "archive_type" in columns:
                 col_names.append("archive_type")
                 values.append(archive_type)
+            if "requires_install" in columns:
+                col_names.append("requires_install")
+                values.append(1 if requires_install else 0)
 
             cursor.execute(
                 f"INSERT INTO local_versions ({', '.join(col_names)}) VALUES ({', '.join(['?'] * len(values))})",
@@ -872,6 +877,28 @@ class GameDatabase:
             )
             row = cursor.fetchone()
             return row[0] if row else "zip"
+
+    def get_requires_install(self, version_id: int) -> bool:
+        """Get whether a game requires hard drive installation.
+
+        Args:
+            version_id: The version ID to check
+
+        Returns:
+            True if the game requires installation, False otherwise
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT requires_install
+                FROM local_versions
+                WHERE version_id = ?
+                """,
+                (version_id,),
+            )
+            row = cursor.fetchone()
+            return bool(row[0]) if row else False
 
     def delete_local_game_by_igdb_id(self, igdb_id: int) -> None:
         """Delete a local game from the database.

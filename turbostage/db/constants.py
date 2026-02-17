@@ -6,7 +6,7 @@ and schema definitions.
 """
 
 # Current database version - used for new installations and migrations
-DB_VERSION = "0.10.0"
+DB_VERSION = "0.10.1"
 
 # Original schema version - for reference
 ORIGINAL_VERSION = "0.5.0"
@@ -55,7 +55,8 @@ SCHEMA_TABLES = {
             archive TEXT,
             executable TEXT,
             config_executable TEXT,
-            archive_type TEXT DEFAULT 'zip'
+            archive_type TEXT DEFAULT 'zip',
+            requires_install INTEGER DEFAULT 0
         );
     """,
     "installations": """

@@ -97,7 +97,7 @@ class AddGameWorker(QRunnable):
         db.insert_multiple_hashes(version_id, hashes)
 
         # 5. add local version with archive type
-        db.add_local_game_version(version_id, archive_basename, archive_type=archive_type)
+        db.add_local_game_version(version_id, archive_basename, archive_type=archive_type, requires_install=self._requires_install)
 
         # 6. For ISO games that require installation, create installation record
         if archive_type == "iso" and self._requires_install:
