@@ -68,7 +68,8 @@ class NewGameWizard(QWizard):
 
     @property
     def game_executable(self) -> str:
-        return self.field("game.executable")
+        exe = self.field("game.executable")
+        return exe if exe else ""
 
     @property
     def game_config(self) -> str | None:
@@ -204,7 +205,7 @@ class ExecutablePage(QWizardPage):
         layout.addWidget(self.binary_list_view)
         self.setLayout(layout)
 
-        self.registerField("game.executable*", self, "selected_executable")
+        self.registerField("game.executable", self, "selected_executable")
 
     def isComplete(self):
         return len(self.binary_list_view.selectedIndexes()) == 1

@@ -8,6 +8,9 @@ import hashlib
 import os
 from typing import BinaryIO
 
+import pycdlib
+from pycdlib import pycdlibexception
+
 
 def is_iso_file(file_path: str) -> bool:
     """Check if a file is an ISO image based on its extension.
@@ -81,21 +84,41 @@ def compute_md5_from_iso(iso, file_path: str) -> str:
 
     hash_md5 = hashlib.md5()
 
+    # Try different path types
+    path_types = ["iso_path", "joliet_path", "rr_path"]
+    opened = False
+
     if isinstance(iso, str):
         # iso is a path, open it
         iso_obj = pycdlib.PyCdlib()
         iso_obj.open(iso)
         try:
-            with iso_obj.open_file_from_iso(iso_path=file_path) as f:
-                for chunk in iter(lambda: f.read(4096), b""):
-                    hash_md5.update(chunk)
+            for path_type in path_types:
+                try:
+                    with iso_obj.open_file_from_iso(**{path_type: file_path}) as f:
+                        for chunk in iter(lambda: f.read(4096), b""):
+                            hash_md5.update(chunk)
+                        opened = True
+                        break
+                except Exception:
+                    continue
+            if not opened:
+                raise pycdlibexception.PyCdlibInvalidInput(f"Could not find path: {file_path}")
         finally:
             iso_obj.close()
     else:
         # iso is already an opened object
-        with iso.open_file_from_iso(iso_path=file_path) as f:
-            for chunk in iter(lambda: f.read(4096), b""):
-                hash_md5.update(chunk)
+        for path_type in path_types:
+            try:
+                with iso.open_file_from_iso(**{path_type: file_path}) as f:
+                    for chunk in iter(lambda: f.read(4096), b""):
+                        hash_md5.update(chunk)
+                    opened = True
+                    break
+            except Exception:
+                continue
+        if not opened:
+            raise pycdlibexception.PyCdlibInvalidInput(f"Could not find path: {file_path}")
 
     return hash_md5.hexdigest()
 
@@ -121,16 +144,34 @@ def compute_hash_for_largest_files_in_iso(iso_path: str, n: int = 5) -> list[tup
         # Walk through all files in the ISO
         for dir_path, dir_entries, file_entries in iso.walk(iso_path="/"):
             for file_entry in file_entries:
-                # Skip system entries
-                if file_entry.file_identifier() in (b".", b".."):
-                    continue
+                # Handle both string entries and file entry objects
+                if isinstance(file_entry, str):
+                    if file_entry in (".", ".."):
+                        continue
+                    file_id = file_entry
+                else:
+                    if file_entry.file_identifier() in (b".", b".."):
+                        continue
+                    file_id = file_entry.file_identifier().decode("utf-8")
 
-                full_path = dir_path + file_entry.file_identifier().decode("utf-8")
-                file_size = file_entry.get_data_length()
+                # Ensure proper path joining with separator
+                if dir_path.endswith("/"):
+                    full_path = dir_path + file_id
+                else:
+                    full_path = dir_path + "/" + file_id
+
+                if isinstance(file_entry, str):
+                    file_size = 0
+                else:
+                    file_size = file_entry.get_data_length()
                 file_sizes.append((full_path, file_size))
 
-        # Sort by size and take the largest n files
-        largest_files = sorted(file_sizes, key=lambda x: x[1], reverse=True)[:n]
+        # Sort by size and take the largest n files (filter out size 0)
+        largest_files = sorted([f for f in file_sizes if f[1] > 0], key=lambda x: x[1], reverse=True)[:n]
+
+        # If no files with size found, try getting any files
+        if not largest_files and file_sizes:
+            largest_files = file_sizes[:n]
 
         # Compute MD5 hashes for the largest files
         file_hashes = []
@@ -162,9 +203,21 @@ def list_files_in_iso(iso_path: str) -> list[str]:
         files = []
         for dir_path, dir_entries, file_entries in iso.walk(iso_path="/"):
             for file_entry in file_entries:
-                if file_entry.file_identifier() in (b".", b".."):
-                    continue
-                full_path = dir_path + file_entry.file_identifier().decode("utf-8")
+                # Handle both string entries and file entry objects
+                if isinstance(file_entry, str):
+                    if file_entry in (".", ".."):
+                        continue
+                    file_id = file_entry
+                else:
+                    if file_entry.file_identifier() in (b".", b".."):
+                        continue
+                    file_id = file_entry.file_identifier().decode("utf-8")
+
+                # Ensure proper path joining with separator
+                if dir_path.endswith("/"):
+                    full_path = dir_path + file_id
+                else:
+                    full_path = dir_path + "/" + file_id
                 files.append(full_path)
         return files
     finally:
@@ -182,7 +235,13 @@ def list_executables_in_iso(iso_path: str) -> list[str]:
     """
     EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
     all_files = list_files_in_iso(iso_path)
-    return [f for f in all_files if os.path.splitext(f)[1].lower() in EXECUTABLE_EXTENSIONS]
+    executables = []
+    for f in all_files:
+        # Strip ISO 9660 version number (e.g., ";1") before checking extension
+        base_name = f.split(";")[0]
+        if os.path.splitext(base_name)[1].lower() in EXECUTABLE_EXTENSIONS:
+            executables.append(f)
+    return executables
 
 
 def get_iso_volume_label(iso_path: str) -> str | None:

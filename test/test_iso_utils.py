@@ -4,6 +4,8 @@ from unittest import TestCase
 
 from turbostage import iso_utils
 
+TEST_ISO_PATH = "/home/jrb/Documents/games/lba.iso"
+
 
 class TestIsoUtils(TestCase):
     def test_is_iso_file(self):
@@ -22,6 +24,54 @@ class TestIsoUtils(TestCase):
         self.assertEqual(iso_utils.get_archive_type("/path/to/game.zip"), "zip")
         self.assertEqual(iso_utils.get_archive_type("/path/to/game.ZIP"), "zip")
         self.assertEqual(iso_utils.get_archive_type("/path/to/game.exe"), "zip")
+
+    def test_get_iso_volume_label(self):
+        """Test getting the volume label from an ISO."""
+        if os.path.exists(TEST_ISO_PATH):
+            label = iso_utils.get_iso_volume_label(TEST_ISO_PATH)
+            self.assertIsInstance(label, str)
+            self.assertTrue(len(label) > 0)
+
+    def test_list_files_in_iso(self):
+        """Test listing files in an ISO."""
+        if os.path.exists(TEST_ISO_PATH):
+            files = iso_utils.list_files_in_iso(TEST_ISO_PATH)
+            self.assertIsInstance(files, list)
+            self.assertTrue(len(files) > 0)
+            # Check that paths are properly formatted
+            for f in files:
+                self.assertIsInstance(f, str)
+                self.assertTrue(f.startswith("/"))
+
+    def test_list_executables_in_iso(self):
+        """Test listing executables in an ISO."""
+        if os.path.exists(TEST_ISO_PATH):
+            executables = iso_utils.list_executables_in_iso(TEST_ISO_PATH)
+            self.assertIsInstance(executables, list)
+            self.assertTrue(len(executables) > 0, "Expected to find executables in ISO")
+            # All executables should have .exe, .bat, or .com extension (before ISO version number)
+            for exe in executables:
+                # Strip ISO version number (e.g., ";1") before checking extension
+                base_name = exe.split(";")[0]
+                self.assertTrue(
+                    base_name.lower().endswith((".exe", ".bat", ".com")),
+                    f"Expected .exe/.bat/.com extension, got: {exe}",
+                )
+
+    def test_compute_hash_for_largest_files_in_iso(self):
+        """Test computing hashes for largest files in an ISO."""
+        if os.path.exists(TEST_ISO_PATH):
+            hashes = iso_utils.compute_hash_for_largest_files_in_iso(TEST_ISO_PATH, 4)
+            self.assertIsInstance(hashes, list)
+            self.assertTrue(len(hashes) > 0)
+            # Each entry should be (file_path, file_size, md5_hash)
+            for entry in hashes:
+                self.assertEqual(len(entry), 3)
+                file_path, file_size, file_hash = entry
+                self.assertIsInstance(file_path, str)
+                self.assertIsInstance(file_size, int)
+                self.assertIsInstance(file_hash, str)
+                self.assertEqual(len(file_hash), 32)  # MD5 is 32 hex chars
 
 
 class TestIsoUtilsWithDatabase(TestCase):
