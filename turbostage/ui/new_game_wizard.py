@@ -259,14 +259,20 @@ class ConfigPage(QWizardPage):
         self.registerField("game.config_file", self, "selected_config")
 
     def initializePage(self):
-        # For ISO with installation, skip this page (use ExecutablePage for installation program)
+        # For ISO with installation, skip this page (both game binary and config will be selected after installation)
         if self._is_iso and self.field("game.requires_install"):
             self.setSkip(True)
-            self.setSubTitle("Skipped for ISO with installation")
         else:
             self.setSkip(False)
             self.setSubTitle("Pick the executable file for game setup (optional)")
             self.label.setText("Configuration executable")
+
+    def isComplete(self):
+        # For ISO with installation, this page is skipped so always allow moving forward
+        if self._is_iso and self.field("game.requires_install"):
+            return True
+        # Otherwise require at least one selection or none (optional)
+        return True
 
     @property
     def selected_config(self) -> str:
