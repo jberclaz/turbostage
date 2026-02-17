@@ -48,8 +48,8 @@ class NewGameWizard(QWizard):
 
         self.addPage(GameTitlePage(igdb_client, os.path.basename(game_archive_path)))
         self.addPage(VersionPage(self._volume_label, self._is_iso))
-        self.addPage(ExecutablePage(executables))
-        self.addPage(ConfigPage(executables))
+        self.addPage(ExecutablePage(executables, is_iso=self._is_iso))
+        self.addPage(ConfigPage(executables, is_iso=self._is_iso))
         self.addPage(CPUPage())
         self.addPage(DosBoxOptions())
 
@@ -188,8 +188,9 @@ class VersionPage(QWizardPage):
 
 
 class ExecutablePage(QWizardPage):
-    def __init__(self, executables: list[str], parent=None):
+    def __init__(self, executables: list[str], is_iso: bool = False, parent=None):
         super().__init__(parent)
+        self._is_iso = is_iso
         self.setTitle("Game executable")
         self.setSubTitle("Pick the executable file to start the game")
 
@@ -208,6 +209,9 @@ class ExecutablePage(QWizardPage):
         self.registerField("game.executable", self, "selected_executable")
 
     def isComplete(self):
+        # If ISO with install, game executable is optional (will be selected after installation)
+        if self._is_iso and self.field("game.requires_install"):
+            return True
         return len(self.binary_list_view.selectedIndexes()) == 1
 
     @property
@@ -223,14 +227,15 @@ class ExecutablePage(QWizardPage):
 
 
 class ConfigPage(QWizardPage):
-    def __init__(self, executables: list[str], parent=None):
+    def __init__(self, executables: list[str], is_iso: bool = False, parent=None):
         super().__init__(parent)
+        self._is_iso = is_iso
         self.setTitle("Game config")
         self.setSubTitle("Pick the executable file for game setup (optional)")
 
         layout = QVBoxLayout(self)
-        label = QLabel("Configuration executable")
-        layout.addWidget(label)
+        self.label = QLabel("Configuration executable")
+        layout.addWidget(self.label)
         self.binary_list_view = QListView(self)
         self.binary_list_model = BinaryListModel()
         self.binary_list_model.set_binaries(executables)
@@ -242,6 +247,15 @@ class ConfigPage(QWizardPage):
         self.setLayout(layout)
 
         self.registerField("game.config_file", self, "selected_config")
+
+    def initializePage(self):
+        # Update label based on whether this is an ISO with installation
+        if self._is_iso and self.field("game.requires_install"):
+            self.setSubTitle("Pick the installation program to run (required for ISO with installation)")
+            self.label.setText("Installation program")
+        else:
+            self.setSubTitle("Pick the executable file for game setup (optional)")
+            self.label.setText("Configuration executable")
 
     @property
     def selected_config(self) -> str:
