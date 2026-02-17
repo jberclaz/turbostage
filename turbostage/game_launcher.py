@@ -28,7 +28,7 @@ class GameLauncher:
         config_files: bool = True,
         binary: str | None = None,
         install_mode: bool = False,
-    ):
+    ) -> tuple[bool, str | None]:
         """Launch a game.
 
         Args:
@@ -38,8 +38,14 @@ class GameLauncher:
             config_files: Whether to load config files
             binary: Optional override for the executable to run
             install_mode: If True, launch in installation mode (ISO games only)
+
+        Returns:
+            Tuple of (installation_completed, install_path) - installation_completed is True
+            if a new installation was completed, install_path is the path where game is installed
         """
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
+        installation_completed = False
+        result_install_path = None
 
         game_info = db.get_version_by_version_id(version_id)
 
@@ -64,7 +70,7 @@ class GameLauncher:
                 "Cannot start game, because the DosBox Staging binary has not been specified. Use the Settings dialog to set it up or download DosBox Staging",
                 QMessageBox.Ok,
             )
-            return
+            return (False, None)
 
         # Get archive type from database
         archive_type = db.get_archive_type(version_id)
@@ -177,20 +183,29 @@ class GameLauncher:
         # Get installation status
         is_installed, install_path = db.get_installation_status(self._version_id)
 
-        # Write config and save files to temp directory (this becomes C:)
-        if config_files:
-            GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
-
-        if save_games:
-            GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
-
         # Determine what to mount as C: drive
-        if install_mode or not is_installed:
-            # Installation mode: C: is the temp directory (empty or with configs/saves)
+        if install_mode and not is_installed:
+            # Installation mode: C: is the installation directory (to persist files)
+            c_drive_path = install_path
+            # Write config and save files to install directory
+            if config_files:
+                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.CONFIG)
+            if save_games:
+                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.SAVEGAME)
+        elif not is_installed:
+            # Not installed and not in install mode: use temp directory
             c_drive_path = temp_dir
+            if config_files:
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
+            if save_games:
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
         else:
             # Normal mode: C: is the installation directory
             c_drive_path = install_path
+            if config_files:
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
+            if save_games:
+                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
 
         # Build autoexec commands for mounting
         autoexec_commands = []
@@ -204,10 +219,21 @@ class GameLauncher:
 
         # Change to the directory containing the executable if needed
         # Strip ISO version number (e.g., ;1) from executable path
-        exec_path = executable.split(";")[0]
-        exec_dir = os.path.dirname(exec_path)
-        if exec_dir:
-            autoexec_commands.append(f"cd {exec_dir}")
+        exec_path = executable.split(";")[0] if executable else ""
+
+        # For installed games, executable is on C: drive (hard drive)
+        # For non-installed games, executable is on D: drive (ISO)
+        if is_installed and install_path:
+            # Game is installed - executable is relative to install_path (C:)
+            exec_dir = os.path.dirname(exec_path)
+            if exec_dir:
+                autoexec_commands.append(f"cd {exec_dir}")
+        else:
+            # Game is not installed - executable is on D: (ISO)
+            exec_dir = os.path.dirname(exec_path)
+            if exec_dir:
+                autoexec_commands.append(f"d:")
+                autoexec_commands.append(f"cd {exec_dir}")
 
         exec_name = os.path.basename(exec_path)
         autoexec_commands.append(exec_name)
@@ -232,6 +258,8 @@ class GameLauncher:
                 # If we were in install mode and DOSBox succeeded, mark as installed
                 if install_mode and not is_installed:
                     db.mark_installed(self._version_id)
+                    installation_completed = True
+                    result_install_path = install_path
 
             except subprocess.CalledProcessError as e:
                 QMessageBox.warning(
@@ -240,6 +268,8 @@ class GameLauncher:
                     f"The game failed with the following error: '{e}'",
                     QMessageBox.Ok,
                 )
+
+        return (installation_completed, result_install_path)
 
     def _extract_changed_files(self, temp_dir: str):
         files_after_setup = utils.list_files_with_md5(temp_dir)

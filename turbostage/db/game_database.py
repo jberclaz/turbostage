@@ -910,6 +910,7 @@ class GameDatabase:
         binary: str = None,
         config: str = None,
         cycles: int = None,
+        config_executable: str = None,
     ):
         """Update version information for a game version.
 
@@ -919,6 +920,7 @@ class GameDatabase:
             binary: New binary path (if None, not updated)
             config: New DOSBox configuration (if None, not updated)
             cycles: New CPU cycles (if None, not updated)
+            config_executable: New config executable path (if None, not updated)
         """
         # Only include fields that are not None
         update_fields = []
@@ -939,6 +941,10 @@ class GameDatabase:
         if cycles is not None:
             update_fields.append("cycles = ?")
             params.append(cycles)
+
+        if config_executable is not None:
+            update_fields.append("config_executable = ?")
+            params.append(config_executable)
 
         if not update_fields or not params:
             return  # Nothing to update

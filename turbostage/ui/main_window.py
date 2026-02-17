@@ -188,15 +188,76 @@ class MainWindow(QMainWindow):
             return
 
         gl = GameLauncher(track_change=True)
-        gl.launch_game(version_id, self._gamedb, install_mode=needs_install)
+        install_completed, install_path = gl.launch_game(version_id, self._gamedb, install_mode=needs_install)
+
+        # If installation completed, prompt user to select game binary from installed files
+        if install_completed and install_path:
+            self._prompt_for_game_binary(version_id, install_path)
 
         # If we were in install mode and it succeeded, refresh the game list
-        if needs_install:
+        if needs_install or install_completed:
             self.load_games()
             self.on_game_change()  # Update button text
         elif gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
+
+    def _prompt_for_game_binary(self, version_id: int, install_path: str):
+        """Prompt user to select game binary from installed files."""
+        from PySide6.QtWidgets import QFileDialog
+
+        # Get list of executables from install directory
+        executables = []
+        for root, dirs, files in os.walk(install_path):
+            for f in files:
+                if f.lower().endswith((".exe", ".bat", ".com")):
+                    full_path = os.path.join(root, f)
+                    rel_path = os.path.relpath(full_path, install_path)
+                    executables.append(rel_path)
+
+        if not executables:
+            QMessageBox.warning(
+                self,
+                "No executables found",
+                f"No executable files found in {install_path}. Please run the installation again.",
+                QMessageBox.Ok,
+            )
+            return
+
+        # Show dialog to select game executable
+        game_exe, ok = QFileDialog.getOpenFileName(
+            self,
+            "Select Game Executable",
+            install_path,
+            "Executables (*.exe *.bat *.com);;All files (*)",
+        )
+
+        if not ok or not game_exe:
+            return
+
+        # Get relative path
+        rel_game_exe = os.path.relpath(game_exe, install_path)
+
+        # Ask for optional config executable
+        config_exe = ""
+        reply = QMessageBox.question(
+            self,
+            "Select Config Executable",
+            "Do you want to select a configuration/setup executable?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply == QMessageBox.Yes:
+            config_file, ok = QFileDialog.getOpenFileName(
+                self,
+                "Select Config Executable",
+                install_path,
+                "Executables (*.exe *.bat *.com);;All files (*)",
+            )
+            if ok and config_file:
+                config_exe = os.path.relpath(config_file, install_path)
+
+        # Update database with game and config executables (binary is the game executable, config_executable is for setup)
+        self._gamedb.update_version_info(version_id, binary=rel_game_exe, config_executable=config_exe)
 
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
