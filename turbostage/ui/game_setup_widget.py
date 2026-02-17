@@ -146,12 +146,17 @@ class GameSetupWidget(QWidget):
     @staticmethod
     def populates_binary_list(game_archive: str, list_model):
         binaries = []
-        with zipfile.ZipFile(game_archive, "r") as zf:
-            for info in zf.infolist():
-                _, extension = os.path.splitext(info.filename)
-                if extension.lower() not in [".exe", ".bat", ".com"]:
-                    continue
-                binaries.append(info.filename)
+        from turbostage import iso_utils
+
+        if iso_utils.is_iso_file(game_archive):
+            binaries = iso_utils.list_executables_in_iso(game_archive)
+        else:
+            with zipfile.ZipFile(game_archive, "r") as zf:
+                for info in zf.infolist():
+                    _, extension = os.path.splitext(info.filename)
+                    if extension.lower() not in [".exe", ".bat", ".com"]:
+                        continue
+                    binaries.append(info.filename)
         list_model.set_binaries(binaries)
 
     def _on_settings_changed(self):
