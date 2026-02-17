@@ -84,12 +84,13 @@ class AddGameWorker(QRunnable):
         # 4. add hashes based on archive type
         if archive_type == "iso":
             hashes = iso_utils.compute_hash_for_largest_files_in_iso(self._game_archive, n=4)
-            if binary not in [h[0] for h in hashes]:
+            # Only compute hash for binary if it's selected (not None/empty)
+            if binary and binary not in [h[0] for h in hashes]:
                 h = iso_utils.compute_md5_from_iso(self._game_archive, binary)
                 hashes.append((binary, 0, h))
         else:
             hashes = utils.compute_hash_for_largest_files_in_zip(self._game_archive, n=4)
-            if binary not in [h[0] for h in hashes]:
+            if binary and binary not in [h[0] for h in hashes]:
                 with zipfile.ZipFile(self._game_archive, "r") as zf:
                     h = utils.compute_md5_from_zip(zf, binary)
                     hashes.append((self._binary, 0, h))
