@@ -588,6 +588,6 @@ class MainWindow(QMainWindow):
         if len(selected_items) != 4:
             raise RuntimeError("Invalid game selection")
         name_row = selected_items[0]
-        game_id, version_id = name_row.data(Qt.UserRole)
+        game_id, version_id, _ = name_row.data(Qt.UserRole)
         game_name = name_row.text()
         return game_id, version_id, game_name
