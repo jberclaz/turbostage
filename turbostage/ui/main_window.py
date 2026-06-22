@@ -539,8 +539,18 @@ class MainWindow(QMainWindow):
             config_executable = setup_dialog.selected_binary
         else:
             config_executable = version_info.config_executable
+        # For ISO games that need installation, run setup in install mode
+        # so C: drive points to the persistent install path
+        archive_type = self._gamedb.get_archive_type(version_id)
+        needs_install = False
+        if archive_type == "iso":
+            requires_install = self._gamedb.get_requires_install(version_id)
+            if requires_install:
+                is_installed, _ = self._gamedb.get_installation_status(version_id)
+                needs_install = not is_installed
+
         gl = GameLauncher(track_change=True)
-        gl.launch_game(version_id, self._gamedb, False, False, config_executable)
+        gl.launch_game(version_id, self._gamedb, False, False, config_executable, install_mode=needs_install)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)

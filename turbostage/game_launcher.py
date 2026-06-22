@@ -205,9 +205,9 @@ class GameLauncher:
             # Normal mode: C: is the installation directory
             c_drive_path = install_path
             if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
+                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.CONFIG)
             if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
+                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.SAVEGAME)
 
         # Build autoexec commands for mounting
         autoexec_commands = []
