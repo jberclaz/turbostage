@@ -486,11 +486,37 @@ class MainWindow(QMainWindow):
         )
 
     def _on_show_context_menu(self, pos):
+        selected_items = self.game_table.selectedItems()
+        if not selected_items:
+            return
+
+        name_row = selected_items[0]
+        user_data = name_row.data(Qt.UserRole)
+        _, version_id, _ = user_data if len(user_data) == 3 else (user_data[0], user_data[1], False)
+
+        # Check if this is an installed ISO game that can be reinstalled/uninstalled
+        archive_type = self._gamedb.get_archive_type(version_id)
+        is_installed_iso = False
+        if archive_type == "iso":
+            requires_install = self._gamedb.get_requires_install(version_id)
+            if requires_install:
+                installed, _ = self._gamedb.get_installation_status(version_id)
+                is_installed_iso = installed
+
         context_menu = QMenu(self)
 
         setup_action = QAction("Run Game Setup", self)
         setup_action.triggered.connect(self._on_run_game_setup)
         context_menu.addAction(setup_action)
+
+        if is_installed_iso:
+            reinstall_action = QAction("Reinstall", self)
+            reinstall_action.triggered.connect(self._on_reinstall_game)
+            context_menu.addAction(reinstall_action)
+
+            uninstall_action = QAction("Uninstall", self)
+            uninstall_action.triggered.connect(self._on_uninstall_game)
+            context_menu.addAction(uninstall_action)
 
         delete_action = QAction("Delete Game", self)
         delete_action.triggered.connect(self._on_delete_selected_game)
@@ -512,6 +538,51 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             self._gamedb.delete_local_game_by_igdb_id(game_id)
             self.load_games()
+
+    def _on_reinstall_game(self):
+        _, version_id, game_name = self.selected_game
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Reinstallation",
+            f"Are you sure you want to reinstall '{game_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        is_installed, install_path = self._gamedb.get_installation_status(version_id)
+        if install_path:
+            self._gamedb.create_installation(version_id, install_path)
+
+        self._current_version_id = version_id
+        self._current_needs_install = True
+        self.launch_game()
+
+    def _on_uninstall_game(self):
+        _, version_id, game_name = self.selected_game
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Uninstall",
+            f"Are you sure you want to uninstall '{game_name}'? This will remove all installed files.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        is_installed, install_path = self._gamedb.get_installation_status(version_id)
+
+        self._gamedb.delete_installation(version_id)
+
+        if install_path and os.path.isdir(install_path):
+            import shutil
+            shutil.rmtree(install_path)
+
+        self.load_games()
+        self.on_game_change()
 
     def _on_run_game_setup(self):
         game_id, version_id, _ = self.selected_game

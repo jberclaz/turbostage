@@ -5,23 +5,32 @@ including computing MD5 hashes, listing files, and extracting metadata.
 """
 
 import hashlib
+import logging
 import os
-from typing import BinaryIO
 
 import pycdlib
 from pycdlib import pycdlibexception
 
+logger = logging.getLogger(__name__)
+
 
 def is_iso_file(file_path: str) -> bool:
-    """Check if a file is an ISO image based on its extension.
+    """Check if a file is an ISO image based on extension and magic bytes.
 
     Args:
         file_path: Path to the file to check
 
     Returns:
-        True if the file has a .iso extension (case-insensitive)
+        True if the file has a .iso extension and valid ISO magic bytes
     """
-    return os.path.splitext(file_path)[1].lower() == ".iso"
+    if os.path.splitext(file_path)[1].lower() != ".iso":
+        return False
+    try:
+        with open(file_path, "rb") as f:
+            f.seek(32769)
+            return f.read(5) == b"CD001"
+    except (OSError, IOError):
+        return False
 
 
 def get_archive_type(file_path: str) -> str:
@@ -34,40 +43,6 @@ def get_archive_type(file_path: str) -> str:
         'iso' if the file is an ISO image, 'zip' otherwise
     """
     return "iso" if is_iso_file(file_path) else "zip"
-
-
-def _get_iso_file_content(iso, iso_path: str) -> bytes:
-    """Extract file content from an ISO image.
-
-    Args:
-        iso: Opened pycdlib Iso object
-        iso_path: Path to the file within the ISO
-
-    Returns:
-        File content as bytes
-    """
-    # pycdlib requires paths in the format /path/to/file
-    if not iso_path.startswith("/"):
-        iso_path = "/" + iso_path
-
-    # Get file size by listing the file entry
-    file_entry = None
-    for child in iso.list_children(iso_path=iso_path):
-        if child.file_identifier() == b"." or child.file_identifier() == b"..":
-            continue
-        # We need to find the actual file entry - for now just get content
-        break
-
-    # Read the file content
-    content = bytearray()
-    with iso.open_file_from_iso(iso_path=iso_path) as file_handle:
-        while True:
-            chunk = file_handle.read(65536)
-            if not chunk:
-                break
-            content.extend(chunk)
-
-    return bytes(content)
 
 
 def compute_md5_from_iso(iso, file_path: str) -> str:
@@ -269,14 +244,16 @@ def get_iso_volume_label(iso_path: str) -> str | None:
     iso.open(iso_path)
 
     try:
-        # Try to get the volume identifier from the primary volume descriptor
-        # The volume identifier is at a fixed offset in the primary volume descriptor
-        # This is a simplified approach - pycdlib may have a better method
         pvd = iso.pvd
         if pvd:
-            # Volume identifier is typically at offset 40, 32 bytes
             vol_id = pvd.volume_identifier.decode("ascii", errors="ignore").strip()
+            if not vol_id:
+                logger.warning("Empty volume identifier in ISO: %s", iso_path)
             return vol_id if vol_id else None
+        logger.warning("No primary volume descriptor found in ISO: %s", iso_path)
+        return None
+    except Exception as e:
+        logger.warning("Failed to read volume label from ISO %s: %s", iso_path, e)
         return None
     finally:
         iso.close()
