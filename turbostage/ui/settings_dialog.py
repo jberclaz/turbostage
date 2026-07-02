@@ -183,11 +183,12 @@ class SettingsDialog(QDialog):
                         app_bundle = app_bundles[0]
                         target_app = os.path.join(emulator_path, os.path.basename(app_bundle))
                         subprocess.run(["cp", "-R", app_bundle, target_app], check=True)
-                        binary_name = os.path.basename(app_bundle).replace(".app", "")
+                        macos_dir = os.path.join(target_app, "Contents", "MacOS")
+                        executables = os.listdir(macos_dir)
                         executable = os.path.join(
                             os.path.basename(app_bundle),
-                            "Contents", "MacOS", binary_name,
-                        )
+                            "Contents", "MacOS", executables[0],
+                        ) if executables else ""
                     subprocess.run(["hdiutil", "detach", mount_point], check=True)
             finally:
                 os.unlink(dmg_path)
