@@ -28,21 +28,37 @@ jobs:
           pip install -r requirements-dev.txt
           pip install pillow
 
+      - name: Convert icon to ICNS and background to PNG
+        run: |
+          mkdir -p icon.iconset
+          for size in 16 32 128 256 512; do
+            sips -z $size $size turbostage/content/icon.png \
+              --out icon.iconset/icon_${size}x${size}.png
+            sips -z $((size*2)) $((size*2)) turbostage/content/icon.png \
+              --out icon.iconset/icon_${size}x${size}@2x.png
+          done
+          iconutil -c icns icon.iconset -o icon.icns
+          sips -s format png turbostage/content/splash.jpg --out splash.png
+
       - name: Run package build
         run: |
           poetry-dynamic-versioning
-          pyinstaller --onefile --windowed --icon=turbostage/content/icon.png --add-data "turbostage/content/splash.jpg:turbostage/content" -n turbostage turbostage/main.py
+          pyinstaller --onefile --windowed --icon=icon.icns \
+            --add-data "turbostage/content:turbostage/content" \
+            --add-data "turbostage/conf:turbostage/conf" \
+            -n turbostage turbostage/main.py
 
       - name: Create DMG
         run: |
           brew install create-dmg
+          rm -f "dist/TurboStage.dmg"
           create-dmg --volname "TurboStage" \
-                     --overwrite \
-                     --background "turbostage/content/splash.jpg" \
+                     --background "splash.png" \
                      --app-drop-link 300 200 \
-                     "dist/TurboStage Installer.dmg" "dist/turbostage.app"
+                     "dist/TurboStage.dmg" "dist/turbostage.app"
 
       - name: Upload Release Asset
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda
         with:
           files: dist/TurboStage.dmg
