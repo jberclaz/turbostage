@@ -20,10 +20,19 @@ by [fs-uae-launcher](https://github.com/FrodeSolheim/fs-uae-launcher).
 - Support for game-specific setup programs to configure sound, input, and more.
 
 ## Prerequisites
-- A modern operating system (Windows or Linux).
+- A modern operating system (Windows, macOS or Linux).
 - [DOSBox Staging](https://github.com/dosbox-staging/dosbox-staging) (can be downloaded via Turbo Stage).
 - Optional: MT-32 ROM files for enhanced music in supported games (can be downloaded via Turbo Stage).
 - A collection of DOS games in `.zip` format.
+
+## macOS Notes
+
+The app is not signed with an Apple Developer certificate, so Gatekeeper may block it on first launch. To bypass:
+
+- **Right-click** the app and select **Open**, then click **Open** in the dialog.
+- Or go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+
+After the first launch, the app will open normally in the future.
 
 ## Getting started
 
