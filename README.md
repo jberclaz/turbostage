@@ -27,10 +27,13 @@ by [fs-uae-launcher](https://github.com/FrodeSolheim/fs-uae-launcher).
 
 ## macOS Notes
 
-The app is not signed with an Apple Developer certificate, so Gatekeeper may block it on first launch. To bypass:
+The app is not signed with an Apple Developer certificate, so Gatekeeper may block it on first launch. To bypass, open Terminal and run:
 
-- **Right-click** the app and select **Open**, then click **Open** in the dialog.
-- Or go to **System Settings → Privacy & Security**, scroll down, and click **Open Anyway**.
+```bash
+xattr -d com.apple.quarantine /path/to/TurboStage.app
+```
+
+Or go to **System Settings → Privacy & Security** — look for a message about TurboStage being blocked and click **Open Anyway**.
 
 After the first launch, the app will open normally in the future.
 
