@@ -13,6 +13,7 @@ MT32_ROMS_DOWNLOAD_URL = (
 )
 DOSBOX_STAGING_LINUX = f"https://github.com/dosbox-staging/dosbox-staging/releases/download/v{SUPPORTED_DOSBOX_VERSION}/dosbox-staging-linux-x86_64-v{SUPPORTED_DOSBOX_VERSION}.tar.xz"
 DOSBOX_STAGING_WINDOWS = f"https://github.com/dosbox-staging/dosbox-staging/releases/download/v{SUPPORTED_DOSBOX_VERSION}/dosbox-staging-windows-x64-v{SUPPORTED_DOSBOX_VERSION}.zip"
+DOSBOX_STAGING_MACOS = f"https://github.com/dosbox-staging/dosbox-staging/releases/download/v{SUPPORTED_DOSBOX_VERSION}/dosbox-staging-macOS-v{SUPPORTED_DOSBOX_VERSION}.dmg"
 
 CPU_CYCLES = {
     "Auto": 0,

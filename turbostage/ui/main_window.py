@@ -64,9 +64,8 @@ class MainWindow(QMainWindow):
 
     def _init_ui(self):
         self.setWindowTitle(f"TurboStage {__version__}")
-        with importlib.resources.files("turbostage").joinpath("content/icon.png") as image:
-            icon = QIcon(str(image))
-            self.setWindowIcon(icon)
+        icon = QIcon(str(importlib.resources.files("turbostage").joinpath("content/icon.png")))
+        self.setWindowIcon(icon)
 
         # Menu
         self.menu = self.menuBar()
@@ -75,6 +74,7 @@ class MainWindow(QMainWindow):
         # Exit QAction
         exit_action = QAction("Exit", self)
         exit_action.setShortcut(QKeySequence.Quit)
+        exit_action.setMenuRole(QAction.NoRole)
         exit_action.triggered.connect(self.close)
 
         # Scan QAction
@@ -95,6 +95,7 @@ class MainWindow(QMainWindow):
 
         # Settings
         settings_action = QAction("Settings", self)
+        settings_action.setMenuRole(QAction.NoRole)
         settings_action.triggered.connect(self._on_show_settings_dialog)
 
         self.file_menu.addAction(add_action)

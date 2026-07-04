@@ -1,6 +1,10 @@
+import glob
 import lzma
 import os
+import plistlib
+import subprocess
 import tarfile
+import tempfile
 from zipfile import ZipFile
 
 from PySide6.QtCore import QSettings, QStandardPaths
@@ -42,7 +46,7 @@ class SettingsDialog(QDialog):
         self.emulator_path_input.clicked.connect(self._select_emulator)
         self.emu_download_button = QPushButton("Download", self)
         self.emu_download_button.clicked.connect(self._download_emulator)
-        self.emu_download_button.setEnabled(emulator_path == "" and utils.get_os() != "Darwin")
+        self.emu_download_button.setEnabled(emulator_path == "")
         emulator_layout = QHBoxLayout()
         emulator_layout.addWidget(self.emulator_path_input)
         emulator_layout.addWidget(self.emu_download_button)
@@ -137,6 +141,8 @@ class SettingsDialog(QDialog):
             dosbox_url = constants.DOSBOX_STAGING_LINUX
         elif os_name == "Windows":
             dosbox_url = constants.DOSBOX_STAGING_WINDOWS
+        elif os_name == "Darwin":
+            dosbox_url = constants.DOSBOX_STAGING_MACOS
         download_dialog.start_download(dosbox_url)
         if not download_dialog.exec():
             return
@@ -156,4 +162,34 @@ class SettingsDialog(QDialog):
                     if filename.endswith("/dosbox.exe"):
                         executable = filename
                         break
+        elif os_name == "Darwin":
+            with tempfile.NamedTemporaryFile(suffix=".dmg", delete=False) as tmp_dmg:
+                tmp_dmg.write(download_dialog.data_buffer.getvalue())
+                dmg_path = tmp_dmg.name
+            try:
+                result = subprocess.run(
+                    ["hdiutil", "attach", "-plist", "-nobrowse", "-mountrandom", "/tmp", dmg_path],
+                    capture_output=True, text=True, check=True,
+                )
+                plist = plistlib.loads(result.stdout.encode())
+                mount_point = None
+                for entity in plist.get("system-entities", []):
+                    if "mount-point" in entity:
+                        mount_point = entity["mount-point"]
+                        break
+                if mount_point:
+                    app_bundles = glob.glob(os.path.join(mount_point, "*.app"))
+                    if app_bundles:
+                        app_bundle = app_bundles[0]
+                        target_app = os.path.join(emulator_path, os.path.basename(app_bundle))
+                        subprocess.run(["cp", "-R", app_bundle, target_app], check=True)
+                        macos_dir = os.path.join(target_app, "Contents", "MacOS")
+                        executables = os.listdir(macos_dir)
+                        executable = os.path.join(
+                            os.path.basename(app_bundle),
+                            "Contents", "MacOS", executables[0],
+                        ) if executables else ""
+                    subprocess.run(["hdiutil", "detach", mount_point], check=True)
+            finally:
+                os.unlink(dmg_path)
         self.emulator_path_input.setText(os.path.join(emulator_path, executable))
