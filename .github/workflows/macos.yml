@@ -1,8 +1,6 @@
 name: MacOS Build
 
 on:
-  pull_request:
-    branches: [master]
   push:
     tags:
       - 'v*'
