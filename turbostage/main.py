@@ -2,14 +2,14 @@ import importlib
 import sys
 from argparse import ArgumentParser
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen
 
 from turbostage.ui.main_window import MainWindow
 
 
-def show_splash_screen():
+def show_splash_screen(app):
     # Load an image for the splash screen
     with importlib.resources.files("turbostage").joinpath("content/splash.jpg").open("rb") as file:
         pixmap = QPixmap()
@@ -22,8 +22,15 @@ def show_splash_screen():
     # Add text on top of the image
     splash.showMessage("Loading...", alignment=Qt.AlignBottom | Qt.AlignCenter, color=Qt.white)
 
+    # On macOS, QSplashScreen uses Qt::SplashScreen which doesn't
+    # activate the application when launched from CLI, making the
+    # splash invisible. Using Dialog|FramelessWindowHint works around this.
+    if sys.platform == "darwin":
+        splash.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+
     # Show the splash screen
     splash.show()
+    app.processEvents()
 
     return splash
 
@@ -34,13 +41,16 @@ def main():
     args = parser.parse_args()
 
     app = QApplication(sys.argv)
+
+    splash = None
+    if not args.skip_splash:
+        splash = show_splash_screen(app)
+
     window = MainWindow()
 
-    if not args.skip_splash:
-        splash = show_splash_screen()
-        QTimer.singleShot(2000, lambda: [splash.close(), window.show()])
-    else:
-        window.show()
+    if splash:
+        splash.finish(window)
+    window.show()
 
     sys.exit(app.exec())
 
