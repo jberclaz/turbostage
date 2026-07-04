@@ -53,8 +53,8 @@ jobs:
       - name: Create DMG
         run: |
           brew install create-dmg
+          rm -f "dist/TurboStage.dmg"
           create-dmg --volname "TurboStage" \
-                     --overwrite \
                      --background "splash.png" \
                      --app-drop-link 300 200 \
                      "dist/TurboStage.dmg" "dist/turbostage.app"
