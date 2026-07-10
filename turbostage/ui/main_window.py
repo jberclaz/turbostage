@@ -528,7 +528,7 @@ class MainWindow(QMainWindow):
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
     def _on_delete_selected_game(self):
-        game_id, _, game_name = self.selected_game
+        game_id, version_id, game_name = self.selected_game
 
         reply = QMessageBox.question(
             self,
@@ -539,6 +539,13 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
+            # Clean up installation files if this game was installed
+            is_installed, install_path = self._gamedb.get_installation_status(version_id)
+            if install_path:
+                self._gamedb.delete_installation(version_id)
+                if os.path.isdir(install_path):
+                    import shutil
+                    shutil.rmtree(install_path)
             self._gamedb.delete_local_game_by_igdb_id(game_id)
             self.load_games()
 

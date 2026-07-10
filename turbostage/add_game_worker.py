@@ -106,6 +106,10 @@ class AddGameWorker(QRunnable):
             installs_folder = os.path.join(app_data_folder, "installs")
             os.makedirs(installs_folder, exist_ok=True)
             install_path = os.path.join(installs_folder, str(version_id))
+            # Clean old install directory if it exists (from a previous deletion)
+            if os.path.isdir(install_path):
+                import shutil
+                shutil.rmtree(install_path)
             os.makedirs(install_path, exist_ok=True)
             db.create_installation(version_id, install_path)
 
