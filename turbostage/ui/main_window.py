@@ -284,6 +284,7 @@ class MainWindow(QMainWindow):
 
         # Update database with game and config executables
         self._gamedb.update_version_info(version_id, binary=game_exe, config_executable=config_exe)
+        self._gamedb.mark_installed(version_id)
 
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()

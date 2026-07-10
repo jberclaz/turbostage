@@ -258,7 +258,6 @@ class GameLauncher:
 
                 # If we were in install mode and DOSBox succeeded, mark as installed
                 if install_mode and not is_installed:
-                    db.mark_installed(self._version_id)
                     installation_completed = True
                     result_install_path = install_path
 
