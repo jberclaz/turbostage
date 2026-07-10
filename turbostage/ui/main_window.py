@@ -422,14 +422,26 @@ class MainWindow(QMainWindow):
 
         version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
+            requires_install = archive_type == "iso"
             added = self._gamedb.add_local_game_version(
-                version_id, os.path.basename(game_path), archive_type=archive_type
+                version_id, os.path.basename(game_path), archive_type=archive_type,
+                requires_install=requires_install,
             )
             if added == 0:
                 QMessageBox.warning(
                     self, "Game already installed", "The game you tried to add is already installed in TurboStage"
                 )
                 return
+            if requires_install:
+                app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+                installs_folder = os.path.join(app_data_folder, "installs")
+                os.makedirs(installs_folder, exist_ok=True)
+                install_path = os.path.join(installs_folder, str(version_id))
+                if os.path.isdir(install_path):
+                    import shutil
+                    shutil.rmtree(install_path)
+                os.makedirs(install_path, exist_ok=True)
+                self._gamedb.create_installation(version_id, install_path)
             QMessageBox.information(
                 self,
                 "New game added",
