@@ -184,6 +184,8 @@ class GameLauncher:
         """Launch an ISO game by mounting as CD-ROM."""
         # Get installation status
         is_installed, install_path = db.get_installation_status(self._version_id)
+        installation_completed = False
+        result_install_path = None
 
         # Determine what to mount as C: drive
         if install_mode and not is_installed:
@@ -217,27 +219,24 @@ class GameLauncher:
             autoexec_commands.append(f'imgmount d "{archive_path}" -t iso')
         else:
             autoexec_commands.append(f'mount d "{archive_path}" -t cdrom')
-        autoexec_commands.append("d:")
-
-        # Change to the directory containing the executable if needed
         # Strip ISO version number (e.g., ;1) from executable path
         exec_path = executable.split(";")[0] if executable else ""
+        exec_dir = os.path.dirname(exec_path)
+        exec_name = os.path.basename(exec_path)
 
         # For installed games, executable is on C: drive (hard drive)
         # For non-installed games, executable is on D: drive (ISO)
         if is_installed and install_path:
             # Game is installed - executable is relative to install_path (C:)
-            exec_dir = os.path.dirname(exec_path)
+            autoexec_commands.append("c:")
             if exec_dir:
                 autoexec_commands.append(f"cd {exec_dir}")
         else:
             # Game is not installed - executable is on D: (ISO)
-            exec_dir = os.path.dirname(exec_path)
+            autoexec_commands.append("d:")
             if exec_dir:
-                autoexec_commands.append(f"d:")
                 autoexec_commands.append(f"cd {exec_dir}")
 
-        exec_name = os.path.basename(exec_path)
         autoexec_commands.append(exec_name)
 
         autoexec_section = "\n[autoexec]\n" + "\n".join(autoexec_commands)

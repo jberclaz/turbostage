@@ -210,8 +210,8 @@ class ExecutablePage(QWizardPage):
         self.setSubTitle("Pick the executable file to start the game")
 
         layout = QVBoxLayout(self)
-        label = QLabel("Game executable")
-        layout.addWidget(label)
+        self.label = QLabel("Game executable")
+        layout.addWidget(self.label)
         self.binary_list_view = QListView(self)
         self.binary_list_model = BinaryListModel()
         self.binary_list_model.set_binaries(executables)
@@ -229,9 +229,11 @@ class ExecutablePage(QWizardPage):
         if self._is_iso and requires_install:
             self.setSubTitle("Select the installation program (optional - can be selected after installation)")
             self.setTitle("Installation program")
+            self.label.setText("Installation program")
         else:
             self.setSubTitle("Pick the executable file to start the game")
             self.setTitle("Game executable")
+            self.label.setText("Game executable")
 
     def isComplete(self):
         # If ISO with install, game executable is optional (will be selected after installation)
