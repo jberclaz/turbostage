@@ -29,14 +29,11 @@ package: dist/turbostage
 	version=`grep "__version__" turbostage/__init__.py | sed -e 's/^__version__ = "\(.*\)"$$/\1/'`; \
 	zip -j turbostage-linux-v$${version}.zip dist/turbostage
 
-dist/turbostage: venv turbostage/*.py pyproject.toml
+dist/turbostage: venv turbostage/*.py pyproject.toml turbostage.spec
 	( \
 	. venv/bin/activate; \
 	poetry-dynamic-versioning; \
-	pyinstaller --onefile \
-                    --add-data "turbostage/content:turbostage/content" \
-                    --add-data "turbostage/conf:turbostage/conf" \
-                    -n turbostage turbostage/main.py; \
+	pyinstaller turbostage.spec; \
 	deactivate; \
 	)
 
