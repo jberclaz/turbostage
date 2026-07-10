@@ -18,7 +18,7 @@ class DownloadWorker(QThread):
 
     def run(self):
         try:
-            response = requests.get(self.url, stream=True, timeout=60)
+            response = requests.get(self.url, stream=True)
             response.raise_for_status()
 
             total_size = int(response.headers.get("content-length", 0))
@@ -92,6 +92,5 @@ class DownloaderDialog(QDialog):
         self.accept()
 
     def download_error(self, error_message):
-        self.status_label.setText(f"Download error: {error_message}")
+        self.status_label.setText("Download error.")
         self.progress_bar.setValue(0)
-        self.reject()
