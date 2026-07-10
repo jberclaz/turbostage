@@ -230,6 +230,9 @@ class MainWindow(QMainWindow):
         dialog1.setWindowTitle("Select Game Executable")
         layout1 = QVBoxLayout(dialog1)
         layout1.addWidget(QLabel("Select the game executable:"))
+        layout1.addWidget(
+            QLabel(f"<small>Files found in: {install_path}</small>")
+        )
         list_view1 = QListView(dialog1)
         model1 = BinaryListModel()
         model1.set_binaries(executables)
