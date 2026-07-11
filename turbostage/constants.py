@@ -9,7 +9,7 @@ class FileType(IntEnum):
 SUPPORTED_DOSBOX_VERSION = "0.82.2"
 
 MT32_ROMS_DOWNLOAD_URL = (
-    "https://archive.org/download/mame-versioned-roland-mt-32-and-cm-32l-rom-files/MT32_v1.07_legacy_ROM_files.zip"
+    "https://archive.org/download/mame-versioned-roland-mt-32-and-cm-32l-rom-files/MT-32_v1.07_legacy_ROM_files.zip"
 )
 DOSBOX_STAGING_LINUX = f"https://github.com/dosbox-staging/dosbox-staging/releases/download/v{SUPPORTED_DOSBOX_VERSION}/dosbox-staging-linux-x86_64-v{SUPPORTED_DOSBOX_VERSION}.tar.xz"
 DOSBOX_STAGING_WINDOWS = f"https://github.com/dosbox-staging/dosbox-staging/releases/download/v{SUPPORTED_DOSBOX_VERSION}/dosbox-staging-windows-x64-v{SUPPORTED_DOSBOX_VERSION}.zip"
