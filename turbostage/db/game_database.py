@@ -900,6 +900,21 @@ class GameDatabase:
             row = cursor.fetchone()
             return bool(row[0]) if row else False
 
+    def set_local_executables(self, version_id: int, executable: str | None = None,
+                               config_executable: str | None = None) -> None:
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            if executable is not None:
+                cursor.execute(
+                    "UPDATE local_versions SET executable = ? WHERE version_id = ?",
+                    (executable, version_id),
+                )
+            if config_executable is not None:
+                cursor.execute(
+                    "UPDATE local_versions SET config_executable = ? WHERE version_id = ?",
+                    (config_executable, version_id),
+                )
+
     def delete_local_game_by_igdb_id(self, igdb_id: int) -> None:
         """Delete a local game from the database.
 

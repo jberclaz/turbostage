@@ -282,8 +282,8 @@ class MainWindow(QMainWindow):
                 if selected2:
                     config_exe = model2.binaries[selected2[0].row()]
 
-        # Update database with game and config executables
-        self._gamedb.update_version_info(version_id, binary=game_exe, config_executable=config_exe)
+        # Store installed executables in local_versions (not versions table, to preserve original defaults)
+        self._gamedb.set_local_executables(version_id, executable=game_exe, config_executable=config_exe)
         self._gamedb.mark_installed(version_id)
 
     def on_game_change(self):
