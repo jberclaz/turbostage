@@ -349,14 +349,6 @@ class MainWindow(QMainWindow):
             # Store version_id, igdb_id, and installation status
             game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install))
 
-            # Gray out games that need installation
-            if needs_install:
-                for col in range(4):
-                    item = self.game_table.item(row_num, col)
-                    if item:
-                        item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
-                game_title.setToolTip("Click 'Install' to install this game")
-
             dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
 
@@ -364,6 +356,14 @@ class MainWindow(QMainWindow):
             self.game_table.setItem(row_num, 1, QTableWidgetItem(release_date))
             self.game_table.setItem(row_num, 2, QTableWidgetItem(game.genre))
             self.game_table.setItem(row_num, 3, QTableWidgetItem(game.version))
+
+            # Gray out games that need installation
+            if needs_install:
+                for col in range(4):
+                    item = self.game_table.item(row_num, col)
+                    if item:
+                        item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
+                game_title.setToolTip("Click 'Install' to install this game")
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
 
