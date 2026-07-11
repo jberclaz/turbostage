@@ -290,7 +290,7 @@ class MainWindow(QMainWindow):
         selected_items = self.game_table.selectedItems()
         if not selected_items:
             self._game_info.set_game_name("")
-            self.right_setup_tab.set_game(None)
+            self.right_setup_tab.set_game(None, None)
             self.launch_button.setEnabled(False)
             return
         if len(selected_items) != 4:
