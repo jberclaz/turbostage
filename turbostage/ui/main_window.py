@@ -561,6 +561,7 @@ class MainWindow(QMainWindow):
                     import shutil
                     shutil.rmtree(install_path)
             self._gamedb.delete_local_game_by_igdb_id(game_id)
+            self.game_table.clearSelection()
             self.load_games()
             self.on_game_change()
 
