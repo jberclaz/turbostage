@@ -6,7 +6,7 @@ and schema definitions.
 """
 
 # Current database version - used for new installations and migrations
-DB_VERSION = "0.9.1"
+DB_VERSION = "0.10.1"
 
 # Original schema version - for reference
 ORIGINAL_VERSION = "0.5.0"
@@ -52,7 +52,21 @@ SCHEMA_TABLES = {
         CREATE TABLE IF NOT EXISTS local_versions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             version_id INTEGER UNIQUE NOT NULL,
-            archive TEXT
+            archive TEXT,
+            executable TEXT,
+            config_executable TEXT,
+            archive_type TEXT DEFAULT 'zip',
+            requires_install INTEGER DEFAULT 0
+        );
+    """,
+    "installations": """
+        CREATE TABLE IF NOT EXISTS installations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            version_id INTEGER UNIQUE NOT NULL,
+            install_path TEXT NOT NULL,
+            installed BOOLEAN DEFAULT FALSE,
+            install_date INTEGER,
+            FOREIGN KEY (version_id) REFERENCES versions(id)
         );
     """,
     "config_files": """
@@ -82,4 +96,5 @@ SCHEMA_INDEXES = [
     "CREATE INDEX IF NOT EXISTS idx_config_files_version_id ON config_files(version_id)",
     "CREATE INDEX IF NOT EXISTS idx_config_files_version_path ON config_files(version_id, path, type)",
     "CREATE INDEX IF NOT EXISTS idx_local_versions_version_id ON local_versions(version_id)",
+    "CREATE INDEX IF NOT EXISTS idx_installations_version_id ON installations(version_id)",
 ]

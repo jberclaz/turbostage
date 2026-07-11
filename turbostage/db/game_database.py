@@ -496,24 +496,41 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT v.version, lv.archive, v.executable, v.config, v.cycles
+            cursor.execute("PRAGMA table_info(local_versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+            has_local_executable = "executable" in columns
+            has_local_config_executable = "config_executable" in columns
+
+            if has_local_executable and has_local_config_executable:
+                select_query = """
+                SELECT v.version, lv.archive, v.executable, v.config_executable, v.config, v.cycles,
+                       lv.executable as local_executable, lv.config_executable as local_config_executable
                 FROM versions v
                          JOIN local_versions lv ON v.id = lv.version_id
                 WHERE v.id = ?
-                """,
-                (version_id,),
-            )
+                """
+            else:
+                select_query = """
+                SELECT v.version, lv.archive, v.executable, v.config_executable, v.config, v.cycles,
+                       NULL as local_executable, NULL as local_config_executable
+                FROM versions v
+                         JOIN local_versions lv ON v.id = lv.version_id
+                WHERE v.id = ?
+                """
+            cursor.execute(select_query, (version_id,))
             row = cursor.fetchone()
             if row:
+                # Use local executable paths if available, otherwise fall back to version defaults
+                executable = row[6] if row[6] is not None else row[2]
+                config_executable = row[7] if row[7] is not None else row[3]
                 return GameVersionInfo(
                     version_id=version_id,
                     version_name=row[0],
                     archive=row[1],
-                    executable=row[2],
-                    config=row[3],
-                    cycles=row[4],
+                    executable=executable,
+                    config_executable=config_executable,
+                    config=row[4],
+                    cycles=row[5],
                 )
         return None
 
@@ -529,10 +546,22 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(local_versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+            has_local_executable = "executable" in columns
+            has_local_config_executable = "config_executable" in columns
+
             if detailed:
-                select_query = (
-                    "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, v.config, v.cycles"
-                )
+                if has_local_executable and has_local_config_executable:
+                    select_query = (
+                        "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
+                        "v.config, v.cycles, lv.executable as local_exec, lv.config_executable as local_config"
+                    )
+                else:
+                    select_query = (
+                        "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
+                        "v.config, v.cycles, NULL as local_exec, NULL as local_config"
+                    )
             else:
                 select_query = "SELECT v.id, v.version, lv.archive"
 
@@ -550,13 +579,16 @@ class GameDatabase:
             result = []
             for row in rows:
                 if detailed:
+                    # Use local executable paths if available, otherwise fall back to version defaults
+                    executable = row[7] if row[7] is not None else row[3]
+                    config_executable = row[8] if row[8] is not None else row[4]
                     result.append(
                         GameVersionInfo(
                             version_id=row[0],
                             version_name=row[1],
                             archive=row[2],
-                            executable=row[3],
-                            config_executable=row[4],
+                            executable=executable,
+                            config_executable=config_executable,
                             config=row[5],
                             cycles=row[6],
                         )
@@ -678,11 +710,23 @@ class GameDatabase:
 
             # Transaction context manager handles commit and rollback automatically
 
-    def add_local_game_version(self, version_id: int, game_archive_name: str) -> int:
+    def add_local_game_version(
+        self,
+        version_id: int,
+        game_archive_name: str,
+        executable: str | None = None,
+        config_executable: str | None = None,
+        archive_type: str = "zip",
+        requires_install: bool = False,
+    ) -> int:
         """
         Add a new game to the local version database
         :param version_id: game version id
         :param game_archive_name: game archive name (without path)
+        :param executable: actual executable path in the user's archive (optional)
+        :param config_executable: actual config executable path in the user's archive (optional)
+        :param archive_type: type of archive ('zip' or 'iso')
+        :param requires_install: whether the game requires hard drive installation
         :return: 1 if successfully added and 0 if the game already exists
         """
         with self.transaction() as conn:
@@ -693,8 +737,30 @@ class GameDatabase:
             if rows[0][0] > 0:
                 return 0
 
+            # Check what columns exist in local_versions table
+            cursor.execute("PRAGMA table_info(local_versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            # Build INSERT statement based on available columns
+            col_names = ["version_id", "archive"]
+            values = [version_id, game_archive_name]
+
+            if "executable" in columns:
+                col_names.append("executable")
+                values.append(executable)
+            if "config_executable" in columns:
+                col_names.append("config_executable")
+                values.append(config_executable)
+            if "archive_type" in columns:
+                col_names.append("archive_type")
+                values.append(archive_type)
+            if "requires_install" in columns:
+                col_names.append("requires_install")
+                values.append(1 if requires_install else 0)
+
             cursor.execute(
-                "INSERT INTO local_versions (version_id, archive) VALUES (?, ?)", (version_id, game_archive_name)
+                f"INSERT INTO local_versions ({', '.join(col_names)}) VALUES ({', '.join(['?'] * len(values))})",
+                values,
             )
         return 1
 
@@ -716,6 +782,138 @@ class GameDatabase:
         with self.transaction() as conn:
             cursor = conn.cursor()
             cursor.execute("DELETE FROM local_versions")
+
+    def create_installation(self, version_id: int, install_path: str) -> None:
+        """Create a new installation record for an ISO game.
+
+        Args:
+            version_id: The version ID to create installation for
+            install_path: Path where the game will be installed
+        """
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT OR REPLACE INTO installations (version_id, install_path, installed, install_date)
+                VALUES (?, ?, FALSE, NULL)
+                """,
+                (version_id, install_path),
+            )
+
+    def mark_installed(self, version_id: int) -> None:
+        """Mark an installation as complete.
+
+        Args:
+            version_id: The version ID to mark as installed
+        """
+        import time
+
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE installations
+                SET installed = TRUE, install_date = ?
+                WHERE version_id = ?
+                """,
+                (int(time.time()), version_id),
+            )
+
+    def get_installation_status(self, version_id: int) -> tuple[bool, str | None]:
+        """Get the installation status for a game version.
+
+        Args:
+            version_id: The version ID to check
+
+        Returns:
+            Tuple of (is_installed, install_path)
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT installed, install_path
+                FROM installations
+                WHERE version_id = ?
+                """,
+                (version_id,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return bool(row[0]), row[1]
+            return False, None
+
+    def delete_installation(self, version_id: int) -> None:
+        """Delete an installation record (for uninstalling).
+
+        Args:
+            version_id: The version ID to delete installation for
+        """
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM installations WHERE version_id = ?",
+                (version_id,),
+            )
+
+    def get_archive_type(self, version_id: int) -> str:
+        """Get the archive type for a game version.
+
+        Args:
+            version_id: The version ID to check
+
+        Returns:
+            Archive type ('zip' or 'iso'), defaults to 'zip' if not found
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT archive_type
+                FROM local_versions
+                WHERE version_id = ?
+                """,
+                (version_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else "zip"
+
+    def get_requires_install(self, version_id: int) -> bool:
+        """Get whether a game requires hard drive installation.
+
+        Args:
+            version_id: The version ID to check
+
+        Returns:
+            True if the game requires installation, False otherwise
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT requires_install
+                FROM local_versions
+                WHERE version_id = ?
+                """,
+                (version_id,),
+            )
+            row = cursor.fetchone()
+            return bool(row[0]) if row else False
+
+    def set_local_executables(self, version_id: int, executable: str | None = None,
+                               config_executable: str | None = None) -> None:
+        with self.transaction() as conn:
+            cursor = conn.cursor()
+            if executable is not None:
+                cursor.execute(
+                    "UPDATE local_versions SET executable = ? WHERE version_id = ?",
+                    (executable, version_id),
+                )
+            if config_executable is not None:
+                cursor.execute(
+                    "UPDATE local_versions SET config_executable = ? WHERE version_id = ?",
+                    (config_executable, version_id),
+                )
 
     def delete_local_game_by_igdb_id(self, igdb_id: int) -> None:
         """Delete a local game from the database.
@@ -754,6 +952,7 @@ class GameDatabase:
         binary: str = None,
         config: str = None,
         cycles: int = None,
+        config_executable: str = None,
     ):
         """Update version information for a game version.
 
@@ -763,6 +962,7 @@ class GameDatabase:
             binary: New binary path (if None, not updated)
             config: New DOSBox configuration (if None, not updated)
             cycles: New CPU cycles (if None, not updated)
+            config_executable: New config executable path (if None, not updated)
         """
         # Only include fields that are not None
         update_fields = []
@@ -783,6 +983,10 @@ class GameDatabase:
         if cycles is not None:
             update_fields.append("cycles = ?")
             params.append(cycles)
+
+        if config_executable is not None:
+            update_fields.append("config_executable = ?")
+            params.append(config_executable)
 
         if not update_fields or not params:
             return  # Nothing to update

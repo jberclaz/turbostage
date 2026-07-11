@@ -180,18 +180,118 @@ class MainWindow(QMainWindow):
             self.game_table.setRowHidden(row, not match)
 
     def launch_game(self):
-        _, version_id, _ = self.selected_game
+        # Check if we're in install mode
+        needs_install = getattr(self, "_current_needs_install", False)
+        version_id = getattr(self, "_current_version_id", None)
+
+        if version_id is None:
+            return
+
         gl = GameLauncher(track_change=True)
-        gl.launch_game(version_id, self._gamedb)
-        if gl.new_files or gl.modified_files:
+        install_completed, install_path = gl.launch_game(version_id, self._gamedb, install_mode=needs_install)
+
+        # If installation completed, prompt user to select game binary from installed files
+        if install_completed and install_path:
+            self._prompt_for_game_binary(version_id, install_path)
+
+        # If we were in install mode and it succeeded, refresh the game list
+        if needs_install or install_completed:
+            self.load_games()
+            self.on_game_change()  # Update button text
+        elif gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
+
+    def _prompt_for_game_binary(self, version_id: int, install_path: str):
+        """Prompt user to select game binary from installed files using a custom dialog."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QListView, QLabel, QDialogButtonBox, QAbstractItemView
+        from turbostage.ui.game_setup_widget import BinaryListModel
+
+        # Get list of executables from install directory
+        executables = []
+        for root, dirs, files in os.walk(install_path):
+            for f in files:
+                if f.lower().endswith((".exe", ".bat", ".com")):
+                    full_path = os.path.join(root, f)
+                    rel_path = os.path.relpath(full_path, install_path)
+                    executables.append(rel_path)
+
+        if not executables:
+            QMessageBox.warning(
+                self,
+                "No executables found",
+                f"No executable files found in {install_path}. Please run the installation again.",
+                QMessageBox.Ok,
+            )
+            return
+
+        # First dialog: select game executable
+        dialog1 = QDialog(self)
+        dialog1.setWindowTitle("Select Game Executable")
+        layout1 = QVBoxLayout(dialog1)
+        layout1.addWidget(QLabel("Select the game executable:"))
+        layout1.addWidget(
+            QLabel(f"<small>Files found in: {install_path}</small>")
+        )
+        list_view1 = QListView(dialog1)
+        model1 = BinaryListModel()
+        model1.set_binaries(executables)
+        list_view1.setModel(model1)
+        list_view1.setSelectionMode(QAbstractItemView.SingleSelection)
+        layout1.addWidget(list_view1)
+        buttons1 = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog1)
+        layout1.addWidget(buttons1)
+        buttons1.accepted.connect(dialog1.accept)
+        buttons1.rejected.connect(dialog1.reject)
+
+        if dialog1.exec() != QDialog.Accepted:
+            return
+
+        selected = list_view1.selectedIndexes()
+        if not selected:
+            return
+        game_exe = model1.binaries[selected[0].row()]
+
+        # Second dialog: optional config executable
+        reply = QMessageBox.question(
+            self,
+            "Select Config Executable",
+            "Do you want to select a configuration/setup executable?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+
+        config_exe = ""
+        if reply == QMessageBox.Yes:
+            dialog2 = QDialog(self)
+            dialog2.setWindowTitle("Select Config Executable")
+            layout2 = QVBoxLayout(dialog2)
+            layout2.addWidget(QLabel("Select the configuration executable (optional):"))
+            list_view2 = QListView(dialog2)
+            model2 = BinaryListModel()
+            model2.set_binaries(executables)
+            list_view2.setModel(model2)
+            list_view2.setSelectionMode(QAbstractItemView.SingleSelection)
+            layout2.addWidget(list_view2)
+            buttons2 = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog2)
+            layout2.addWidget(buttons2)
+            buttons2.accepted.connect(dialog2.accept)
+            buttons2.rejected.connect(dialog2.reject)
+
+            if dialog2.exec() == QDialog.Accepted:
+                selected2 = list_view2.selectedIndexes()
+                if selected2:
+                    config_exe = model2.binaries[selected2[0].row()]
+
+        # Store installed executables in local_versions (not versions table, to preserve original defaults)
+        self._gamedb.set_local_executables(version_id, executable=game_exe, config_executable=config_exe)
+        self._gamedb.mark_installed(version_id)
 
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
         if not selected_items:
-            self._game_info.set_game_name("")
-            self.right_setup_tab.set_game(None)
+            self._game_info.clear_info()
+            self._game_info.set_game_name("Select a game to see details here.")
+            self.right_setup_tab.set_game(None, None)
             self.launch_button.setEnabled(False)
             return
         if len(selected_items) != 4:
@@ -200,7 +300,8 @@ class MainWindow(QMainWindow):
             self._current_fetch_cancel_flag.cancelled = True
 
         name_row = selected_items[0]
-        igdb_id, _ = name_row.data(Qt.UserRole)
+        user_data = name_row.data(Qt.UserRole)
+        igdb_id, version_id, needs_install = user_data if len(user_data) == 3 else (user_data[0], user_data[1], False)
         game_name = name_row.text()
 
         self._game_info.set_game_name(game_name)
@@ -208,7 +309,18 @@ class MainWindow(QMainWindow):
 
         settings = QSettings("jberclaz", "TurboStage")
         dosbox_exec = str(settings.value("app/emulator_path", ""))
-        self.launch_button.setEnabled(dosbox_exec != "")
+
+        # Update launch button based on installation status
+        if needs_install:
+            self.launch_button.setText("Install Game")
+            self.launch_button.setEnabled(dosbox_exec != "")
+        else:
+            self.launch_button.setText("Launch Game")
+            self.launch_button.setEnabled(dosbox_exec != "")
+
+        # Store current game info for launch
+        self._current_version_id = version_id
+        self._current_needs_install = needs_install
 
         cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(igdb_id, self._igdb_client, self.db_path, cancel_flag)
@@ -225,7 +337,18 @@ class MainWindow(QMainWindow):
         for row_num, game in enumerate(games):
             # row format: (igdb_id, title, release_date, genre, version)
             game_title = QTableWidgetItem(game.title)
-            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id))  # version_id
+
+            # Check if this game needs installation (ISO with requires_install flag and not yet installed)
+            archive_type = self._gamedb.get_archive_type(game.version_id)
+            requires_install = self._gamedb.get_requires_install(game.version_id)
+            needs_install = False
+            if archive_type == "iso" and requires_install:
+                is_installed, _ = self._gamedb.get_installation_status(game.version_id)
+                needs_install = not is_installed
+
+            # Store version_id, igdb_id, and installation status
+            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install))
+
             dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
 
@@ -233,6 +356,14 @@ class MainWindow(QMainWindow):
             self.game_table.setItem(row_num, 1, QTableWidgetItem(release_date))
             self.game_table.setItem(row_num, 2, QTableWidgetItem(game.genre))
             self.game_table.setItem(row_num, 3, QTableWidgetItem(game.version))
+
+            # Mark games that need installation
+            if needs_install:
+                game_title.setToolTip("Click 'Install' to install this game")
+                for col in range(4):
+                    item = self.game_table.item(row_num, col)
+                    if item:
+                        item.setForeground(Qt.gray)
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
 
@@ -246,7 +377,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.Ok,
             )
             return
-        local_game_archives = [file for file in os.listdir(games_path) if file.endswith(".zip")]
+        local_game_archives = [file for file in os.listdir(games_path) if file.endswith((".zip", ".iso"))]
 
         self.scan_progress_dialog = QProgressDialog(
             "Scanning local games...", "Cancel", 0, len(local_game_archives), self
@@ -275,21 +406,44 @@ class MainWindow(QMainWindow):
 
     def _on_add_new_game(self):
         games_path = self.games_path
-        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip)")
+        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip *.iso)")
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         if not dialog.exec():
             return
         game_path = dialog.selectedFiles()[0]
 
-        hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
+        # Compute hashes based on archive type
+        from turbostage import iso_utils
+
+        if iso_utils.is_iso_file(game_path):
+            hashes = iso_utils.compute_hash_for_largest_files_in_iso(game_path, 4)
+            archive_type = "iso"
+        else:
+            hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
+            archive_type = "zip"
+
         version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
-            added = self._gamedb.add_local_game_version(version_id, os.path.basename(game_path))
+            requires_install = archive_type == "iso"
+            added = self._gamedb.add_local_game_version(
+                version_id, os.path.basename(game_path), archive_type=archive_type,
+                requires_install=requires_install,
+            )
             if added == 0:
                 QMessageBox.warning(
                     self, "Game already installed", "The game you tried to add is already installed in TurboStage"
                 )
                 return
+            if requires_install:
+                app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+                installs_folder = os.path.join(app_data_folder, "installs")
+                os.makedirs(installs_folder, exist_ok=True)
+                install_path = os.path.join(installs_folder, str(version_id))
+                if os.path.isdir(install_path):
+                    import shutil
+                    shutil.rmtree(install_path)
+                os.makedirs(install_path, exist_ok=True)
+                self._gamedb.create_installation(version_id, install_path)
             QMessageBox.information(
                 self,
                 "New game added",
@@ -312,6 +466,7 @@ class MainWindow(QMainWindow):
             new_game_wizard.dosbox_config,
             self.db_path,
             self._igdb_client,
+            new_game_wizard.requires_install,
         )
         add_game_worker.signals.task_finished.connect(self._on_game_added)
         self._thread_pool.start(add_game_worker)
@@ -321,6 +476,7 @@ class MainWindow(QMainWindow):
 
     def _on_game_added(self):
         self.load_games()
+        self.on_game_change()
         QGuiApplication.restoreOverrideCursor()  # Restore normal cursor
         self.status.showMessage("New game added.", 3000)
 
@@ -348,11 +504,37 @@ class MainWindow(QMainWindow):
         )
 
     def _on_show_context_menu(self, pos):
+        selected_items = self.game_table.selectedItems()
+        if not selected_items:
+            return
+
+        name_row = selected_items[0]
+        user_data = name_row.data(Qt.UserRole)
+        _, version_id, _ = user_data if len(user_data) == 3 else (user_data[0], user_data[1], False)
+
+        # Check if this is an installed ISO game that can be reinstalled/uninstalled
+        archive_type = self._gamedb.get_archive_type(version_id)
+        is_installed_iso = False
+        if archive_type == "iso":
+            requires_install = self._gamedb.get_requires_install(version_id)
+            if requires_install:
+                installed, _ = self._gamedb.get_installation_status(version_id)
+                is_installed_iso = installed
+
         context_menu = QMenu(self)
 
         setup_action = QAction("Run Game Setup", self)
         setup_action.triggered.connect(self._on_run_game_setup)
         context_menu.addAction(setup_action)
+
+        if is_installed_iso:
+            reinstall_action = QAction("Reinstall", self)
+            reinstall_action.triggered.connect(self._on_reinstall_game)
+            context_menu.addAction(reinstall_action)
+
+            uninstall_action = QAction("Uninstall", self)
+            uninstall_action.triggered.connect(self._on_uninstall_game)
+            context_menu.addAction(uninstall_action)
 
         delete_action = QAction("Delete Game", self)
         delete_action.triggered.connect(self._on_delete_selected_game)
@@ -361,7 +543,7 @@ class MainWindow(QMainWindow):
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
     def _on_delete_selected_game(self):
-        game_id, _, game_name = self.selected_game
+        game_id, version_id, game_name = self.selected_game
 
         reply = QMessageBox.question(
             self,
@@ -372,8 +554,67 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.Yes:
+            # Clean up installation files if this game was installed
+            is_installed, install_path = self._gamedb.get_installation_status(version_id)
+            if install_path:
+                self._gamedb.delete_installation(version_id)
+                if os.path.isdir(install_path):
+                    import shutil
+                    shutil.rmtree(install_path)
             self._gamedb.delete_local_game_by_igdb_id(game_id)
+            self._game_info.clear_info()
+            self._game_info.set_game_name("Select a game to see details here.")
+            self.right_setup_tab.set_game(None, None)
+            self.launch_button.setEnabled(False)
             self.load_games()
+            self.game_table.clearSelection()
+            if self.game_table.rowCount() > 0:
+                self.on_game_change()
+
+    def _on_reinstall_game(self):
+        _, version_id, game_name = self.selected_game
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Reinstallation",
+            f"Are you sure you want to reinstall '{game_name}'?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        is_installed, install_path = self._gamedb.get_installation_status(version_id)
+        if install_path:
+            self._gamedb.create_installation(version_id, install_path)
+
+        self._current_version_id = version_id
+        self._current_needs_install = True
+        self.launch_game()
+
+    def _on_uninstall_game(self):
+        _, version_id, game_name = self.selected_game
+
+        reply = QMessageBox.question(
+            self,
+            "Confirm Uninstall",
+            f"Are you sure you want to uninstall '{game_name}'? This will remove all installed files.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        is_installed, install_path = self._gamedb.get_installation_status(version_id)
+
+        self._gamedb.delete_installation(version_id)
+
+        if install_path and os.path.isdir(install_path):
+            import shutil
+            shutil.rmtree(install_path)
+
+        self.load_games()
+        self.on_game_change()
 
     def _on_run_game_setup(self):
         game_id, version_id, _ = self.selected_game
@@ -401,8 +642,18 @@ class MainWindow(QMainWindow):
             config_executable = setup_dialog.selected_binary
         else:
             config_executable = version_info.config_executable
+        # For ISO games that need installation, run setup in install mode
+        # so C: drive points to the persistent install path
+        archive_type = self._gamedb.get_archive_type(version_id)
+        needs_install = False
+        if archive_type == "iso":
+            requires_install = self._gamedb.get_requires_install(version_id)
+            if requires_install:
+                is_installed, _ = self._gamedb.get_installation_status(version_id)
+                needs_install = not is_installed
+
         gl = GameLauncher(track_change=True)
-        gl.launch_game(version_id, self._gamedb, False, False, config_executable)
+        gl.launch_game(version_id, self._gamedb, False, False, config_executable, install_mode=needs_install)
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
@@ -450,6 +701,6 @@ class MainWindow(QMainWindow):
         if len(selected_items) != 4:
             raise RuntimeError("Invalid game selection")
         name_row = selected_items[0]
-        game_id, version_id = name_row.data(Qt.UserRole)
+        game_id, version_id, _ = name_row.data(Qt.UserRole)
         game_name = name_row.text()
         return game_id, version_id, game_name

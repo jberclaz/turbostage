@@ -113,25 +113,22 @@ class GameSetupWidget(QWidget):
         games_path = str(settings.value("app/games_path", ""))
         game_archive_path = os.path.join(games_path, game_archive)
 
+        # For installed ISO games, list binaries from the install directory instead of the archive
+        archive_type = db.get_archive_type(self.version_id)
+        if archive_type == "iso":
+            requires_install = db.get_requires_install(self.version_id)
+            if requires_install:
+                is_installed, install_path = db.get_installation_status(self.version_id)
+                if is_installed and install_path:
+                    self.populates_binary_list_from_dir(install_path, self.binary_list_model)
+                    self._select_binary(game_binary)
+                    self._set_game_config(cpu_cycles, game_config)
+                    self.save_button.setEnabled(False)
+                    return
+
         self.populates_binary_list(game_archive_path, self.binary_list_model)
-        if game_binary is not None:
-            for row in range(self.binary_list_model.rowCount()):
-                index = self.binary_list_model.index(row, 0)
-                item_data = self.binary_list_model.data(index, Qt.DisplayRole)
-                if item_data == game_binary:
-                    self.binary_list_view.selectionModel().select(index, QItemSelectionModel.Select)
-                    self.selected_binary = game_binary
-                    break
-        else:
-            self.selected_binary = None
-
-        if cpu_cycles is not None:
-            index = list(constants.CPU_CYCLES.values()).index(cpu_cycles)
-            self.cpu_combobox.setCurrentIndex(index)
-
-        if game_config is not None:
-            self.dosbox_config_text.setText(game_config)
-
+        self._select_binary(game_binary)
+        self._set_game_config(cpu_cycles, game_config)
         self.save_button.setEnabled(False)
 
     def set_new_game(self, game_archive: str):
@@ -146,13 +143,49 @@ class GameSetupWidget(QWidget):
     @staticmethod
     def populates_binary_list(game_archive: str, list_model):
         binaries = []
-        with zipfile.ZipFile(game_archive, "r") as zf:
-            for info in zf.infolist():
-                _, extension = os.path.splitext(info.filename)
-                if extension.lower() not in [".exe", ".bat", ".com"]:
-                    continue
-                binaries.append(info.filename)
+        from turbostage import iso_utils
+
+        if iso_utils.is_iso_file(game_archive):
+            binaries = iso_utils.list_executables_in_iso(game_archive)
+        else:
+            with zipfile.ZipFile(game_archive, "r") as zf:
+                for info in zf.infolist():
+                    _, extension = os.path.splitext(info.filename)
+                    if extension.lower() not in [".exe", ".bat", ".com"]:
+                        continue
+                    binaries.append(info.filename)
         list_model.set_binaries(binaries)
+
+    @staticmethod
+    def populates_binary_list_from_dir(directory: str, list_model):
+        binaries = []
+        for root, dirs, files in os.walk(directory):
+            for f in files:
+                if f.lower().endswith((".exe", ".bat", ".com")):
+                    full_path = os.path.join(root, f)
+                    rel_path = os.path.relpath(full_path, directory)
+                    binaries.append(rel_path)
+        list_model.set_binaries(binaries)
+
+    def _set_game_config(self, cpu_cycles, game_config):
+        if cpu_cycles is not None:
+            index = list(constants.CPU_CYCLES.values()).index(cpu_cycles)
+            self.cpu_combobox.setCurrentIndex(index)
+
+        if game_config is not None:
+            self.dosbox_config_text.setText(game_config)
+
+    def _select_binary(self, game_binary):
+        if game_binary is not None:
+            for row in range(self.binary_list_model.rowCount()):
+                index = self.binary_list_model.index(row, 0)
+                item_data = self.binary_list_model.data(index, Qt.DisplayRole)
+                if item_data == game_binary:
+                    self.binary_list_view.selectionModel().select(index, QItemSelectionModel.Select)
+                    self.selected_binary = game_binary
+                    break
+        else:
+            self.selected_binary = None
 
     def _on_settings_changed(self):
         selected_index = self.binary_list_view.selectedIndexes()
