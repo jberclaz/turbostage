@@ -59,9 +59,10 @@ jobs:
                      "dist/TurboStage.dmg" "dist/turbostage.app"
 
       - name: Upload Build Artifact
+        if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
-          name: turbostage-macos
+          name: turbostage-macos-${{ github.ref_name }}
           path: dist/TurboStage.dmg
 
       - name: Upload Release Asset

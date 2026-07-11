@@ -34,12 +34,14 @@ jobs:
         pyinstaller --onefile --windowed --icon=turbostage/content/icon.ico --add-data "turbostage/content:turbostage/content" --add-data "turbostage/conf:turbostage/conf" -n turbostage turbostage/main.py
 
     - name: Upload Build Artifact
+      if: "!startsWith(github.ref, 'refs/tags/')"
       uses: actions/upload-artifact@v4
       with:
-        name: turbostage-windows
+        name: turbostage-windows-${{ github.ref_name }}
         path: dist/turbostage.exe
 
     - name: Upload Release Asset
+      if: startsWith(github.ref, 'refs/tags/')
       uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda
       with:
         files: dist/turbostage.exe
