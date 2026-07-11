@@ -561,9 +561,13 @@ class MainWindow(QMainWindow):
                     import shutil
                     shutil.rmtree(install_path)
             self._gamedb.delete_local_game_by_igdb_id(game_id)
-            self.game_table.clearSelection()
             self.load_games()
-            self.on_game_change()
+            if self.game_table.rowCount() == 0:
+                self._game_info.set_game_name("")
+                self.right_setup_tab.set_game(None, None)
+                self.launch_button.setEnabled(False)
+            else:
+                self.on_game_change()
 
     def _on_reinstall_game(self):
         _, version_id, game_name = self.selected_game
