@@ -1,4 +1,5 @@
 import importlib
+import os
 import sys
 from argparse import ArgumentParser
 
@@ -39,6 +40,9 @@ def main():
     parser = ArgumentParser(description="TurboStage")
     parser.add_argument("-s", "--skip_splash", help="Skip splash screen", action="store_true")
     args = parser.parse_args()
+
+    if hasattr(sys, "_MEIPASS") and sys.platform == "linux" and "QT_QPA_PLATFORMTHEME" not in os.environ:
+        os.environ["QT_QPA_PLATFORMTHEME"] = "gtk3"
 
     app = QApplication(sys.argv)
 
