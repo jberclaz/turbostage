@@ -360,6 +360,10 @@ class MainWindow(QMainWindow):
             # Mark games that need installation
             if needs_install:
                 game_title.setToolTip("Click 'Install' to install this game")
+                for col in range(4):
+                    item = self.game_table.item(row_num, col)
+                    if item:
+                        item.setForeground(Qt.gray)
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
 
