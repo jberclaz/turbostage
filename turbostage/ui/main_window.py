@@ -357,12 +357,8 @@ class MainWindow(QMainWindow):
             self.game_table.setItem(row_num, 2, QTableWidgetItem(game.genre))
             self.game_table.setItem(row_num, 3, QTableWidgetItem(game.version))
 
-            # Gray out games that need installation
+            # Mark games that need installation
             if needs_install:
-                for col in range(4):
-                    item = self.game_table.item(row_num, col)
-                    if item:
-                        item.setFlags(item.flags() & ~Qt.ItemIsEnabled)
                 game_title.setToolTip("Click 'Install' to install this game")
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
