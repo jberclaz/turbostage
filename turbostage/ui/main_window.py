@@ -289,7 +289,8 @@ class MainWindow(QMainWindow):
     def on_game_change(self):
         selected_items = self.game_table.selectedItems()
         if not selected_items:
-            self._game_info.set_game_name("")
+            self._game_info.clear_info()
+            self._game_info.set_game_name("Select a game to see details here.")
             self.right_setup_tab.set_game(None, None)
             self.launch_button.setEnabled(False)
             return
@@ -561,7 +562,8 @@ class MainWindow(QMainWindow):
                     import shutil
                     shutil.rmtree(install_path)
             self._gamedb.delete_local_game_by_igdb_id(game_id)
-            self._game_info.set_game_name("")
+            self._game_info.clear_info()
+            self._game_info.set_game_name("Select a game to see details here.")
             self.right_setup_tab.set_game(None, None)
             self.launch_button.setEnabled(False)
             self.load_games()
