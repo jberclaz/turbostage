@@ -475,6 +475,7 @@ class MainWindow(QMainWindow):
 
     def _on_game_added(self):
         self.load_games()
+        self.on_game_change()
         QGuiApplication.restoreOverrideCursor()  # Restore normal cursor
         self.status.showMessage("New game added.", 3000)
 
@@ -561,6 +562,7 @@ class MainWindow(QMainWindow):
                     shutil.rmtree(install_path)
             self._gamedb.delete_local_game_by_igdb_id(game_id)
             self.load_games()
+            self.on_game_change()
 
     def _on_reinstall_game(self):
         _, version_id, game_name = self.selected_game
