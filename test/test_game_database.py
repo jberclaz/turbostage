@@ -260,3 +260,70 @@ class TestGameDatabase(unittest.TestCase):
         ]
         db = GameDatabase(self.temp_db.name)
         db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+
+    def test_resolve_local_executables_by_hash(self):
+        """Test that executables can be resolved by matching hashes, even when
+        local file paths differ from the stored canonical paths."""
+        db = GameDatabase(self.temp_db.name)
+
+        game_id = db.insert_game_with_details("Test Game", self.test_game_details)
+        version_id = db.insert_game_version(game_id, "1.0", "GAME.EXE", "SETUP.EXE", "", 0)
+
+        # Add the version to local_versions so get_version_by_version_id finds it
+        db.add_local_game_version(version_id, "test_archive.zip")
+
+        # Store hashes for the known version's files (canonical paths)
+        db.insert_multiple_hashes(version_id, [
+            ("GAME.EXE", 1000, "hash_game"),
+            ("SETUP.EXE", 500, "hash_setup"),
+            ("DATA.DAT", 5000, "hash_data"),
+        ])
+
+        # Simulate local hashes from a user's archive — same content (same hash)
+        # but the game executable is at a different relative path
+        local_hashes = [
+            ("GAMES/GAME.EXE", 1000, "hash_game"),
+            ("SETUP.EXE", 500, "hash_setup"),
+            ("DATA.DAT", 5000, "hash_data"),
+        ]
+
+        # Replicate the _find_local_executables logic:
+        version_hashes = db.get_version_hashes(version_id)
+        version_hash_map = {fn: h for fn, h in version_hashes}
+        local_hash_map = {h: fn for fn, _, h in local_hashes}
+
+        version_info = db.get_version_by_version_id(version_id)
+
+        # Resolve executable
+        expected_hash = version_hash_map.get(version_info.executable)
+        local_executable = local_hash_map.get(expected_hash) if expected_hash else None
+
+        # Resolve config executable
+        expected_config_hash = version_hash_map.get(version_info.config_executable)
+        local_config_executable = local_hash_map.get(expected_config_hash) if expected_config_hash else None
+
+        self.assertEqual(local_executable, "GAMES/GAME.EXE")
+        self.assertEqual(local_config_executable, "SETUP.EXE")
+
+    def test_resolve_local_executables_via_db_method(self):
+        """Test the GameDatabase.resolve_local_executables method directly."""
+        db = GameDatabase(self.temp_db.name)
+
+        game_id = db.insert_game_with_details("Test Game", self.test_game_details)
+        version_id = db.insert_game_version(game_id, "1.0", "GAME.EXE", "SETUP.EXE", "", 0)
+        db.add_local_game_version(version_id, "test_archive.zip")
+        db.insert_multiple_hashes(version_id, [
+            ("GAME.EXE", 1000, "hash_game"),
+            ("SETUP.EXE", 500, "hash_setup"),
+            ("DATA.DAT", 5000, "hash_data"),
+        ])
+
+        local_hashes = [
+            ("GAMES/GAME.EXE", 1000, "hash_game"),
+            ("SETUP.EXE", 500, "hash_setup"),
+            ("DATA.DAT", 5000, "hash_data"),
+        ]
+
+        exec_path, config_exec_path = db.resolve_local_executables(version_id, local_hashes)
+        self.assertEqual(exec_path, "GAMES/GAME.EXE")
+        self.assertEqual(config_exec_path, "SETUP.EXE")

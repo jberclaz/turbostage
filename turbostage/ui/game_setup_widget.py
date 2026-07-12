@@ -171,9 +171,10 @@ class GameSetupWidget(QWidget):
         if cpu_cycles is not None:
             index = list(constants.CPU_CYCLES.values()).index(cpu_cycles)
             self.cpu_combobox.setCurrentIndex(index)
+        else:
+            self.cpu_combobox.setCurrentIndex(0)
 
-        if game_config is not None:
-            self.dosbox_config_text.setText(game_config)
+        self.dosbox_config_text.setPlainText(game_config or "")
 
     def _select_binary(self, game_binary):
         if game_binary is not None:

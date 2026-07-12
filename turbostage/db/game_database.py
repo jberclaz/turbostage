@@ -219,6 +219,11 @@ class GameDatabase:
                         columns.append("download_url")
                         values.append(version_data.get("download_url"))
 
+                    requires_install = version_data.get("requires_install")
+                    if requires_install is not None and "requires_install" in version_columns:
+                        columns.append("requires_install")
+                        values.append(1 if requires_install else 0)
+
                     placeholders = ", ".join(["?" for _ in columns])
                     cur.execute(
                         f"INSERT INTO versions ({', '.join(columns)}) VALUES ({placeholders})",
@@ -463,23 +468,25 @@ class GameDatabase:
         config_executable: str | None,
         config: str,
         cycles: int,
+        requires_install: bool = False,
     ) -> int:
         """Insert a game version with all details and return its ID."""
         with self.transaction() as conn:
             cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            col_names = ["game_id", "version", "executable", "config_executable", "config", "cycles"]
+            values = [game_id, version, executable, config_executable, config, cycles]
+
+            if "requires_install" in columns:
+                col_names.append("requires_install")
+                values.append(1 if requires_install else 0)
+
+            placeholders = ", ".join(["?" for _ in col_names])
             cursor.execute(
-                """
-                INSERT INTO versions (game_id, version, executable, config_executable, config, cycles)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    game_id,
-                    version,
-                    executable,
-                    config_executable,
-                    config,
-                    cycles,
-                ),
+                f"INSERT INTO versions ({', '.join(col_names)}) VALUES ({placeholders})",
+                values,
             )
             return cursor.lastrowid
 
@@ -681,14 +688,26 @@ class GameDatabase:
     def get_all_local_version_for_export(self):
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
+            cursor.execute("PRAGMA table_info(versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+
+            if "requires_install" in columns:
+                query = """
+                    SELECT id, game_id, version, executable, config_executable,
+                           config, cycles, requires_install
+                    FROM versions
+                    WHERE source = 'local'
+                    ORDER BY game_id
                 """
-                SELECT id, game_id, version, executable, config_executable, config, cycles
-                FROM versions
-                WHERE source = 'local'
-                ORDER BY game_id
+            else:
+                query = """
+                    SELECT id, game_id, version, executable, config_executable,
+                           config, cycles, 0 AS requires_install
+                    FROM versions
+                    WHERE source = 'local'
+                    ORDER BY game_id
                 """
-            )
+            cursor.execute(query)
             return cursor.fetchall()
 
     #
@@ -1096,6 +1115,68 @@ class GameDatabase:
             query = "SELECT file_name, hash FROM hashes where version_id = ?"
             cursor.execute(query, [version_id])
             return cursor.fetchall()
+
+    def get_version_requires_install(self, version_id: int) -> bool:
+        """Check whether a game version requires hard drive installation.
+
+        Queries the versions table, falling back to False if the column
+        doesn't exist yet (pre-migration databases).
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "requires_install" not in columns:
+                return False
+            cursor.execute("SELECT requires_install FROM versions WHERE id = ?", (version_id,))
+            row = cursor.fetchone()
+            return bool(row[0]) if row else False
+
+    def resolve_local_executables(
+        self, version_id: int, local_hashes: list[tuple[str, int, str]]
+    ) -> tuple[str | None, str | None]:
+        """Find the actual executable paths in the user's archive by hash matching.
+
+        Queries the versions table directly (not local_versions) so this works
+        during scanning, before the local_versions entry has been created.
+
+        Args:
+            version_id: The matched version ID
+            local_hashes: List of (file_path, size, hash) tuples from the user's archive
+
+        Returns:
+            Tuple of (executable_path, config_executable_path) as found in user's archive
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT executable, config_executable FROM versions WHERE id = ?",
+                (version_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None, None
+            expected_executable = row[0]
+            expected_config_executable = row[1]
+
+        version_hashes = self.get_version_hashes(version_id)
+        version_hash_map = {fn: h for fn, h in version_hashes}
+        local_hash_map = {h: fn for fn, _, h in local_hashes}
+
+        local_executable = None
+        local_config_executable = None
+
+        if expected_executable:
+            expected_exec_hash = version_hash_map.get(expected_executable)
+            if expected_exec_hash:
+                local_executable = local_hash_map.get(expected_exec_hash)
+
+        if expected_config_executable:
+            expected_config_hash = version_hash_map.get(expected_config_executable)
+            if expected_config_hash:
+                local_config_executable = local_hash_map.get(expected_config_hash)
+
+        return local_executable, local_config_executable
 
     #
     # Utility methods

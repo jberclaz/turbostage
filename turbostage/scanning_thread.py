@@ -1,4 +1,5 @@
 import os
+import zipfile
 
 from PySide6.QtCore import QThread, Signal
 
@@ -15,6 +16,38 @@ class ScanningThread(QThread):
         self._local_game_archives = local_game_archives
         self._db_path = db_path
         self._game_path = games_path
+
+    def _hash_missing_executables(self, db, version_id, hashes, archive_path, archive_type):
+        """Hash any expected executables not already in the hash list."""
+        with db.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT executable, config_executable FROM versions WHERE id = ?",
+                (version_id,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return
+            expected_executable = row[0]
+            expected_config_executable = row[1]
+
+        hashed_paths = {h[0] for h in hashes}
+
+        if expected_executable and expected_executable not in hashed_paths:
+            if archive_type == "iso":
+                h = iso_utils.compute_md5_from_iso(archive_path, expected_executable)
+            else:
+                with zipfile.ZipFile(archive_path, "r") as zf:
+                    h = utils.compute_md5_from_zip(zf, expected_executable)
+            hashes.append((expected_executable, 0, h))
+
+        if expected_config_executable and expected_config_executable not in hashed_paths:
+            if archive_type == "iso":
+                h = iso_utils.compute_md5_from_iso(archive_path, expected_config_executable)
+            else:
+                with zipfile.ZipFile(archive_path, "r") as zf:
+                    h = utils.compute_md5_from_zip(zf, expected_config_executable)
+            hashes.append((expected_config_executable, 0, h))
 
     def run(self):
         db = GameDatabase(self._db_path)
@@ -38,59 +71,13 @@ class ScanningThread(QThread):
             # Use GameDatabase to find game by hashes
             version_id = db.find_game_by_hashes(hash_values)
             if version_id is not None:
-                # Find the actual executable paths in the user's archive
-                # by matching hashes from the versions table
-                local_executable, local_config_executable = self._find_local_executables(db, version_id, hashes)
+                self._hash_missing_executables(db, version_id, hashes, archive_path, archive_type)
+                local_executable, local_config_executable = db.resolve_local_executables(version_id, hashes)
+                requires_install = db.get_version_requires_install(version_id)
                 db.add_local_game_version(
-                    version_id, game_archive, local_executable, local_config_executable, archive_type
+                    version_id, game_archive, local_executable, local_config_executable,
+                    archive_type, requires_install,
                 )
             self.progress.emit(index + 1)
 
         self.load_games.emit()
-
-    def _find_local_executables(
-        self, db: GameDatabase, version_id: int, local_hashes: list[tuple[str, int, str]]
-    ) -> tuple[str | None, str | None]:
-        """Find the actual executable paths in the user's archive by hash matching.
-
-        Args:
-            db: GameDatabase instance
-            version_id: The matched version ID
-            local_hashes: List of (file_path, size, hash) tuples from the user's zip
-
-        Returns:
-            Tuple of (executable_path, config_executable_path) as found in user's archive
-        """
-        # Get version info with expected executables
-        version_info = db.get_version_by_version_id(version_id)
-        if not version_info:
-            return None, None
-
-        expected_executable = version_info.executable
-        expected_config_executable = version_info.config_executable
-
-        # Get all hashes for this version from the database
-        version_hashes = db.get_version_hashes(version_id)  # List of (file_name, hash)
-        version_hash_map = {h: fn for fn, h in version_hashes}
-
-        # Create a map from hash to local file path
-        local_hash_map = {h: fn for fn, _, h in local_hashes}
-
-        # Find the actual executable path by hash
-        local_executable = None
-        local_config_executable = None
-
-        if expected_executable:
-            # Find the hash of the expected executable in the version hashes
-            expected_exec_hash = version_hash_map.get(expected_executable)
-            if expected_exec_hash:
-                # Find which local file has this hash
-                local_executable = local_hash_map.get(expected_exec_hash)
-
-        if expected_config_executable:
-            # Find the hash of the expected config executable
-            expected_config_hash = version_hash_map.get(expected_config_executable)
-            if expected_config_hash:
-                local_config_executable = local_hash_map.get(expected_config_hash)
-
-        return local_executable, local_config_executable

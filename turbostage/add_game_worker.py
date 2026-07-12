@@ -67,7 +67,10 @@ class AddGameWorker(QRunnable):
         for existing_version in existing_versions:
             if existing_version.version_name == self._version_name:
                 # Version already exists, just update the local version entry
-                db.add_local_game_version(existing_version.version_id, archive_basename, archive_type=archive_type)
+                db.add_local_game_version(
+                    existing_version.version_id, archive_basename, archive_type=archive_type,
+                    requires_install=self._requires_install,
+                )
                 self.signals.task_finished.emit()
                 return
 
@@ -79,6 +82,7 @@ class AddGameWorker(QRunnable):
             config_binary,
             self._config,
             self._cpu_cycles,
+            requires_install=self._requires_install,
         )
 
         # 4. add hashes based on archive type
