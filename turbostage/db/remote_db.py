@@ -13,7 +13,10 @@ class RemoteDB:
     def export_specific_versions(self, version_ids: list[int]):
         export = {"generated_at": datetime.now().isoformat(), "games": {}}
         data = self._db.get_all_local_version_for_export()
-        for version_id, game_id, version, executable, config_executable, config, cycles in data:
+        for row in data:
+            version_id, game_id, version, executable, config_executable, config, cycles, requires_install = (
+                row[0], row[1], row[2], row[3], row[4], row[5], row[6], bool(row[7])
+            )
             if version_id not in version_ids:
                 continue
             if game_id not in export["games"]:
@@ -26,6 +29,7 @@ class RemoteDB:
                 "config_executable": config_executable,
                 "config": config,
                 "cycles": cycles,
+                "requires_install": requires_install,
                 "hashes": {os.path.basename(h[0]): h[1] for h in hashes},
             }
         return export

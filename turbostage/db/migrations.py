@@ -262,3 +262,17 @@ def migrate_to_0_11_0(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in cursor.fetchall()}
     if "download_url" not in columns:
         cursor.execute("ALTER TABLE versions ADD COLUMN download_url TEXT")
+
+
+@migration("0.12.0")
+def migrate_to_0_12_0(conn: sqlite3.Connection) -> None:
+    """Migration to version 0.12.0.
+
+    Adds requires_install column to versions table so the installation
+    requirement persists across scans and remote DB merges.
+    """
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "requires_install" not in columns:
+        cursor.execute("ALTER TABLE versions ADD COLUMN requires_install INTEGER DEFAULT 0")

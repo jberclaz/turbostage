@@ -6,7 +6,7 @@ and schema definitions.
 """
 
 # Current database version - used for new installations and migrations
-DB_VERSION = "0.11.0"
+DB_VERSION = "0.12.0"
 
 # Original schema version - for reference
 ORIGINAL_VERSION = "0.5.0"
@@ -38,7 +38,8 @@ SCHEMA_TABLES = {
             config TEXT,
             cycles INTEGER DEFAULT 0,
             source TEXT DEFAULT 'local',
-            download_url TEXT
+            download_url TEXT,
+            requires_install INTEGER DEFAULT 0
         );
     """,
     "hashes": """

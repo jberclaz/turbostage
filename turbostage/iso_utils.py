@@ -129,34 +129,29 @@ def compute_hash_for_largest_files_in_iso(iso_path: str, n: int = 5) -> list[tup
         # Walk through all files in the ISO
         for dir_path, dir_entries, file_entries in iso.walk(iso_path="/"):
             for file_entry in file_entries:
-                # Handle both string entries and file entry objects
-                if isinstance(file_entry, str):
-                    if file_entry in (".", ".."):
-                        continue
-                    file_id = file_entry
-                else:
-                    if file_entry.file_identifier() in (b".", b".."):
-                        continue
-                    file_id = file_entry.file_identifier().decode("utf-8")
+                if file_entry in (".", ".."):
+                    continue
+
+                # Strip ISO 9660 version number (e.g., ";1") for consistent path matching
+                normalized_id = file_entry.split(";")[0]
 
                 # Ensure proper path joining with separator
                 if dir_path.endswith("/"):
-                    full_path = dir_path + file_id
+                    full_path = dir_path + normalized_id
                 else:
-                    full_path = dir_path + "/" + file_id
+                    full_path = dir_path + "/" + normalized_id
 
-                if isinstance(file_entry, str):
+                # Get actual file size from the DirectoryRecord
+                try:
+                    iso_record_path = dir_path.rstrip("/") + "/" + file_entry
+                    rec = iso.get_record(iso_path=iso_record_path)
+                    file_size = rec.data_length
+                except Exception:
                     file_size = 0
-                else:
-                    file_size = file_entry.get_data_length()
                 file_sizes.append((full_path, file_size))
 
-        # Sort by size and take the largest n files (filter out size 0)
-        largest_files = sorted([f for f in file_sizes if f[1] > 0], key=lambda x: x[1], reverse=True)[:n]
-
-        # If no files with size found, try getting any files
-        if not largest_files and file_sizes:
-            largest_files = file_sizes[:n]
+        # Sort by size descending and take the largest n files
+        largest_files = sorted(file_sizes, key=lambda x: x[1], reverse=True)[:n]
 
         # Compute MD5 hashes for the largest files
         file_hashes = []
@@ -198,11 +193,14 @@ def list_files_in_iso(iso_path: str) -> list[str]:
                         continue
                     file_id = file_entry.file_identifier().decode("utf-8")
 
+                # Strip ISO 9660 version number (e.g., ";1") for consistent path matching
+                normalized_id = file_id.split(";")[0]
+
                 # Ensure proper path joining with separator
                 if dir_path.endswith("/"):
-                    full_path = dir_path + file_id
+                    full_path = dir_path + normalized_id
                 else:
-                    full_path = dir_path + "/" + file_id
+                    full_path = dir_path + "/" + normalized_id
                 files.append(full_path)
         return files
     finally:
@@ -222,10 +220,8 @@ def list_executables_in_iso(iso_path: str) -> list[str]:
     all_files = list_files_in_iso(iso_path)
     executables = []
     for f in all_files:
-        # Strip ISO 9660 version number (e.g., ";1") before checking extension
-        base_name = f.split(";")[0]
-        if os.path.splitext(base_name)[1].lower() in EXECUTABLE_EXTENSIONS:
-            executables.append(base_name)
+        if os.path.splitext(f)[1].lower() in EXECUTABLE_EXTENSIONS:
+            executables.append(f)
     return executables
 
 
