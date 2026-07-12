@@ -353,8 +353,12 @@ class MainWindow(QMainWindow):
 
     def load_games(self):
         local_games = self._gamedb.get_games_with_local_versions()
-        downloadable_games = self._gamedb.get_downloadable_games()
-        all_games = local_games + downloadable_games
+        show_downloadable = utils.to_bool(QSettings("jberclaz", "TurboStage").value("app/show_downloadable", True))
+        if show_downloadable:
+            downloadable_games = self._gamedb.get_downloadable_games()
+            all_games = local_games + downloadable_games
+        else:
+            all_games = local_games
 
         self.game_table.setSortingEnabled(False)
         self.game_table.setRowCount(len(all_games))
@@ -516,7 +520,8 @@ class MainWindow(QMainWindow):
 
     def _on_show_settings_dialog(self):
         dialog = SettingsDialog()
-        dialog.exec()
+        if dialog.exec():
+            self.load_games()
 
     def _on_update_game_database(self):
         local_version = self._gamedb.get_version()
