@@ -353,7 +353,7 @@ class MainWindow(QMainWindow):
 
     def load_games(self):
         local_games = self._gamedb.get_games_with_local_versions()
-        show_downloadable = utils.to_bool(QSettings("jberclaz", "TurboStage").value("app/show_downloadable", False))
+        show_downloadable = utils.to_bool(QSettings("jberclaz", "TurboStage").value("app/show_downloadable", True))
         if show_downloadable:
             downloadable_games = self._gamedb.get_downloadable_games()
             all_games = local_games + downloadable_games
