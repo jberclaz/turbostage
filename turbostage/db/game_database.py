@@ -18,6 +18,7 @@ class LocalGameDetails:
     genre: str
     version: str
     version_id: int
+    download_url: Optional[str] = None
 
 
 @dataclass
@@ -47,6 +48,7 @@ class GameVersionInfo:
     config_executable: Optional[str] = None
     config: Optional[str] = None
     cycles: Optional[int] = None
+    download_url: Optional[str] = None
 
 
 # Indexes are now created during schema initialization and migration
@@ -198,20 +200,29 @@ class GameDatabase:
                     if cur.fetchone():
                         continue
                     # Insert version
+                    cur.execute("PRAGMA table_info(versions)")
+                    version_columns = {row[1] for row in cur.fetchall()}
+                    has_download_url = "download_url" in version_columns
+
+                    columns = ["game_id", "version", "executable", "config_executable",
+                               "config", "cycles", "source"]
+                    values = [
+                        igdb_id,
+                        version_name,
+                        version_data.get("executable"),
+                        version_data.get("config_executable"),
+                        version_data.get("config"),
+                        version_data.get("cycles"),
+                        "global",
+                    ]
+                    if has_download_url:
+                        columns.append("download_url")
+                        values.append(version_data.get("download_url"))
+
+                    placeholders = ", ".join(["?" for _ in columns])
                     cur.execute(
-                        """INSERT INTO versions
-                           (game_id, version, executable, config_executable,
-                            config, cycles, source)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (
-                            igdb_id,
-                            version_name,
-                            version_data.get("executable"),
-                            version_data.get("config_executable"),
-                            version_data.get("config"),
-                            version_data.get("cycles"),
-                            "global",
-                        ),
+                        f"INSERT INTO versions ({', '.join(columns)}) VALUES ({placeholders})",
+                        values,
                     )
                     version_id = (
                         cur.lastrowid
@@ -615,6 +626,57 @@ class GameDatabase:
                 """
             )
             return [LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0]) for row in cursor.fetchall()]
+
+    def get_downloadable_games(self) -> list[LocalGameDetails]:
+        """Retrieve games that have a download URL but no local version installed.
+
+        Returns:
+            A list of LocalGameDetails for downloadable games
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "download_url" not in columns:
+                return []
+
+            cursor.execute(
+                """
+                SELECT g.igdb_id, g.title, g.release_date, g.genre, v.version, v.id, v.download_url
+                FROM games g
+                         JOIN versions v ON g.igdb_id = v.game_id
+                         LEFT JOIN local_versions lv ON v.id = lv.version_id
+                WHERE v.download_url IS NOT NULL
+                  AND lv.version_id IS NULL
+                ORDER BY g.title
+                """
+            )
+            return [
+                LocalGameDetails(row[0], row[1], row[2], row[3], row[4], row[5], download_url=row[6])
+                for row in cursor.fetchall()
+            ]
+
+    def get_download_url(self, version_id: int) -> Optional[str]:
+        """Get the download URL for a game version.
+
+        Args:
+            version_id: The version ID to check
+
+        Returns:
+            Download URL string or None if not available
+        """
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(versions)")
+            columns = {row[1] for row in cursor.fetchall()}
+            if "download_url" not in columns:
+                return None
+            cursor.execute(
+                "SELECT download_url FROM versions WHERE id = ?",
+                (version_id,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else None
 
     def get_all_local_version_for_export(self):
         with self.read_only_transaction() as conn:

@@ -114,6 +114,13 @@ class DatabaseManager:
                     missing_cols.append("config_executable")
                 if "archive_type" not in columns:
                     missing_cols.append("archive_type")
+                if "requires_install" not in columns:
+                    missing_cols.append("requires_install")
+                # Check versions table for download_url
+                cursor.execute("PRAGMA table_info(versions)")
+                vcols = {row[1] for row in cursor.fetchall()}
+                if "download_url" not in vcols:
+                    missing_cols.append("download_url")
                 if missing_cols:
                     # Run migrations to add missing columns
                     needs_migration = True

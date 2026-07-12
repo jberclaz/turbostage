@@ -18,6 +18,7 @@ by [fs-uae-launcher](https://github.com/FrodeSolheim/fs-uae-launcher).
 - Built-in support for downloading DOSBox Staging and MT-32 ROMs.
 - Customizable emulator settings for each game.
 - Support for game-specific setup programs to configure sound, input, and more.
+- One-click download of supported games directly from the library (via MyAbandonware).
 
 ## Prerequisites
 - A modern operating system (Windows, macOS or Linux).
@@ -78,6 +79,19 @@ Some games were distributed on CD-ROM and need to be installed to a hard drive b
    - Note: Not all games have a setup program, but most allow configuration of sound cards and input methods.
 3. Save your settings to apply them for future game sessions.
 
+
+## Downloadable Games
+
+Turbo Stage can download supported games directly from [MyAbandonware](https://myabandonware.com).
+
+1. Go to **File > Update Game Database** to fetch the latest supported game list.
+2. Games available for download appear **grayed out** in your library.
+3. **Right-click** a grayed-out game and select **Download**, or select it and click **Download Game**.
+4. The archive is saved to your **Games Path** and the game is immediately ready to play.
+
+Some games need to be configured before they work properly (sound, input, etc.). If a game doesn't start or has garbled audio, **right-click** it and select **Run Game Setup** to configure it first. See [Configuring a Game](#configuring-a-game) for details.
+
+If you already own a downloaded game, **Update Game Database** safely merges new entries without overwriting existing local games.
 
 ## Adjusting Emulator Options
 1. Select a game and navigate to the **Setup** tab in the right panel.
