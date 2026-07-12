@@ -145,15 +145,6 @@ class GameLauncher:
 
         executable_path = os.path.join(temp_dir, executable)
 
-        # If the expected executable path doesn't exist (e.g. downloaded archive
-        # has a different directory layout), scan for the executable by basename.
-        if not os.path.exists(executable_path):
-            exe_basename = os.path.basename(executable)
-            for root, _dirs, files in os.walk(temp_dir):
-                if exe_basename in files:
-                    executable_path = os.path.join(root, exe_basename)
-                    break
-
         with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
             if config or mt32_roms_path or cpu_cycles > 0:
                 GameLauncher._write_custom_dosbox_config_file(conf_file, config, mt32_roms_path, cpu_cycles)
