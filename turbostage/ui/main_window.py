@@ -745,7 +745,7 @@ class MainWindow(QMainWindow):
         games_path = str(settings.value("app/games_path", ""))
 
         game_archive_url = os.path.join(games_path, game_archive)
-        if version_info.config_executable is None:
+        if not version_info.config_executable:
             setup_dialog = GameSetupDialog(game_archive_url)
             if setup_dialog.exec() != QDialog.Accepted:
                 return
