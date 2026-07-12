@@ -38,12 +38,6 @@ class SettingsDialog(QDialog):
         self.full_screen_checkbox = QCheckBox("Play game in full screen", self)
         self.full_screen_checkbox.setChecked(utils.to_bool(self.settings.value("app/full_screen", False)))
         form_layout.addRow(self.full_screen_checkbox)
-
-        self.show_downloadable_checkbox = QCheckBox("Show downloadable games in library", self)
-        self.show_downloadable_checkbox.setChecked(
-            utils.to_bool(self.settings.value("app/show_downloadable", True))
-        )
-        form_layout.addRow(self.show_downloadable_checkbox)
         self.layout.addLayout(form_layout)
 
         self.emulator_path_input = ClickableLineEdit(self)
@@ -88,7 +82,6 @@ class SettingsDialog(QDialog):
 
     def accept(self):
         self.settings.setValue("app/full_screen", self.full_screen_checkbox.isChecked())
-        self.settings.setValue("app/show_downloadable", self.show_downloadable_checkbox.isChecked())
         self.settings.setValue("app/emulator_path", self.emulator_path_input.text())
         self.settings.setValue("app/games_path", self.games_path_input.text())
         self.settings.setValue("app/mt32_path", self.mt32_path_input.text())
