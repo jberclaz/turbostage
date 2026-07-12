@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import requests
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
-from PySide6.QtGui import QAction, QGuiApplication, QIcon, QKeySequence
+from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QKeySequence
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -43,6 +43,7 @@ from turbostage.ui.game_setup_dialog import GameSetupDialog
 from turbostage.ui.game_setup_widget import GameSetupWidget
 from turbostage.ui.locked_file_dialog import LockedFileDialog
 from turbostage.ui.new_game_wizard import NewGameWizard
+from turbostage.ui.download_dialog import DownloaderDialog
 from turbostage.ui.settings_dialog import SettingsDialog
 from turbostage.ui.submit_config_dialog import SubmitLocalConfigDialog
 
@@ -183,8 +184,14 @@ class MainWindow(QMainWindow):
         # Check if we're in install mode
         needs_install = getattr(self, "_current_needs_install", False)
         version_id = getattr(self, "_current_version_id", None)
+        is_downloadable = getattr(self, "_current_is_downloadable", False)
 
         if version_id is None:
+            return
+
+        # If this is a downloadable game, trigger download instead of launch
+        if is_downloadable:
+            self._on_download_game()
             return
 
         gl = GameLauncher(track_change=True)
@@ -301,17 +308,31 @@ class MainWindow(QMainWindow):
 
         name_row = selected_items[0]
         user_data = name_row.data(Qt.UserRole)
-        igdb_id, version_id, needs_install = user_data if len(user_data) == 3 else (user_data[0], user_data[1], False)
+        if len(user_data) == 4:
+            igdb_id, version_id, needs_install, is_downloadable = user_data
+        elif len(user_data) == 3:
+            igdb_id, version_id, needs_install = user_data
+            is_downloadable = False
+        else:
+            igdb_id, version_id = user_data
+            needs_install = False
+            is_downloadable = False
         game_name = name_row.text()
 
         self._game_info.set_game_name(game_name)
-        self.right_setup_tab.set_game(igdb_id, self._gamedb)
+        if is_downloadable:
+            self.right_setup_tab.set_game(None, self._gamedb)
+        else:
+            self.right_setup_tab.set_game(igdb_id, self._gamedb)
 
         settings = QSettings("jberclaz", "TurboStage")
         dosbox_exec = str(settings.value("app/emulator_path", ""))
 
         # Update launch button based on installation status
-        if needs_install:
+        if is_downloadable:
+            self.launch_button.setText("Download Game")
+            self.launch_button.setEnabled(True)
+        elif needs_install:
             self.launch_button.setText("Install Game")
             self.launch_button.setEnabled(dosbox_exec != "")
         else:
@@ -321,6 +342,7 @@ class MainWindow(QMainWindow):
         # Store current game info for launch
         self._current_version_id = version_id
         self._current_needs_install = needs_install
+        self._current_is_downloadable = is_downloadable
 
         cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(igdb_id, self._igdb_client, self.db_path, cancel_flag)
@@ -330,12 +352,13 @@ class MainWindow(QMainWindow):
         self._thread_pool.start(fetch_task)
 
     def load_games(self):
-        games = self._gamedb.get_games_with_local_versions()
+        local_games = self._gamedb.get_games_with_local_versions()
+        downloadable_games = self._gamedb.get_downloadable_games()
+        all_games = local_games + downloadable_games
 
         self.game_table.setSortingEnabled(False)
-        self.game_table.setRowCount(len(games))
-        for row_num, game in enumerate(games):
-            # row format: (igdb_id, title, release_date, genre, version)
+        self.game_table.setRowCount(len(all_games))
+        for row_num, game in enumerate(all_games):
             game_title = QTableWidgetItem(game.title)
 
             # Check if this game needs installation (ISO with requires_install flag and not yet installed)
@@ -346,8 +369,10 @@ class MainWindow(QMainWindow):
                 is_installed, _ = self._gamedb.get_installation_status(game.version_id)
                 needs_install = not is_installed
 
-            # Store version_id, igdb_id, and installation status
-            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install))
+            is_downloadable = game.download_url is not None
+
+            # Store version_id, igdb_id, installation status, and downloadable flag
+            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install, is_downloadable))
 
             dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
@@ -364,6 +389,15 @@ class MainWindow(QMainWindow):
                     item = self.game_table.item(row_num, col)
                     if item:
                         item.setForeground(Qt.gray)
+
+            # Mark downloadable games (not yet locally present)
+            if is_downloadable:
+                game_title.setToolTip("Click 'Download' to get this game")
+                faded = QColor(180, 180, 180)
+                for col in range(4):
+                    item = self.game_table.item(row_num, col)
+                    if item:
+                        item.setForeground(faded)
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
 
@@ -502,6 +536,7 @@ class MainWindow(QMainWindow):
         QMessageBox.information(
             self, "Database updated", "The game database has been updated to the latest version.", QMessageBox.Ok
         )
+        self.load_games()
 
     def _on_show_context_menu(self, pos):
         selected_items = self.game_table.selectedItems()
@@ -510,35 +545,47 @@ class MainWindow(QMainWindow):
 
         name_row = selected_items[0]
         user_data = name_row.data(Qt.UserRole)
-        _, version_id, _ = user_data if len(user_data) == 3 else (user_data[0], user_data[1], False)
-
-        # Check if this is an installed ISO game that can be reinstalled/uninstalled
-        archive_type = self._gamedb.get_archive_type(version_id)
-        is_installed_iso = False
-        if archive_type == "iso":
-            requires_install = self._gamedb.get_requires_install(version_id)
-            if requires_install:
-                installed, _ = self._gamedb.get_installation_status(version_id)
-                is_installed_iso = installed
+        if len(user_data) == 4:
+            _, version_id, _, is_downloadable = user_data
+        elif len(user_data) == 3:
+            _, version_id, _ = user_data
+            is_downloadable = False
+        else:
+            _, version_id = user_data
+            is_downloadable = False
 
         context_menu = QMenu(self)
 
-        setup_action = QAction("Run Game Setup", self)
-        setup_action.triggered.connect(self._on_run_game_setup)
-        context_menu.addAction(setup_action)
+        if is_downloadable:
+            download_action = QAction("Download", self)
+            download_action.triggered.connect(self._on_download_game)
+            context_menu.addAction(download_action)
+        else:
+            # Check if this is an installed ISO game that can be reinstalled/uninstalled
+            archive_type = self._gamedb.get_archive_type(version_id)
+            is_installed_iso = False
+            if archive_type == "iso":
+                requires_install = self._gamedb.get_requires_install(version_id)
+                if requires_install:
+                    installed, _ = self._gamedb.get_installation_status(version_id)
+                    is_installed_iso = installed
 
-        if is_installed_iso:
-            reinstall_action = QAction("Reinstall", self)
-            reinstall_action.triggered.connect(self._on_reinstall_game)
-            context_menu.addAction(reinstall_action)
+            setup_action = QAction("Run Game Setup", self)
+            setup_action.triggered.connect(self._on_run_game_setup)
+            context_menu.addAction(setup_action)
 
-            uninstall_action = QAction("Uninstall", self)
-            uninstall_action.triggered.connect(self._on_uninstall_game)
-            context_menu.addAction(uninstall_action)
+            if is_installed_iso:
+                reinstall_action = QAction("Reinstall", self)
+                reinstall_action.triggered.connect(self._on_reinstall_game)
+                context_menu.addAction(reinstall_action)
 
-        delete_action = QAction("Delete Game", self)
-        delete_action.triggered.connect(self._on_delete_selected_game)
-        context_menu.addAction(delete_action)
+                uninstall_action = QAction("Uninstall", self)
+                uninstall_action.triggered.connect(self._on_uninstall_game)
+                context_menu.addAction(uninstall_action)
+
+            delete_action = QAction("Delete Game", self)
+            delete_action.triggered.connect(self._on_delete_selected_game)
+            context_menu.addAction(delete_action)
 
         context_menu.exec(self.game_table.mapToGlobal(pos))
 
@@ -570,6 +617,69 @@ class MainWindow(QMainWindow):
             self.game_table.clearSelection()
             if self.game_table.rowCount() > 0:
                 self.on_game_change()
+
+    def _on_download_game(self):
+        selected_items = self.game_table.selectedItems()
+        if not selected_items:
+            return
+        name_row = selected_items[0]
+        user_data = name_row.data(Qt.UserRole)
+        igdb_id, version_id, _, _ = user_data if len(user_data) == 4 else (user_data[0], user_data[1], False, False)
+        game_name = name_row.text()
+
+        download_url = self._gamedb.get_download_url(version_id)
+        if not download_url:
+            QMessageBox.critical(
+                self,
+                "Download Error",
+                f"No download URL available for '{game_name}'.",
+                QMessageBox.Ok,
+            )
+            return
+
+        dialog = DownloaderDialog(self, f"Downloading {game_name}")
+        dialog.start_download(download_url)
+        if dialog.exec() != QDialog.Accepted or dialog.data_buffer is None:
+            return
+
+        # Save the downloaded file to the games folder
+        games_path = self.games_path
+        if not games_path:
+            QMessageBox.critical(
+                self,
+                "Games folder not set",
+                "Please set the games folder in Settings before downloading.",
+                QMessageBox.Ok,
+            )
+            return
+
+        filename = os.path.basename(download_url.split("?")[0])
+        filepath = os.path.join(games_path, filename)
+
+        try:
+            with open(filepath, "wb") as f:
+                f.write(dialog.data_buffer.getvalue())
+        except OSError as e:
+            QMessageBox.critical(
+                self,
+                "Save Error",
+                f"Failed to save downloaded file: {e}",
+                QMessageBox.Ok,
+            )
+            return
+
+        # Add to local versions
+        archive_type = "iso" if filename.lower().endswith(".iso") else "zip"
+        self._gamedb.add_local_game_version(version_id, filename, archive_type=archive_type)
+
+        QMessageBox.information(
+            self,
+            "Download Complete",
+            f"'{game_name}' has been downloaded successfully.",
+            QMessageBox.Ok,
+        )
+
+        self._on_game_added()
 
     def _on_reinstall_game(self):
         _, version_id, game_name = self.selected_game
@@ -701,6 +811,10 @@ class MainWindow(QMainWindow):
         if len(selected_items) != 4:
             raise RuntimeError("Invalid game selection")
         name_row = selected_items[0]
-        game_id, version_id, _ = name_row.data(Qt.UserRole)
+        user_data = name_row.data(Qt.UserRole)
+        if len(user_data) >= 3:
+            game_id, version_id, _ = user_data[:3]
+        else:
+            game_id, version_id = user_data
         game_name = name_row.text()
         return game_id, version_id, game_name
