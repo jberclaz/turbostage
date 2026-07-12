@@ -3,7 +3,6 @@ import importlib
 import json
 import os
 import tempfile
-import zipfile
 from datetime import datetime, timezone
 
 import requests
@@ -672,63 +671,6 @@ class MainWindow(QMainWindow):
         # Add to local versions
         archive_type = "iso" if filename.lower().endswith(".iso") else "zip"
         self._gamedb.add_local_game_version(version_id, filename, archive_type=archive_type)
-
-        # Check if the executable path from the DB matches the zip contents
-        version_info = self._gamedb.get_version_by_version_id(version_id)
-        needs_binary_pick = False
-        if version_info and version_info.archive == filename and archive_type == "zip":
-            db_executable = version_info.executable
-            if db_executable:
-                try:
-                    with zipfile.ZipFile(filepath, "r") as zf:
-                        names = zf.namelist()
-                        if db_executable not in names:
-                            needs_binary_pick = True
-                except (zipfile.BadZipFile, OSError):
-                    needs_binary_pick = True
-
-        if needs_binary_pick:
-            reply = QMessageBox.question(
-                self,
-                "Executable Not Found",
-                "The game executable listed in the database was not found in the downloaded archive. "
-                "Would you like to select the correct executable from the archive?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes,
-            )
-            if reply == QMessageBox.Yes:
-                # Scan for executables in the zip
-                executables = []
-                with zipfile.ZipFile(filepath, "r") as zf:
-                    for info in zf.infolist():
-                        _, ext = os.path.splitext(info.filename)
-                        if ext.lower() in (".exe", ".bat", ".com"):
-                            executables.append(info.filename)
-
-                if executables:
-                    pick_dialog = QDialog(self)
-                    pick_dialog.setWindowTitle("Select Game Executable")
-                    layout = QVBoxLayout(pick_dialog)
-                    layout.addWidget(QLabel("Select the game executable:"))
-                    from PySide6.QtWidgets import QListView, QDialogButtonBox, QAbstractItemView
-                    from turbostage.ui.game_setup_widget import BinaryListModel
-
-                    list_view = QListView(pick_dialog)
-                    model = BinaryListModel()
-                    model.set_binaries(executables)
-                    list_view.setModel(model)
-                    list_view.setSelectionMode(QAbstractItemView.SingleSelection)
-                    layout.addWidget(list_view)
-                    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, pick_dialog)
-                    layout.addWidget(buttons)
-                    buttons.accepted.connect(pick_dialog.accept)
-                    buttons.rejected.connect(pick_dialog.reject)
-
-                    if pick_dialog.exec() == QDialog.Accepted:
-                        selected = list_view.selectedIndexes()
-                        if selected:
-                            chosen = model.binaries[selected[0].row()]
-                            self._gamedb.set_local_executables(version_id, executable=chosen)
 
         QMessageBox.information(
             self,
