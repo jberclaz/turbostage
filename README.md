@@ -18,7 +18,7 @@ by [fs-uae-launcher](https://github.com/FrodeSolheim/fs-uae-launcher).
 - Built-in support for downloading DOSBox Staging and MT-32 ROMs.
 - Customizable emulator settings for each game.
 - Support for game-specific setup programs to configure sound, input, and more.
-- One-click download of supported games directly from the library (via MyAbandonware).
+- One-click download of supported games directly from the library.
 
 ## Prerequisites
 - A modern operating system (Windows, macOS or Linux).
@@ -82,7 +82,7 @@ Some games were distributed on CD-ROM and need to be installed to a hard drive b
 
 ## Downloadable Games
 
-Turbo Stage can download supported games directly from [MyAbandonware](https://myabandonware.com).
+Turbo Stage can download a few supported games.
 
 1. Go to **File > Update Game Database** to fetch the latest supported game list.
 2. Games available for download appear **grayed out** in your library.
