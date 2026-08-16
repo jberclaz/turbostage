@@ -219,10 +219,15 @@ class GameLauncher:
             autoexec_commands.append(f'imgmount d "{archive_path}" -t iso')
         else:
             autoexec_commands.append(f'mount d "{archive_path}" -t cdrom')
-        # Strip ISO version number (e.g., ;1) from executable path
+        # Normalize the executable path to DOS style: strip the ISO version
+        # number (e.g. ";1"), leading separators and convert '/' to '\' so the
+        # autoexec 'cd' command works regardless of how the path was stored.
         exec_path = executable.split(";")[0] if executable else ""
-        exec_dir = os.path.dirname(exec_path)
-        exec_name = os.path.basename(exec_path)
+        exec_path = exec_path.replace("/", "\\").strip("\\")
+        if "\\" in exec_path:
+            exec_dir, exec_name = exec_path.rsplit("\\", 1)
+        else:
+            exec_dir, exec_name = "", exec_path
 
         # For installed games, executable is on C: drive (hard drive)
         # For non-installed games, executable is on D: drive (ISO)

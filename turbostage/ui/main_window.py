@@ -252,6 +252,11 @@ class MainWindow(QMainWindow):
             self._on_download_game()
             return
 
+        # For CD-ROM games that don't require installation, make sure an
+        # executable from the disc is selected before launching.
+        if not needs_install and not self._ensure_cdrom_executable(version_id):
+            return
+
         gl = GameLauncher(track_change=True)
         install_completed, install_path = gl.launch_game(version_id, self._gamedb, install_mode=needs_install)
 
@@ -266,6 +271,66 @@ class MainWindow(QMainWindow):
         elif gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
+
+    def _ensure_cdrom_executable(self, version_id: int) -> bool:
+        """Ensure a non-install CD-ROM game has an executable selected.
+
+        CD-ROM games that run straight from the disc may not have a known
+        executable in the database. Prompt the user to pick one from the disc
+        before launching.
+
+        Returns True if the launch should proceed, False if the user cancelled.
+        """
+        game_info = self._gamedb.get_version_by_version_id(version_id)
+        if game_info is None or game_info.executable:
+            return True
+        if self._gamedb.get_archive_type(version_id) != "iso":
+            return True
+
+        settings = QSettings("jberclaz", "TurboStage")
+        games_path = str(settings.value("app/games_path", ""))
+        archive_path = os.path.join(games_path, game_info.archive)
+
+        from PySide6.QtWidgets import QAbstractItemView, QDialog, QDialogButtonBox, QLabel, QListView, QVBoxLayout
+
+        from turbostage import iso_utils
+        from turbostage.ui.game_setup_widget import BinaryListModel
+
+        executables = iso_utils.list_executables_in_iso(archive_path)
+        if not executables:
+            QMessageBox.warning(
+                self,
+                "No executable found",
+                f"No executable files found in '{game_info.archive}'.",
+                QMessageBox.Ok,
+            )
+            return False
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Game Executable")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Select the game executable:"))
+        layout.addWidget(QLabel(f"<small>Files found in: {game_info.archive}</small>"))
+        list_view = QListView(dialog)
+        model = BinaryListModel()
+        model.set_binaries(executables)
+        list_view.setModel(model)
+        list_view.setSelectionMode(QAbstractItemView.SingleSelection)
+        layout.addWidget(list_view)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        layout.addWidget(buttons)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        if dialog.exec() != QDialog.Accepted:
+            return False
+
+        selected = list_view.selectedIndexes()
+        if not selected:
+            return False
+        executable = model.binaries[selected[0].row()]
+        self._gamedb.set_local_executables(version_id, executable=executable)
+        return True
 
     def _prompt_for_game_binary(self, version_id: int, install_path: str):
         """Prompt user to select game binary from installed files using a custom dialog."""
@@ -829,7 +894,8 @@ class MainWindow(QMainWindow):
         binary = self.right_setup_tab.selected_binary
         config = self.right_setup_tab.dosbox_config_text.toPlainText()
         cycles = self.right_setup_tab.cpu_cycles
-        self._gamedb.update_version_info(version_id, None, binary, config, cycles)
+        config_executable = self.right_setup_tab.config_executable
+        self._gamedb.update_version_info(version_id, None, binary, config, cycles, config_executable or "")
 
     def _on_submit_local_config(self):
         local_versions = self._gamedb.get_locally_modified_game_versions()
