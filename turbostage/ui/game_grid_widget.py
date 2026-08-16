@@ -2,7 +2,7 @@ import hashlib
 import os
 
 from PySide6.QtCore import QSize, QStandardPaths, Qt, QUrl, Slot
-from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
@@ -10,6 +10,7 @@ from turbostage.db.game_database import LocalGameDetails
 
 COVER_WIDTH = 120
 COVER_HEIGHT = 160
+DOWNLOADABLE_OPACITY = 0.45
 
 
 class GameGridWidget(QListWidget):
@@ -49,14 +50,18 @@ class GameGridWidget(QListWidget):
         for game, needs_install, is_downloadable in entries:
             item = QListWidgetItem(game.title)
             item.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install, is_downloadable))
-            item.setToolTip(game.title)
             item.setSizeHint(self.gridSize())
+            if is_downloadable:
+                item.setForeground(QColor(150, 150, 150))
+                item.setToolTip(f"{game.title} (not yet downloaded)")
+            else:
+                item.setToolTip(game.title)
             self.addItem(item)
 
             if game.cover_url:
                 self._load_cover(item, game.cover_url)
             else:
-                item.setIcon(self._placeholder_icon())
+                self._set_item_icon(item, QPixmap())
 
     def _load_cover(self, item: QListWidgetItem, url: str) -> None:
         file_name = f"{hashlib.md5(url.encode()).hexdigest()}.jpg"
@@ -71,20 +76,32 @@ class GameGridWidget(QListWidget):
 
     def _set_item_icon(self, item: QListWidgetItem, pixmap: QPixmap) -> None:
         if pixmap.isNull():
-            item.setIcon(self._placeholder_icon())
-            return
-        scaled = pixmap.scaled(
-            QSize(COVER_WIDTH, COVER_HEIGHT),
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        item.setIcon(QIcon(scaled))
+            pixmap = QPixmap(COVER_WIDTH, COVER_HEIGHT)
+            pixmap.fill(QColor("#2c2c2c"))
+        else:
+            pixmap = pixmap.scaled(
+                QSize(COVER_WIDTH, COVER_HEIGHT),
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        if self._is_downloadable(item):
+            pixmap = self._fade_pixmap(pixmap, DOWNLOADABLE_OPACITY)
+        item.setIcon(QIcon(pixmap))
 
     @staticmethod
-    def _placeholder_icon() -> QIcon:
-        pixmap = QPixmap(COVER_WIDTH, COVER_HEIGHT)
-        pixmap.fill(QColor("#2c2c2c"))
-        return QIcon(pixmap)
+    def _is_downloadable(item: QListWidgetItem) -> bool:
+        data = item.data(Qt.UserRole)
+        return bool(data) and len(data) >= 4 and data[3]
+
+    @staticmethod
+    def _fade_pixmap(pixmap: QPixmap, opacity: float) -> QPixmap:
+        faded = QPixmap(pixmap.size())
+        faded.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(faded)
+        painter.setOpacity(opacity)
+        painter.drawPixmap(0, 0, pixmap)
+        painter.end()
+        return faded
 
     @Slot(QNetworkReply)
     def _on_image_download_finished(self, reply: QNetworkReply) -> None:
