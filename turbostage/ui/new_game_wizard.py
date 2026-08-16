@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListView,
@@ -19,8 +20,20 @@ from PySide6.QtWidgets import (
 
 from turbostage import constants, iso_utils
 from turbostage.ui.game_setup_widget import BinaryListModel
+from turbostage.ui.icons import icon_widget, load_icon
 
 EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
+
+
+def _label_row(icon_name: str, label: QLabel) -> QHBoxLayout:
+    """Build a horizontal row with an icon followed by a text label."""
+    layout = QHBoxLayout()
+    icon_label = QLabel()
+    icon_label.setPixmap(load_icon(icon_name).pixmap(16, 16))
+    layout.addWidget(icon_label)
+    layout.addWidget(label)
+    layout.addStretch(1)
+    return layout
 
 
 class NewGameWizard(QWizard):
@@ -129,7 +142,7 @@ class GameTitlePage(QWizardPage):
         form_layout = QFormLayout()
         self.game_name_search_query = QLineEdit()
         self.game_name_search_query.returnPressed.connect(self._search_games_slot)
-        form_layout.addRow("Search", self.game_name_search_query)
+        form_layout.addRow(icon_widget("search", "Search"), self.game_name_search_query)
         layout.addLayout(form_layout)
 
         self.game_list_view = QListView(self)
@@ -260,7 +273,8 @@ class VersionPage(QWizardPage):
 
         layout = QVBoxLayout(self)
 
-        self.version_label = QLabel("Version name")
+        drive_icon = "cdrom" if is_iso else "floppy"
+        layout.addWidget(icon_widget(drive_icon, "Version name"))
         self.version_name = QLineEdit(self)
         self.version_name.setPlaceholderText("Eg: 'vga', 'en', '1.2', ...")
 
@@ -268,7 +282,6 @@ class VersionPage(QWizardPage):
         if volume_label:
             self.version_name.setText(volume_label)
 
-        layout.addWidget(self.version_label)
         layout.addWidget(self.version_name)
 
         # Add checkbox for ISO games that require HD installation
@@ -294,7 +307,7 @@ class ExecutablePage(QWizardPage):
 
         layout = QVBoxLayout(self)
         self.label = QLabel("Game executable")
-        layout.addWidget(self.label)
+        layout.addLayout(_label_row("executable", self.label))
         self.binary_list_view = QListView(self)
         self.binary_list_model = BinaryListModel()
         self.binary_list_model.set_binaries(executables)
@@ -342,7 +355,7 @@ class ConfigPage(QWizardPage):
 
         layout = QVBoxLayout(self)
         self.label = QLabel("Configuration executable")
-        layout.addWidget(self.label)
+        layout.addLayout(_label_row("installer", self.label))
         self.binary_list_view = QListView(self)
         self.binary_list_model = BinaryListModel()
         self.binary_list_model.set_binaries(executables)
@@ -389,8 +402,7 @@ class CPUPage(QWizardPage):
         )
 
         layout = QVBoxLayout(self)
-        label = QLabel("System CPU")
-        layout.addWidget(label)
+        layout.addWidget(icon_widget("cpu", "System CPU"))
         self.cpu_combobox = QComboBox()
         self.cpu_combobox.addItems(list(constants.CPU_CYCLES.keys()))
         layout.addWidget(self.cpu_combobox)

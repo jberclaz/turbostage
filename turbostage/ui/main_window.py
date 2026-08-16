@@ -44,6 +44,7 @@ from turbostage.ui.game_grid_widget import GameGridWidget
 from turbostage.ui.game_info_widget import GameInfoWidget
 from turbostage.ui.game_setup_dialog import GameSetupDialog
 from turbostage.ui.game_setup_widget import GameSetupWidget
+from turbostage.ui.icons import load_icon
 from turbostage.ui.locked_file_dialog import LockedFileDialog
 from turbostage.ui.new_game_wizard import NewGameWizard
 from turbostage.ui.settings_dialog import SettingsDialog
@@ -75,29 +76,29 @@ class MainWindow(QMainWindow):
         self.file_menu = self.menu.addMenu("File")
 
         # Exit QAction
-        exit_action = QAction("Exit", self)
+        exit_action = QAction(load_icon("exit"), "Exit", self)
         exit_action.setShortcut(QKeySequence.Quit)
         exit_action.setMenuRole(QAction.NoRole)
         exit_action.triggered.connect(self.close)
 
         # Scan QAction
-        scan_action = QAction("Scan local games", self)
+        scan_action = QAction(load_icon("scan"), "Scan local games", self)
         scan_action.triggered.connect(self.scan_local_games)
 
         # Add new game
-        add_action = QAction("Add new game", self)
+        add_action = QAction(load_icon("add_game"), "Add new game", self)
         add_action.triggered.connect(self._on_add_new_game)
 
         # Update game database
-        update_db_action = QAction("Update game database", self)
+        update_db_action = QAction(load_icon("download"), "Update game database", self)
         update_db_action.triggered.connect(self._on_update_game_database)
 
         # Update game database
-        submit_local_config_action = QAction("Upload local config", self)
+        submit_local_config_action = QAction(load_icon("upload"), "Upload local config", self)
         submit_local_config_action.triggered.connect(self._on_submit_local_config)
 
         # Settings
-        settings_action = QAction("Settings", self)
+        settings_action = QAction(load_icon("setup"), "Settings", self)
         settings_action.setMenuRole(QAction.NoRole)
         settings_action.triggered.connect(self._on_show_settings_dialog)
 
@@ -122,6 +123,7 @@ class MainWindow(QMainWindow):
 
         self.search_box = QLineEdit(self)
         self.search_box.setPlaceholderText("Search for a game...")
+        self.search_box.addAction(load_icon("search"), QLineEdit.LeadingPosition)
         self.search_box.textChanged.connect(self.filter_games)
 
         self.splitter = QSplitter(Qt.Horizontal)
@@ -167,12 +169,12 @@ class MainWindow(QMainWindow):
         self.right_info_tab.setWidget(self._game_info)
         self.right_setup_tab = GameSetupWidget()
         self.right_setup_tab.settings_applied.connect(self._on_game_settings_saved)
-        self.right_panel.addTab(self.right_info_tab, "Info")
-        self.right_panel.addTab(self.right_setup_tab, "Setup")
+        self.right_panel.addTab(self.right_info_tab, load_icon("info"), "Info")
+        self.right_panel.addTab(self.right_setup_tab, load_icon("setup"), "Setup")
         self.splitter.addWidget(self.right_panel)
 
         # Launch button
-        self.launch_button = QPushButton("Launch Game")
+        self.launch_button = QPushButton(load_icon("launch"), "Launch Game")
         self.launch_button.clicked.connect(self.launch_game)
         self.launch_button.setEnabled(False)
 
@@ -679,7 +681,7 @@ class MainWindow(QMainWindow):
         context_menu = QMenu(self)
 
         if is_downloadable:
-            download_action = QAction("Download", self)
+            download_action = QAction(load_icon("download"), "Download", self)
             download_action.triggered.connect(self._on_download_game)
             context_menu.addAction(download_action)
         else:
@@ -692,20 +694,20 @@ class MainWindow(QMainWindow):
                     installed, _ = self._gamedb.get_installation_status(version_id)
                     is_installed_iso = installed
 
-            setup_action = QAction("Run Game Setup", self)
+            setup_action = QAction(load_icon("setup"), "Run Game Setup", self)
             setup_action.triggered.connect(self._on_run_game_setup)
             context_menu.addAction(setup_action)
 
             if is_installed_iso:
-                reinstall_action = QAction("Reinstall", self)
+                reinstall_action = QAction(load_icon("installer"), "Reinstall", self)
                 reinstall_action.triggered.connect(self._on_reinstall_game)
                 context_menu.addAction(reinstall_action)
 
-                uninstall_action = QAction("Uninstall", self)
+                uninstall_action = QAction(load_icon("uninstall"), "Uninstall", self)
                 uninstall_action.triggered.connect(self._on_uninstall_game)
                 context_menu.addAction(uninstall_action)
 
-            delete_action = QAction("Delete Game", self)
+            delete_action = QAction(load_icon("delete"), "Delete Game", self)
             delete_action.triggered.connect(self._on_delete_selected_game)
             context_menu.addAction(delete_action)
 

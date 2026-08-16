@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from turbostage import constants
 from turbostage.db.game_database import GameDatabase
+from turbostage.ui.icons import load_icon
 
 GROUP_BOX_STYLE = """
 QGroupBox {
@@ -111,10 +112,14 @@ class GameSetupWidget(QWidget):
         # Game group
         self.game_group = self._make_group("Game")
         game_layout = QVBoxLayout(self.game_group)
+        info_layout = QHBoxLayout()
+        self.drive_icon_label = QLabel()
+        info_layout.addWidget(self.drive_icon_label, 0, Qt.AlignmentFlag.AlignTop)
         self.game_info_label = QLabel()
         self.game_info_label.setWordWrap(True)
         self.game_info_label.setStyleSheet("color: palette(mid);")
-        game_layout.addWidget(self.game_info_label)
+        info_layout.addWidget(self.game_info_label, 1)
+        game_layout.addLayout(info_layout)
         self.binary_tabs = QTabWidget()
         self.binary_list_view = QListView()
         self.binary_list_model = BinaryListModel()
@@ -129,8 +134,8 @@ class GameSetupWidget(QWidget):
         self.config_binary_list_view.setSelectionMode(QListView.SingleSelection)
         self.config_binary_list_view.selectionModel().selectionChanged.connect(self._on_settings_changed)
         self.config_binary_list_view.setEnabled(False)
-        self.binary_tabs.addTab(self.binary_list_view, "Game executable")
-        self.binary_tabs.addTab(self.config_binary_list_view, "Config executable")
+        self.binary_tabs.addTab(self.binary_list_view, load_icon("executable"), "Game executable")
+        self.binary_tabs.addTab(self.config_binary_list_view, load_icon("installer"), "Config executable")
         self.binary_tabs.setMinimumHeight(160)
         game_layout.addWidget(self.binary_tabs)
         self.content_layout.addWidget(self.game_group)
@@ -138,7 +143,7 @@ class GameSetupWidget(QWidget):
         # Performance group
         self.performance_group = self._make_group("Performance")
         performance_layout = QVBoxLayout(self.performance_group)
-        performance_layout.addWidget(QLabel("CPU"))
+        performance_layout.addLayout(self._icon_row("cpu", "CPU"))
         self.cpu_combobox = QComboBox()
         self.cpu_combobox.addItems(list(constants.CPU_CYCLES.keys()))
         self.cpu_combobox.currentIndexChanged.connect(self._on_settings_changed)
@@ -187,6 +192,16 @@ class GameSetupWidget(QWidget):
         group.setStyleSheet(GROUP_BOX_STYLE)
         return group
 
+    @staticmethod
+    def _icon_row(icon_name: str, text: str):
+        layout = QHBoxLayout()
+        icon_label = QLabel()
+        icon_label.setPixmap(load_icon(icon_name).pixmap(16, 16))
+        layout.addWidget(icon_label)
+        layout.addWidget(QLabel(text))
+        layout.addStretch(1)
+        return layout
+
     def _set_empty_state(self, empty: bool):
         self.empty_label.setVisible(empty)
         self.scroll_area.setVisible(not empty)
@@ -213,6 +228,7 @@ class GameSetupWidget(QWidget):
             self.binary_list_model.set_binaries([])
             self.config_binary_list_model.set_binaries([])
             self.game_info_label.clear()
+            self.drive_icon_label.clear()
             self.save_button.setEnabled(False)
             self.reset_button.setEnabled(False)
             return
@@ -285,10 +301,15 @@ class GameSetupWidget(QWidget):
         if archive_type == "iso":
             if requires_install:
                 status = "ISO (installed)" if is_installed else "ISO (requires installation)"
+                drive_icon = "harddrive" if is_installed else "cdrom"
             else:
                 status = "ISO"
+                drive_icon = "cdrom"
         else:
             status = "ZIP archive"
+            drive_icon = "floppy"
+
+        self.drive_icon_label.setPixmap(load_icon(drive_icon).pixmap(32, 32))
 
         lines = [
             f"Version: {version_details.version_name}",

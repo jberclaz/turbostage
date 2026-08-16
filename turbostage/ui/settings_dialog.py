@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
 from turbostage import constants, utils
 from turbostage.ui.clickable_line_edit import ClickableLineEdit
 from turbostage.ui.download_dialog import DownloaderDialog
+from turbostage.ui.icons import icon_widget, load_icon
 
 
 class SettingsDialog(QDialog):
@@ -36,16 +37,19 @@ class SettingsDialog(QDialog):
         self.layout = QVBoxLayout(self)
         form_layout = QFormLayout()
         self.full_screen_checkbox = QCheckBox("Play game in full screen", self)
+        self.full_screen_checkbox.setIcon(load_icon("monitor"))
         self.full_screen_checkbox.setChecked(utils.to_bool(self.settings.value("app/full_screen", False)))
         form_layout.addRow(self.full_screen_checkbox)
 
         self.show_downloadable_checkbox = QCheckBox("Show downloadable games in library", self)
+        self.show_downloadable_checkbox.setIcon(load_icon("download"))
         self.show_downloadable_checkbox.setChecked(
             utils.to_bool(self.settings.value("app/show_downloadable", True))
         )
         form_layout.addRow(self.show_downloadable_checkbox)
 
         self.grid_view_checkbox = QCheckBox("Display games as a grid of cover images", self)
+        self.grid_view_checkbox.setIcon(load_icon("pictures"))
         self.grid_view_checkbox.setChecked(utils.to_bool(self.settings.value("app/grid_view", True)))
         form_layout.addRow(self.grid_view_checkbox)
         self.layout.addLayout(form_layout)
@@ -54,20 +58,20 @@ class SettingsDialog(QDialog):
         emulator_path = str(self.settings.value("app/emulator_path", ""))
         self.emulator_path_input.setText(emulator_path)
         self.emulator_path_input.clicked.connect(self._select_emulator)
-        self.emu_download_button = QPushButton("Download", self)
+        self.emu_download_button = QPushButton(load_icon("download"), "Download", self)
         self.emu_download_button.clicked.connect(self._download_emulator)
         self.emu_download_button.setEnabled(emulator_path == "")
         emulator_layout = QHBoxLayout()
         emulator_layout.addWidget(self.emulator_path_input)
         emulator_layout.addWidget(self.emu_download_button)
-        form_layout.addRow("Emulator Path", emulator_layout)
+        form_layout.addRow(icon_widget("computer", "Emulator Path"), emulator_layout)
 
         self.games_path_input = ClickableLineEdit(self)
         self.games_path_input.setText(str(self.settings.value("app/games_path", "")))
         self.games_path_input.clicked.connect(
             lambda: self._select_directory(self.games_path_input, "Select the Games folder")
         )
-        form_layout.addRow("Games Path", self.games_path_input)
+        form_layout.addRow(icon_widget("folder", "Games Path"), self.games_path_input)
 
         self.mt32_path_input = ClickableLineEdit(self)
         mt32_roms_path = str(self.settings.value("app/mt32_path", ""))
@@ -75,13 +79,13 @@ class SettingsDialog(QDialog):
         self.mt32_path_input.clicked.connect(
             lambda: self._select_directory(self.mt32_path_input, "Select the MT-32 ROMs folder")
         )
-        self.mt32_download_button = QPushButton("Download", self)
+        self.mt32_download_button = QPushButton(load_icon("download"), "Download", self)
         self.mt32_download_button.clicked.connect(self._download_mt32_roms)
         self.mt32_download_button.setEnabled(mt32_roms_path == "")
         mt32_layout = QHBoxLayout()
         mt32_layout.addWidget(self.mt32_path_input)
         mt32_layout.addWidget(self.mt32_download_button)
-        form_layout.addRow("MT-32 Roms Path", mt32_layout)
+        form_layout.addRow(icon_widget("midi", "MT-32 Roms Path"), mt32_layout)
 
         button_box = QDialogButtonBox(self)
         button_box.setStandardButtons(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
