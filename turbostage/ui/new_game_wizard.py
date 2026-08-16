@@ -1,5 +1,6 @@
 import importlib
 import os
+import re
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
 from PySide6.QtGui import QPixmap
@@ -140,9 +141,83 @@ class GameTitlePage(QWizardPage):
         self.setLayout(layout)
 
         base_name, _ = os.path.splitext(file_name)
-        self._search_games(base_name)
+        self._auto_search(base_name)
 
         self.registerField("game.title*", self, "selected_title")
+
+    _PUBLISHER_PHRASES = (
+        "lucas arts",
+        "lucasarts",
+        "electronic arts",
+        "id software",
+        "microprose",
+        "micro prose",
+        "psygnosis",
+        "broderbund",
+        "westwood",
+        "activision",
+        "novalogic",
+        "dynamix",
+        "infocom",
+        "sir-tech",
+    )
+
+    @classmethod
+    def _sanitize_search_queries(cls, base_name: str) -> list[str]:
+        """Return candidate IGDB search queries derived from an archive name, best first.
+
+        Archive names often carry separators, version suffixes, release years and
+        scene tags (``doom_v1.9``, ``SimCity_DOS_EN_v110``, ``Screamer_1995``) that
+        IGDB's search does not match. Several cleaned variants are produced so the
+        caller can try them in order until one yields results.
+        """
+        # Strip version/build tokens and years before normalizing separators, using
+        # explicit non-alphanumeric boundaries so "_", "-" and "." delimit them too.
+        raw = re.sub(r"(?<![A-Za-z0-9])v[-\s.]?\d+(?:\.\d+)*(?![A-Za-z0-9])", " ", base_name, flags=re.IGNORECASE)
+        raw = re.sub(r"(?<![A-Za-z0-9])\d+\.\d+[a-z]?(?![A-Za-z0-9])", " ", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"(?<![A-Za-z0-9])(?:19|20)\d{2}(?![A-Za-z0-9])", " ", raw)
+
+        # Keep model-number hyphens ("A-10", "F-15") before normalizing separators.
+        normalized = re.sub(r"(?<=[A-Z])-(?=\d)", "\x00", raw)
+        normalized = normalized.replace("_", " ").replace("-", " ").replace(".", " ")
+        normalized = normalized.replace("\x00", "-")
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        plain = cls._clean_query(normalized)
+        split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", plain)  # "WingCommanderIII" -> "Wing CommanderIII"
+        split = re.sub(r"(?<=[A-Za-z])(?<![IVXLC])(?=[IVXLC]{2,}$)", " ", split)  # trailing roman numeral
+        split = cls._clean_query(split)
+
+        candidates = []
+        for query in (split, plain):
+            if query and query not in candidates:
+                candidates.append(query)
+        return candidates or [base_name]
+
+    @staticmethod
+    def _clean_query(query: str) -> str:
+        query = re.sub(r"\b(?:DOS|EN|RIP|ENG)\b", " ", query, flags=re.IGNORECASE)  # scene/language tags
+        query = re.sub(r"\b(?:CD|DISC|DISK)\s*\d+(?:\s*of\s*\d+)?\b", " ", query, flags=re.IGNORECASE)  # disc numbers
+        query = re.sub(r"(?<=[A-Za-z])\d{2,}\b", " ", query)  # digits glued to a word ("screamer01")
+        query = re.sub(r"\b0\d+\b", " ", query)  # zero-padded standalone numbers
+        for phrase in GameTitlePage._PUBLISHER_PHRASES:
+            query = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", query, flags=re.IGNORECASE)
+        query = GameTitlePage._strip_allcaps_duplicates(query)
+        return re.sub(r"\s+", " ", query).strip()
+
+    @staticmethod
+    def _strip_allcaps_duplicates(query: str) -> str:
+        """Drop all-caps tokens that repeat an earlier title-case word (e.g. ``DARK FORCES``)."""
+        tokens = query.split()
+        seen = set()
+        kept = []
+        for token in tokens:
+            lowered = token.lower()
+            if token.isupper() and lowered in seen:
+                continue
+            seen.add(lowered)
+            kept.append(token)
+        return " ".join(kept)
 
     @property
     def selected_title(self) -> str:
@@ -154,11 +229,19 @@ class GameTitlePage(QWizardPage):
     def _search_games_slot(self):
         self._search_games(self.game_name_search_query.text())
 
-    def _search_games(self, search_query):
+    def _auto_search(self, base_name: str):
+        """Search using the archive name, trying cleaned variants until one matches."""
+        for query in self._sanitize_search_queries(base_name):
+            if self._search_games(query):
+                return
+
+    def _search_games(self, search_query: str) -> bool:
+        """Populate the list from an IGDB search. Returns True if results were found."""
         response = self._igdb_client.search_games(search_query)
         game_names = [(row["name"], row["id"]) for row in response]
         self.game_list_model.set_games(game_names)
         self.game_list_view.clearSelection()
+        return bool(game_names)
 
     def _selection_changed(self):
         self.setField("game.title", self.selected_title)
