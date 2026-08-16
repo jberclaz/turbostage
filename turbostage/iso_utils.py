@@ -225,6 +225,19 @@ def list_executables_in_iso(iso_path: str) -> list[str]:
     return executables
 
 
+def compute_hashes_for_executables_in_iso(iso_path: str) -> list[tuple[str, int, str]]:
+    """Compute MD5 hashes for all executable files (.exe, .bat, .com) in an ISO archive."""
+    import pycdlib
+
+    executables = list_executables_in_iso(iso_path)
+    iso = pycdlib.PyCdlib()
+    iso.open(iso_path)
+    try:
+        return [(path, 0, compute_md5_from_iso(iso, path)) for path in executables]
+    finally:
+        iso.close()
+
+
 def get_iso_volume_label(iso_path: str) -> str | None:
     """Get the volume label from an ISO file.
 

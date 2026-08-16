@@ -3,7 +3,6 @@ import importlib
 import json
 import os
 import tempfile
-import zipfile
 from datetime import datetime, timezone
 
 import requests
@@ -464,30 +463,13 @@ class MainWindow(QMainWindow):
         version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
             requires_install = archive_type == "iso"
-            # Ensure expected executables are in the hash list so resolution works
-            hashed_paths = {h[0] for h in hashes}
-            with self._gamedb.read_only_transaction() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT executable, config_executable FROM versions WHERE id = ?",
-                    (version_id,),
-                )
-                row = cursor.fetchone()
-                if row:
-                    if row[0] and row[0] not in hashed_paths:
-                        if archive_type == "iso":
-                            h = iso_utils.compute_md5_from_iso(game_path, row[0])
-                        else:
-                            with zipfile.ZipFile(game_path, "r") as zf:
-                                h = utils.compute_md5_from_zip(zf, row[0])
-                        hashes.append((row[0], 0, h))
-                    if row[1] and row[1] not in hashed_paths:
-                        if archive_type == "iso":
-                            h = iso_utils.compute_md5_from_iso(game_path, row[1])
-                        else:
-                            with zipfile.ZipFile(game_path, "r") as zf:
-                                h = utils.compute_md5_from_zip(zf, row[1])
-                        hashes.append((row[1], 0, h))
+            # Hash all executables in the archive so resolve_local_executables
+            # can match by content hash regardless of internal path structure
+            if archive_type == "iso":
+                executable_hashes = iso_utils.compute_hashes_for_executables_in_iso(game_path)
+            else:
+                executable_hashes = utils.compute_hashes_for_executables_in_zip(game_path)
+            hashes.extend(executable_hashes)
             local_executable, local_config_executable = self._gamedb.resolve_local_executables(version_id, hashes)
             added = self._gamedb.add_local_game_version(
                 version_id, os.path.basename(game_path),
