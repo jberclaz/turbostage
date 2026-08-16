@@ -19,6 +19,7 @@ class LocalGameDetails:
     version: str
     version_id: int
     download_url: Optional[str] = None
+    cover_url: Optional[str] = None
 
 
 @dataclass
@@ -625,14 +626,17 @@ class GameDatabase:
             cursor = conn.cursor()
             cursor.execute(
                 """
-                SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id
+                SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id, g.cover_url
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
                          JOIN local_versions lv ON v.id = lv.version_id
                 ORDER BY g.title
                 """
             )
-            return [LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0]) for row in cursor.fetchall()]
+            return [
+                LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0], cover_url=row[6])
+                for row in cursor.fetchall()
+            ]
 
     def get_downloadable_games(self) -> list[LocalGameDetails]:
         """Retrieve games that have a download URL but no local version installed.
@@ -649,7 +653,7 @@ class GameDatabase:
 
             cursor.execute(
                 """
-                SELECT g.igdb_id, g.title, g.release_date, g.genre, v.version, v.id, v.download_url
+                SELECT g.igdb_id, g.title, g.release_date, g.genre, v.version, v.id, v.download_url, g.cover_url
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
                          LEFT JOIN local_versions lv ON v.id = lv.version_id
@@ -659,7 +663,7 @@ class GameDatabase:
                 """
             )
             return [
-                LocalGameDetails(row[0], row[1], row[2], row[3], row[4], row[5], download_url=row[6])
+                LocalGameDetails(row[0], row[1], row[2], row[3], row[4], row[5], download_url=row[6], cover_url=row[7])
                 for row in cursor.fetchall()
             ]
 

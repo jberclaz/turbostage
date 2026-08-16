@@ -44,6 +44,10 @@ class SettingsDialog(QDialog):
             utils.to_bool(self.settings.value("app/show_downloadable", True))
         )
         form_layout.addRow(self.show_downloadable_checkbox)
+
+        self.grid_view_checkbox = QCheckBox("Display games as a grid of cover images", self)
+        self.grid_view_checkbox.setChecked(utils.to_bool(self.settings.value("app/grid_view", True)))
+        form_layout.addRow(self.grid_view_checkbox)
         self.layout.addLayout(form_layout)
 
         self.emulator_path_input = ClickableLineEdit(self)
@@ -89,6 +93,7 @@ class SettingsDialog(QDialog):
     def accept(self):
         self.settings.setValue("app/full_screen", self.full_screen_checkbox.isChecked())
         self.settings.setValue("app/show_downloadable", self.show_downloadable_checkbox.isChecked())
+        self.settings.setValue("app/grid_view", self.grid_view_checkbox.isChecked())
         self.settings.setValue("app/emulator_path", self.emulator_path_input.text())
         self.settings.setValue("app/games_path", self.games_path_input.text())
         self.settings.setValue("app/mt32_path", self.mt32_path_input.text())
