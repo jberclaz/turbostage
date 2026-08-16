@@ -1,4 +1,5 @@
 import importlib.resources
+from typing import Optional
 
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QWidget
@@ -10,7 +11,7 @@ def load_icon(name: str) -> QIcon:
     return QIcon(str(path))
 
 
-def icon_widget(name: str, text: str, parent: QWidget | None = None) -> QWidget:
+def icon_widget(name: str, text: str, parent: Optional[QWidget] = None) -> QWidget:
     """Build a compact widget with an icon followed by a text label."""
     widget = QWidget(parent)
     layout = QHBoxLayout(widget)
