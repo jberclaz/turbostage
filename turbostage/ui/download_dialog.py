@@ -4,6 +4,8 @@ import requests
 from PySide6.QtCore import QThread, Signal
 from PySide6.QtWidgets import QDialog, QLabel, QProgressBar, QPushButton, QVBoxLayout
 
+USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+
 
 class DownloadWorker(QThread):
     progress_update = Signal(int)
@@ -18,7 +20,7 @@ class DownloadWorker(QThread):
 
     def run(self):
         try:
-            response = requests.get(self.url, stream=True)
+            response = requests.get(self.url, stream=True, headers={"User-Agent": USER_AGENT}, timeout=60)
             response.raise_for_status()
 
             total_size = int(response.headers.get("content-length", 0))
@@ -56,6 +58,7 @@ class DownloaderDialog(QDialog):
         self.layout = QVBoxLayout()
 
         self.status_label = QLabel("Downloading...")
+        self.status_label.setWordWrap(True)
         self.layout.addWidget(self.status_label)
 
         self.progress_bar = QProgressBar()
@@ -69,8 +72,10 @@ class DownloaderDialog(QDialog):
 
         self._download_worker = None
         self.data_buffer = None
+        self.error = False
 
     def start_download(self, url):
+        self.error = False
         self._download_worker = DownloadWorker(url)
 
         self._download_worker.progress_update.connect(self.progress_bar.setValue)
@@ -80,6 +85,9 @@ class DownloaderDialog(QDialog):
         self.cancel_button.setEnabled(True)
 
     def cancel_download(self):
+        if self.error:
+            self.reject()
+            return
         if self._download_worker:
             self._download_worker.cancel()
             self.status_label.setText("Cancelling download")
@@ -92,5 +100,8 @@ class DownloaderDialog(QDialog):
         self.accept()
 
     def download_error(self, error_message):
-        self.status_label.setText("Download error.")
+        self.error = True
+        self.status_label.setText(f"Download failed:\n{error_message}")
         self.progress_bar.setValue(0)
+        self.cancel_button.setText("Close")
+        self.cancel_button.setEnabled(True)

@@ -197,6 +197,7 @@ class TestGameDatabase(unittest.TestCase):
         self.assertEqual(len(games_list), 1)
         self.assertEqual(games_list[0].igdb_id, self.test_igdb_id)  # igdb_id
         self.assertEqual(games_list[0].title, "Test Game")  # title
+        self.assertEqual(games_list[0].cover_url, "//images.igdb.com/test.jpg")  # cover_url
 
         # Clear local versions
         db.clear_local_versions()

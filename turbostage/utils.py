@@ -37,6 +37,19 @@ def compute_hash_for_largest_files_in_zip(zip_path, n=5):
     return file_hashes
 
 
+EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
+
+
+def compute_hashes_for_executables_in_zip(zip_path):
+    """Compute MD5 hashes for all executable files (.exe, .bat, .com) in a ZIP archive."""
+    with zipfile.ZipFile(zip_path, "r") as zf:
+        return [
+            (info.filename, info.file_size, compute_md5_from_zip(zf, info.filename))
+            for info in zf.infolist()
+            if os.path.splitext(info.filename)[1].lower() in EXECUTABLE_EXTENSIONS
+        ]
+
+
 def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails:
     details = igdb_client.get_game_info(igdb_id)
     genres_string = ", ".join(details["genres"])

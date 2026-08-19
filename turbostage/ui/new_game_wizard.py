@@ -1,5 +1,6 @@
 import importlib
 import os
+import re
 
 from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
 from PySide6.QtGui import QPixmap
@@ -7,6 +8,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFormLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QListView,
@@ -18,8 +20,20 @@ from PySide6.QtWidgets import (
 
 from turbostage import constants, iso_utils
 from turbostage.ui.game_setup_widget import BinaryListModel
+from turbostage.ui.icons import icon_widget, load_icon
 
 EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
+
+
+def _label_row(icon_name: str, label: QLabel) -> QHBoxLayout:
+    """Build a horizontal row with an icon followed by a text label."""
+    layout = QHBoxLayout()
+    icon_label = QLabel()
+    icon_label.setPixmap(load_icon(icon_name).pixmap(16, 16))
+    layout.addWidget(icon_label)
+    layout.addWidget(label)
+    layout.addStretch(1)
+    return layout
 
 
 class NewGameWizard(QWizard):
@@ -128,7 +142,7 @@ class GameTitlePage(QWizardPage):
         form_layout = QFormLayout()
         self.game_name_search_query = QLineEdit()
         self.game_name_search_query.returnPressed.connect(self._search_games_slot)
-        form_layout.addRow("Search", self.game_name_search_query)
+        form_layout.addRow(icon_widget("search", "Search"), self.game_name_search_query)
         layout.addLayout(form_layout)
 
         self.game_list_view = QListView(self)
@@ -140,9 +154,83 @@ class GameTitlePage(QWizardPage):
         self.setLayout(layout)
 
         base_name, _ = os.path.splitext(file_name)
-        self._search_games(base_name)
+        self._auto_search(base_name)
 
         self.registerField("game.title*", self, "selected_title")
+
+    _PUBLISHER_PHRASES = (
+        "lucas arts",
+        "lucasarts",
+        "electronic arts",
+        "id software",
+        "microprose",
+        "micro prose",
+        "psygnosis",
+        "broderbund",
+        "westwood",
+        "activision",
+        "novalogic",
+        "dynamix",
+        "infocom",
+        "sir-tech",
+    )
+
+    @classmethod
+    def _sanitize_search_queries(cls, base_name: str) -> list[str]:
+        """Return candidate IGDB search queries derived from an archive name, best first.
+
+        Archive names often carry separators, version suffixes, release years and
+        scene tags (``doom_v1.9``, ``SimCity_DOS_EN_v110``, ``Screamer_1995``) that
+        IGDB's search does not match. Several cleaned variants are produced so the
+        caller can try them in order until one yields results.
+        """
+        # Strip version/build tokens and years before normalizing separators, using
+        # explicit non-alphanumeric boundaries so "_", "-" and "." delimit them too.
+        raw = re.sub(r"(?<![A-Za-z0-9])v[-\s.]?\d+(?:\.\d+)*(?![A-Za-z0-9])", " ", base_name, flags=re.IGNORECASE)
+        raw = re.sub(r"(?<![A-Za-z0-9])\d+\.\d+[a-z]?(?![A-Za-z0-9])", " ", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"(?<![A-Za-z0-9])(?:19|20)\d{2}(?![A-Za-z0-9])", " ", raw)
+
+        # Keep model-number hyphens ("A-10", "F-15") before normalizing separators.
+        normalized = re.sub(r"(?<=[A-Z])-(?=\d)", "\x00", raw)
+        normalized = normalized.replace("_", " ").replace("-", " ").replace(".", " ")
+        normalized = normalized.replace("\x00", "-")
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+
+        plain = cls._clean_query(normalized)
+        split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", plain)  # "WingCommanderIII" -> "Wing CommanderIII"
+        split = re.sub(r"(?<=[A-Za-z])(?<![IVXLC])(?=[IVXLC]{2,}$)", " ", split)  # trailing roman numeral
+        split = cls._clean_query(split)
+
+        candidates = []
+        for query in (split, plain):
+            if query and query not in candidates:
+                candidates.append(query)
+        return candidates or [base_name]
+
+    @staticmethod
+    def _clean_query(query: str) -> str:
+        query = re.sub(r"\b(?:DOS|EN|RIP|ENG)\b", " ", query, flags=re.IGNORECASE)  # scene/language tags
+        query = re.sub(r"\b(?:CD|DISC|DISK)\s*\d+(?:\s*of\s*\d+)?\b", " ", query, flags=re.IGNORECASE)  # disc numbers
+        query = re.sub(r"(?<=[A-Za-z])\d{2,}\b", " ", query)  # digits glued to a word ("screamer01")
+        query = re.sub(r"\b0\d+\b", " ", query)  # zero-padded standalone numbers
+        for phrase in GameTitlePage._PUBLISHER_PHRASES:
+            query = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", query, flags=re.IGNORECASE)
+        query = GameTitlePage._strip_allcaps_duplicates(query)
+        return re.sub(r"\s+", " ", query).strip()
+
+    @staticmethod
+    def _strip_allcaps_duplicates(query: str) -> str:
+        """Drop all-caps tokens that repeat an earlier title-case word (e.g. ``DARK FORCES``)."""
+        tokens = query.split()
+        seen = set()
+        kept = []
+        for token in tokens:
+            lowered = token.lower()
+            if token.isupper() and lowered in seen:
+                continue
+            seen.add(lowered)
+            kept.append(token)
+        return " ".join(kept)
 
     @property
     def selected_title(self) -> str:
@@ -154,11 +242,19 @@ class GameTitlePage(QWizardPage):
     def _search_games_slot(self):
         self._search_games(self.game_name_search_query.text())
 
-    def _search_games(self, search_query):
+    def _auto_search(self, base_name: str):
+        """Search using the archive name, trying cleaned variants until one matches."""
+        for query in self._sanitize_search_queries(base_name):
+            if self._search_games(query):
+                return
+
+    def _search_games(self, search_query: str) -> bool:
+        """Populate the list from an IGDB search. Returns True if results were found."""
         response = self._igdb_client.search_games(search_query)
         game_names = [(row["name"], row["id"]) for row in response]
         self.game_list_model.set_games(game_names)
         self.game_list_view.clearSelection()
+        return bool(game_names)
 
     def _selection_changed(self):
         self.setField("game.title", self.selected_title)
@@ -177,7 +273,8 @@ class VersionPage(QWizardPage):
 
         layout = QVBoxLayout(self)
 
-        self.version_label = QLabel("Version name")
+        drive_icon = "cdrom" if is_iso else "floppy"
+        layout.addWidget(icon_widget(drive_icon, "Version name"))
         self.version_name = QLineEdit(self)
         self.version_name.setPlaceholderText("Eg: 'vga', 'en', '1.2', ...")
 
@@ -185,7 +282,6 @@ class VersionPage(QWizardPage):
         if volume_label:
             self.version_name.setText(volume_label)
 
-        layout.addWidget(self.version_label)
         layout.addWidget(self.version_name)
 
         # Add checkbox for ISO games that require HD installation
@@ -211,7 +307,7 @@ class ExecutablePage(QWizardPage):
 
         layout = QVBoxLayout(self)
         self.label = QLabel("Game executable")
-        layout.addWidget(self.label)
+        layout.addLayout(_label_row("executable", self.label))
         self.binary_list_view = QListView(self)
         self.binary_list_model = BinaryListModel()
         self.binary_list_model.set_binaries(executables)
@@ -259,7 +355,7 @@ class ConfigPage(QWizardPage):
 
         layout = QVBoxLayout(self)
         self.label = QLabel("Configuration executable")
-        layout.addWidget(self.label)
+        layout.addLayout(_label_row("installer", self.label))
         self.binary_list_view = QListView(self)
         self.binary_list_model = BinaryListModel()
         self.binary_list_model.set_binaries(executables)
@@ -306,8 +402,7 @@ class CPUPage(QWizardPage):
         )
 
         layout = QVBoxLayout(self)
-        label = QLabel("System CPU")
-        layout.addWidget(label)
+        layout.addWidget(icon_widget("cpu", "System CPU"))
         self.cpu_combobox = QComboBox()
         self.cpu_combobox.addItems(list(constants.CPU_CYCLES.keys()))
         layout.addWidget(self.cpu_combobox)

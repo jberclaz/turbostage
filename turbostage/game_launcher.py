@@ -2,6 +2,7 @@ import importlib
 import os
 import subprocess
 import tempfile
+import time
 import zipfile
 
 from PySide6.QtCore import QSettings
@@ -10,6 +11,10 @@ from PySide6.QtWidgets import QMessageBox
 
 from turbostage import constants, utils
 from turbostage.db.game_database import GameDatabase
+
+# A game that runs for less than this many seconds is considered to have
+# exited immediately, usually because it failed to start correctly.
+IMMEDIATE_EXIT_SECONDS = 5.0
 
 
 class GameLauncher:
@@ -151,8 +156,11 @@ class GameLauncher:
                 command.extend(["--conf", conf_file.name])
             command.append(executable_path)
             QGuiApplication.restoreOverrideCursor()
+            start_time = time.monotonic()
             try:
                 subprocess.run(command, check=True)
+                if time.monotonic() - start_time < IMMEDIATE_EXIT_SECONDS:
+                    self._warn_immediate_exit()
             except subprocess.CalledProcessError as e:
                 QMessageBox.warning(
                     None,
@@ -219,10 +227,15 @@ class GameLauncher:
             autoexec_commands.append(f'imgmount d "{archive_path}" -t iso')
         else:
             autoexec_commands.append(f'mount d "{archive_path}" -t cdrom')
-        # Strip ISO version number (e.g., ;1) from executable path
+        # Normalize the executable path to DOS style: strip the ISO version
+        # number (e.g. ";1"), leading separators and convert '/' to '\' so the
+        # autoexec 'cd' command works regardless of how the path was stored.
         exec_path = executable.split(";")[0] if executable else ""
-        exec_dir = os.path.dirname(exec_path)
-        exec_name = os.path.basename(exec_path)
+        exec_path = exec_path.replace("/", "\\").strip("\\")
+        if "\\" in exec_path:
+            exec_dir, exec_name = exec_path.rsplit("\\", 1)
+        else:
+            exec_dir, exec_name = "", exec_path
 
         # For installed games, executable is on C: drive (hard drive)
         # For non-installed games, executable is on D: drive (ISO)
@@ -253,6 +266,7 @@ class GameLauncher:
             command.extend(["--conf", conf_file.name])
             QGuiApplication.restoreOverrideCursor()
 
+            start_time = time.monotonic()
             try:
                 subprocess.run(command, check=True)
 
@@ -260,6 +274,8 @@ class GameLauncher:
                 if install_mode and not is_installed:
                     installation_completed = True
                     result_install_path = install_path
+                elif not install_mode and time.monotonic() - start_time < IMMEDIATE_EXIT_SECONDS:
+                    self._warn_immediate_exit()
 
             except subprocess.CalledProcessError as e:
                 QMessageBox.warning(
@@ -303,6 +319,17 @@ class GameLauncher:
         if mt32_roms_path:
             config_file.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
         config_file.flush()
+
+    @staticmethod
+    def _warn_immediate_exit():
+        QMessageBox.information(
+            None,
+            "Game exited immediately",
+            "The game stopped almost immediately after starting. This usually means it "
+            "needs to be configured or installed first. Try running its setup program "
+            "(right-click the game and choose 'Run Game Setup').",
+            QMessageBox.Ok,
+        )
 
     @property
     def modified_files(self) -> dict:

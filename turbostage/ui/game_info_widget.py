@@ -3,9 +3,14 @@ import json
 import os
 
 from PySide6.QtCore import QStandardPaths, Qt, QUrl, Slot
-from PySide6.QtGui import QImage, QPixmap
+from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
-from PySide6.QtWidgets import QFormLayout, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
+
+from turbostage.ui.theme import border_color, group_box_style, muted_text_color
+
+COVER_WIDTH = 180
+COVER_HEIGHT = 240
 
 
 class GameInfoWidget(QWidget):
@@ -24,61 +29,90 @@ class GameInfoWidget(QWidget):
 
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.main_layout.setContentsMargins(10, 10, 10, 10)
+        self.main_layout.setSpacing(14)
 
-        # --- UI Widgets ---
+        # Title
         self.title_label = QLabel("Select a game to see details here.")
-        self.title_label.setStyleSheet("font-size: 24px; font-weight: bold; margin-bottom: 10px;")
         self.title_label.setWordWrap(True)
+        self.title_label.setStyleSheet("font-size: 22px; font-weight: bold;")
 
-        # Header section (cover + details)
-        self.header_layout = QHBoxLayout()
+        # Details group (cover + fields)
+        self.details_group = self._make_group("Details")
+        details_layout = QHBoxLayout(self.details_group)
+        details_layout.setSpacing(16)
         self.cover_image_label = QLabel()
-        self.cover_image_label.setFixedSize(180, 240)  # A bit larger cover
+        self.cover_image_label.setFixedSize(COVER_WIDTH, COVER_HEIGHT)
         self.cover_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cover_image_label.setStyleSheet("background-color: #2c2c2c; border-radius: 5px;")
+        self.cover_image_label.setStyleSheet(
+            f"background-color: #2c2c2c; border: 1px solid {border_color()}; border-radius: 6px;"
+        )
+        details_layout.addWidget(self.cover_image_label, 0, Qt.AlignmentFlag.AlignTop)
 
         self.details_layout = QFormLayout()
-        self.details_layout.setContentsMargins(10, 0, 0, 0)
+        self.details_layout.setContentsMargins(0, 0, 0, 0)
+        self.details_layout.setHorizontalSpacing(14)
+        self.details_layout.setVerticalSpacing(10)
         self.release_date_label = QLabel()
         self.genres_label = QLabel()
         self.publisher_label = QLabel()
-        self.developer_label = QLabel()  # New field
-        self.rating_label = QLabel()  # New field
+        self.developer_label = QLabel()
+        self.rating_label = QLabel()
+        for label in (
+            self.release_date_label,
+            self.genres_label,
+            self.publisher_label,
+            self.developer_label,
+            self.rating_label,
+        ):
+            label.setWordWrap(True)
+        self._add_row(self.details_layout, "Release Date", self.release_date_label)
+        self._add_row(self.details_layout, "Genre(s)", self.genres_label)
+        self._add_row(self.details_layout, "Publisher", self.publisher_label)
+        self._add_row(self.details_layout, "Developer", self.developer_label)
+        self._add_row(self.details_layout, "Rating", self.rating_label)
+        details_layout.addLayout(self.details_layout, 1)
 
-        self.details_layout.addRow("Release Date:", self.release_date_label)
-        self.details_layout.addRow("Genre(s):", self.genres_label)
-        self.details_layout.addRow("Publisher:", self.publisher_label)
-        self.details_layout.addRow("Developer:", self.developer_label)
-        self.details_layout.addRow("Rating:", self.rating_label)
-
-        self.header_layout.addWidget(self.cover_image_label)
-        self.header_layout.addLayout(self.details_layout)
-        self.header_layout.addStretch()
-
-        # Summary section
+        # Summary group
+        self.summary_group = self._make_group("Summary")
+        summary_layout = QVBoxLayout(self.summary_group)
         self.summary_label = QLabel()
         self.summary_label.setWordWrap(True)
-        self.summary_label.setStyleSheet("margin-top: 15px;")
+        self.summary_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        summary_layout.addWidget(self.summary_label)
 
-        # Screenshots section
-        self.screenshots_title = QLabel("Screenshots")
-        self.screenshots_title.setStyleSheet("font-size: 16px; font-weight: bold; margin-top: 15px;")
+        # Screenshots group
+        self.screenshots_group = self._make_group("Screenshots")
+        screenshots_layout = QVBoxLayout(self.screenshots_group)
         self.screenshots_scroll_area = QScrollArea()
         self.screenshots_scroll_area.setWidgetResizable(True)
-        self.screenshots_scroll_area.setFixedHeight(180)  # Fixed height for the gallery
+        self.screenshots_scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.screenshots_scroll_area.setFixedHeight(180)
         self.screenshots_widget = QWidget()
         self.screenshots_layout = QHBoxLayout(self.screenshots_widget)
+        self.screenshots_layout.setSpacing(10)
         self.screenshots_scroll_area.setWidget(self.screenshots_widget)
+        screenshots_layout.addWidget(self.screenshots_scroll_area)
 
-        # Add widgets to main layout
         self.main_layout.addWidget(self.title_label)
-        self.main_layout.addLayout(self.header_layout)
-        self.main_layout.addWidget(self.summary_label)
-        self.main_layout.addWidget(self.screenshots_title)
-        self.main_layout.addWidget(self.screenshots_scroll_area)
-        # self.main_layout.addStretch()  # Pushes everything up
+        self.main_layout.addWidget(self.details_group)
+        self.main_layout.addWidget(self.summary_group)
+        self.main_layout.addWidget(self.screenshots_group)
+        self.main_layout.addStretch(1)
 
         self.clear_info()
+
+    @staticmethod
+    def _make_group(title: str) -> QGroupBox:
+        group = QGroupBox(title)
+        group.setStyleSheet(group_box_style())
+        return group
+
+    @staticmethod
+    def _add_row(form: QFormLayout, label_text: str, field_widget: QLabel):
+        label = QLabel(label_text)
+        label.setStyleSheet(f"color: {muted_text_color()};")
+        form.addRow(label, field_widget)
 
     def clear_info(self):
         """Resets the view to its default state."""
@@ -88,9 +122,10 @@ class GameInfoWidget(QWidget):
         self.publisher_label.setText("-")
         self.developer_label.setText("-")
         self.rating_label.setText("-")
-        self.summary_label.hide()
-        self.screenshots_title.hide()
-        self.screenshots_scroll_area.hide()
+        self.summary_label.clear()
+        self.details_group.hide()
+        self.summary_group.hide()
+        self.screenshots_group.hide()
 
         # Clear previous screenshots
         while self.screenshots_layout.count():
@@ -114,18 +149,18 @@ class GameInfoWidget(QWidget):
     ):
         self.clear_info()
 
+        self.details_group.show()
+        self.summary_group.show()
         self.summary_label.setText(summary)
-        self.summary_label.show()
 
-        # Populate details, with fallbacks for None
         self.release_date_label.setText(release_date or "-")
-        self.genres_label.setText(genres)
+        self.genres_label.setText(genres or "-")
         self.publisher_label.setText(publisher or "-")
         self.developer_label.setText(developer or "-")
         if rating is None or rating == 0:
             rating_str = "N/A"
         else:
-            rating_str = str(rating / 10)
+            rating_str = f"{rating / 10:.1f} / 10"
         self.rating_label.setText(rating_str)
 
         if cover_url:
@@ -133,13 +168,11 @@ class GameInfoWidget(QWidget):
 
         if screenshot_urls is not None and screenshot_urls != "[]":
             urls = json.loads(screenshot_urls)
-            self.screenshots_title.show()
-            self.screenshots_scroll_area.show()
+            self.screenshots_group.show()
             for url in urls:
                 self._load_image(url, self._screenshots_cache_folder, self.on_screenshot_loaded)
         else:
-            self.screenshots_title.hide()
-            self.screenshots_scroll_area.hide()
+            self.screenshots_group.hide()
 
     def _load_image(self, url: str, cache_folder: str, callback_slot):
         """Checks cache for an image and requests it if not found."""

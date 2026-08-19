@@ -1,12 +1,9 @@
-import gzip
 import importlib
 import json
 import os
 import tempfile
-import zipfile
 from datetime import datetime, timezone
 
-import requests
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
 from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QKeySequence
@@ -22,6 +19,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -39,12 +37,14 @@ from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWo
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
 from turbostage.scanning_thread import ScanningThread
+from turbostage.ui.download_dialog import DownloaderDialog
+from turbostage.ui.game_grid_widget import GameGridWidget
 from turbostage.ui.game_info_widget import GameInfoWidget
 from turbostage.ui.game_setup_dialog import GameSetupDialog
 from turbostage.ui.game_setup_widget import GameSetupWidget
+from turbostage.ui.icons import load_icon
 from turbostage.ui.locked_file_dialog import LockedFileDialog
 from turbostage.ui.new_game_wizard import NewGameWizard
-from turbostage.ui.download_dialog import DownloaderDialog
 from turbostage.ui.settings_dialog import SettingsDialog
 from turbostage.ui.submit_config_dialog import SubmitLocalConfigDialog
 
@@ -74,29 +74,29 @@ class MainWindow(QMainWindow):
         self.file_menu = self.menu.addMenu("File")
 
         # Exit QAction
-        exit_action = QAction("Exit", self)
+        exit_action = QAction(load_icon("exit"), "Exit", self)
         exit_action.setShortcut(QKeySequence.Quit)
         exit_action.setMenuRole(QAction.NoRole)
         exit_action.triggered.connect(self.close)
 
         # Scan QAction
-        scan_action = QAction("Scan local games", self)
+        scan_action = QAction(load_icon("scan"), "Scan local games", self)
         scan_action.triggered.connect(self.scan_local_games)
 
         # Add new game
-        add_action = QAction("Add new game", self)
+        add_action = QAction(load_icon("add_game"), "Add new game", self)
         add_action.triggered.connect(self._on_add_new_game)
 
         # Update game database
-        update_db_action = QAction("Update game database", self)
+        update_db_action = QAction(load_icon("download"), "Update game database", self)
         update_db_action.triggered.connect(self._on_update_game_database)
 
         # Update game database
-        submit_local_config_action = QAction("Upload local config", self)
+        submit_local_config_action = QAction(load_icon("upload"), "Upload local config", self)
         submit_local_config_action.triggered.connect(self._on_submit_local_config)
 
         # Settings
-        settings_action = QAction("Settings", self)
+        settings_action = QAction(load_icon("setup"), "Settings", self)
         settings_action.setMenuRole(QAction.NoRole)
         settings_action.triggered.connect(self._on_show_settings_dialog)
 
@@ -121,6 +121,7 @@ class MainWindow(QMainWindow):
 
         self.search_box = QLineEdit(self)
         self.search_box.setPlaceholderText("Search for a game...")
+        self.search_box.addAction(load_icon("search"), QLineEdit.LeadingPosition)
         self.search_box.textChanged.connect(self.filter_games)
 
         self.splitter = QSplitter(Qt.Horizontal)
@@ -128,7 +129,7 @@ class MainWindow(QMainWindow):
         self.left_panel = QWidget()
         self.left_layout = QVBoxLayout()
 
-        # Game table
+        # Game table (list view)
         self.game_table = QTableWidget()
         self.game_table.setColumnCount(4)
         self.game_table.setHorizontalHeaderLabels(["Title", "Release", "Genre", "Version"])
@@ -142,8 +143,18 @@ class MainWindow(QMainWindow):
         self.game_table.customContextMenuRequested.connect(self._on_show_context_menu)
         self.game_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
 
+        # Game grid (cover view)
+        self.game_grid = GameGridWidget()
+        self.game_grid.itemSelectionChanged.connect(self.on_game_change)
+        self.game_grid.itemDoubleClicked.connect(self.launch_game)
+        self.game_grid.customContextMenuRequested.connect(self._on_show_context_menu)
+
+        self.game_view_stack = QStackedWidget()
+        self.game_view_stack.addWidget(self.game_grid)
+        self.game_view_stack.addWidget(self.game_table)
+
         self.left_layout.addWidget(self.search_box)
-        self.left_layout.addWidget(self.game_table)
+        self.left_layout.addWidget(self.game_view_stack)
         self.left_panel.setLayout(self.left_layout)
         self.splitter.addWidget(self.left_panel)
 
@@ -156,12 +167,12 @@ class MainWindow(QMainWindow):
         self.right_info_tab.setWidget(self._game_info)
         self.right_setup_tab = GameSetupWidget()
         self.right_setup_tab.settings_applied.connect(self._on_game_settings_saved)
-        self.right_panel.addTab(self.right_info_tab, "Info")
-        self.right_panel.addTab(self.right_setup_tab, "Setup")
+        self.right_panel.addTab(self.right_info_tab, load_icon("info"), "Info")
+        self.right_panel.addTab(self.right_setup_tab, load_icon("setup"), "Setup")
         self.splitter.addWidget(self.right_panel)
 
         # Launch button
-        self.launch_button = QPushButton("Launch Game")
+        self.launch_button = QPushButton(load_icon("launch"), "Launch Game")
         self.launch_button.clicked.connect(self.launch_game)
         self.launch_button.setEnabled(False)
 
@@ -173,13 +184,59 @@ class MainWindow(QMainWindow):
         container.setLayout(layout)
         self.setCentralWidget(container)
 
+        self._apply_view_mode()
         self.scan_progress_dialog = None
 
+    def _current_view(self):
+        """Return the currently active game list widget (grid or table)."""
+        return self.game_view_stack.currentWidget()
+
+    def _apply_view_mode(self):
+        """Switch between grid and list view based on the app/grid_view setting."""
+        use_grid = utils.to_bool(QSettings("jberclaz", "TurboStage").value("app/grid_view", True))
+        self.game_view_stack.setCurrentWidget(self.game_grid if use_grid else self.game_table)
+
+    def _selected_game_info(self):
+        """Return (igdb_id, version_id, needs_install, is_downloadable, title) or None."""
+        view = self._current_view()
+        if view is self.game_table:
+            items = view.selectedItems()
+            if len(items) != 4:
+                return None
+            name_item = items[0]
+            title = name_item.text()
+            data = name_item.data(Qt.UserRole)
+        else:
+            item = view.currentItem()
+            if item is None:
+                return None
+            title = item.text()
+            data = item.data(Qt.UserRole)
+
+        if len(data) == 4:
+            igdb_id, version_id, needs_install, is_downloadable = data
+        elif len(data) == 3:
+            igdb_id, version_id, needs_install = data
+            is_downloadable = False
+        else:
+            igdb_id, version_id = data
+            needs_install = False
+            is_downloadable = False
+        return igdb_id, version_id, needs_install, is_downloadable, title
+
     def filter_games(self, query: str):
-        for row in range(self.game_table.rowCount()):
-            title = self.game_table.item(row, 0)
-            match = title and (query.lower() in title.text().lower())
-            self.game_table.setRowHidden(row, not match)
+        query = query.lower()
+        view = self._current_view()
+        if view is self.game_table:
+            for row in range(view.rowCount()):
+                title = view.item(row, 0)
+                match = title and (query in title.text().lower())
+                view.setRowHidden(row, not match)
+        else:
+            for index in range(view.count()):
+                item = view.item(index)
+                match = query in item.text().lower()
+                item.setHidden(not match)
 
     def launch_game(self):
         # Check if we're in install mode
@@ -193,6 +250,11 @@ class MainWindow(QMainWindow):
         # If this is a downloadable game, trigger download instead of launch
         if is_downloadable:
             self._on_download_game()
+            return
+
+        # For CD-ROM games that don't require installation, make sure an
+        # executable from the disc is selected before launching.
+        if not needs_install and not self._ensure_cdrom_executable(version_id):
             return
 
         gl = GameLauncher(track_change=True)
@@ -210,9 +272,70 @@ class MainWindow(QMainWindow):
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
 
+    def _ensure_cdrom_executable(self, version_id: int) -> bool:
+        """Ensure a non-install CD-ROM game has an executable selected.
+
+        CD-ROM games that run straight from the disc may not have a known
+        executable in the database. Prompt the user to pick one from the disc
+        before launching.
+
+        Returns True if the launch should proceed, False if the user cancelled.
+        """
+        game_info = self._gamedb.get_version_by_version_id(version_id)
+        if game_info is None or game_info.executable:
+            return True
+        if self._gamedb.get_archive_type(version_id) != "iso":
+            return True
+
+        settings = QSettings("jberclaz", "TurboStage")
+        games_path = str(settings.value("app/games_path", ""))
+        archive_path = os.path.join(games_path, game_info.archive)
+
+        from PySide6.QtWidgets import QAbstractItemView, QDialog, QDialogButtonBox, QLabel, QListView, QVBoxLayout
+
+        from turbostage import iso_utils
+        from turbostage.ui.game_setup_widget import BinaryListModel
+
+        executables = iso_utils.list_executables_in_iso(archive_path)
+        if not executables:
+            QMessageBox.warning(
+                self,
+                "No executable found",
+                f"No executable files found in '{game_info.archive}'.",
+                QMessageBox.Ok,
+            )
+            return False
+
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Select Game Executable")
+        layout = QVBoxLayout(dialog)
+        layout.addWidget(QLabel("Select the game executable:"))
+        layout.addWidget(QLabel(f"<small>Files found in: {game_info.archive}</small>"))
+        list_view = QListView(dialog)
+        model = BinaryListModel()
+        model.set_binaries(executables)
+        list_view.setModel(model)
+        list_view.setSelectionMode(QAbstractItemView.SingleSelection)
+        layout.addWidget(list_view)
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+        layout.addWidget(buttons)
+        buttons.accepted.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+
+        if dialog.exec() != QDialog.Accepted:
+            return False
+
+        selected = list_view.selectedIndexes()
+        if not selected:
+            return False
+        executable = model.binaries[selected[0].row()]
+        self._gamedb.set_local_executables(version_id, executable=executable)
+        return True
+
     def _prompt_for_game_binary(self, version_id: int, install_path: str):
         """Prompt user to select game binary from installed files using a custom dialog."""
-        from PySide6.QtWidgets import QDialog, QVBoxLayout, QListView, QLabel, QDialogButtonBox, QAbstractItemView
+        from PySide6.QtWidgets import QAbstractItemView, QDialog, QDialogButtonBox, QLabel, QListView, QVBoxLayout
+
         from turbostage.ui.game_setup_widget import BinaryListModel
 
         # Get list of executables from install directory
@@ -295,30 +418,17 @@ class MainWindow(QMainWindow):
         self._gamedb.mark_installed(version_id)
 
     def on_game_change(self):
-        selected_items = self.game_table.selectedItems()
-        if not selected_items:
+        selection = self._selected_game_info()
+        if selection is None:
             self._game_info.clear_info()
             self._game_info.set_game_name("Select a game to see details here.")
             self.right_setup_tab.set_game(None, None)
             self.launch_button.setEnabled(False)
             return
-        if len(selected_items) != 4:
-            raise RuntimeError("Invalid game selection")
         if self._current_fetch_cancel_flag is not None:
             self._current_fetch_cancel_flag.cancelled = True
 
-        name_row = selected_items[0]
-        user_data = name_row.data(Qt.UserRole)
-        if len(user_data) == 4:
-            igdb_id, version_id, needs_install, is_downloadable = user_data
-        elif len(user_data) == 3:
-            igdb_id, version_id, needs_install = user_data
-            is_downloadable = False
-        else:
-            igdb_id, version_id = user_data
-            needs_install = False
-            is_downloadable = False
-        game_name = name_row.text()
+        igdb_id, version_id, needs_install, is_downloadable, game_name = selection
 
         self._game_info.set_game_name(game_name)
         if is_downloadable:
@@ -361,6 +471,7 @@ class MainWindow(QMainWindow):
         else:
             all_games = local_games
 
+        grid_entries = []
         self.game_table.setSortingEnabled(False)
         self.game_table.setRowCount(len(all_games))
         for row_num, game in enumerate(all_games):
@@ -403,8 +514,12 @@ class MainWindow(QMainWindow):
                     item = self.game_table.item(row_num, col)
                     if item:
                         item.setForeground(faded)
+
+            grid_entries.append((game, needs_install, is_downloadable))
+
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
+        self.game_grid.set_games(grid_entries)
 
     def scan_local_games(self):
         games_path = self.games_path
@@ -464,30 +579,13 @@ class MainWindow(QMainWindow):
         version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
             requires_install = archive_type == "iso"
-            # Ensure expected executables are in the hash list so resolution works
-            hashed_paths = {h[0] for h in hashes}
-            with self._gamedb.read_only_transaction() as conn:
-                cursor = conn.cursor()
-                cursor.execute(
-                    "SELECT executable, config_executable FROM versions WHERE id = ?",
-                    (version_id,),
-                )
-                row = cursor.fetchone()
-                if row:
-                    if row[0] and row[0] not in hashed_paths:
-                        if archive_type == "iso":
-                            h = iso_utils.compute_md5_from_iso(game_path, row[0])
-                        else:
-                            with zipfile.ZipFile(game_path, "r") as zf:
-                                h = utils.compute_md5_from_zip(zf, row[0])
-                        hashes.append((row[0], 0, h))
-                    if row[1] and row[1] not in hashed_paths:
-                        if archive_type == "iso":
-                            h = iso_utils.compute_md5_from_iso(game_path, row[1])
-                        else:
-                            with zipfile.ZipFile(game_path, "r") as zf:
-                                h = utils.compute_md5_from_zip(zf, row[1])
-                        hashes.append((row[1], 0, h))
+            # Hash all executables in the archive so resolve_local_executables
+            # can match by content hash regardless of internal path structure
+            if archive_type == "iso":
+                executable_hashes = iso_utils.compute_hashes_for_executables_in_iso(game_path)
+            else:
+                executable_hashes = utils.compute_hashes_for_executables_in_zip(game_path)
+            hashes.extend(executable_hashes)
             local_executable, local_config_executable = self._gamedb.resolve_local_executables(version_id, hashes)
             added = self._gamedb.add_local_game_version(
                 version_id, os.path.basename(game_path),
@@ -548,48 +646,41 @@ class MainWindow(QMainWindow):
     def _on_show_settings_dialog(self):
         dialog = SettingsDialog()
         if dialog.exec():
+            self._apply_view_mode()
             self.load_games()
 
     def _on_update_game_database(self):
-        local_version = self._gamedb.get_version()
+        from turbostage.ui.update_database_dialog import UpdateDatabaseDialog, UpdateDatabaseWorker
 
-        response = requests.get(self.ONLINE_DB_URL)
-        if response.status_code != 200:
-            QMessageBox.critical(
-                self,
-                "Online database unavailable",
-                "Unable to access online database. Please retry in a few minutes.",
-                QMessageBox.Ok,
-            )
-        data = gzip.decompress(response.content)
-        database = json.loads(data.decode("utf-8"))
-        self._gamedb.merge_remote_json(database, self._igdb_client)
+        dialog = UpdateDatabaseDialog(self)
+        updated = {"value": False}
 
-        QMessageBox.information(
-            self, "Database updated", "The game database has been updated to the latest version.", QMessageBox.Ok
-        )
-        self.load_games()
+        def on_success(message):
+            updated["value"] = True
+            dialog.show_success(message)
+
+        worker = UpdateDatabaseWorker(self.db_path, self.ONLINE_DB_URL, self._igdb_client)
+        worker.success.connect(on_success)
+        worker.error.connect(dialog.show_error)
+        worker.start()
+
+        dialog.exec()
+        worker.wait()
+
+        if updated["value"]:
+            self.load_games()
 
     def _on_show_context_menu(self, pos):
-        selected_items = self.game_table.selectedItems()
-        if not selected_items:
+        selection = self._selected_game_info()
+        if selection is None:
             return
 
-        name_row = selected_items[0]
-        user_data = name_row.data(Qt.UserRole)
-        if len(user_data) == 4:
-            _, version_id, _, is_downloadable = user_data
-        elif len(user_data) == 3:
-            _, version_id, _ = user_data
-            is_downloadable = False
-        else:
-            _, version_id = user_data
-            is_downloadable = False
+        _, version_id, _, is_downloadable, _ = selection
 
         context_menu = QMenu(self)
 
         if is_downloadable:
-            download_action = QAction("Download", self)
+            download_action = QAction(load_icon("download"), "Download", self)
             download_action.triggered.connect(self._on_download_game)
             context_menu.addAction(download_action)
         else:
@@ -602,24 +693,24 @@ class MainWindow(QMainWindow):
                     installed, _ = self._gamedb.get_installation_status(version_id)
                     is_installed_iso = installed
 
-            setup_action = QAction("Run Game Setup", self)
+            setup_action = QAction(load_icon("setup"), "Run Game Setup", self)
             setup_action.triggered.connect(self._on_run_game_setup)
             context_menu.addAction(setup_action)
 
             if is_installed_iso:
-                reinstall_action = QAction("Reinstall", self)
+                reinstall_action = QAction(load_icon("installer"), "Reinstall", self)
                 reinstall_action.triggered.connect(self._on_reinstall_game)
                 context_menu.addAction(reinstall_action)
 
-                uninstall_action = QAction("Uninstall", self)
+                uninstall_action = QAction(load_icon("uninstall"), "Uninstall", self)
                 uninstall_action.triggered.connect(self._on_uninstall_game)
                 context_menu.addAction(uninstall_action)
 
-            delete_action = QAction("Delete Game", self)
+            delete_action = QAction(load_icon("delete"), "Delete Game", self)
             delete_action.triggered.connect(self._on_delete_selected_game)
             context_menu.addAction(delete_action)
 
-        context_menu.exec(self.game_table.mapToGlobal(pos))
+        context_menu.exec(self._current_view().viewport().mapToGlobal(pos))
 
     def _on_delete_selected_game(self):
         game_id, version_id, game_name = self.selected_game
@@ -646,18 +737,17 @@ class MainWindow(QMainWindow):
             self.right_setup_tab.set_game(None, None)
             self.launch_button.setEnabled(False)
             self.load_games()
-            self.game_table.clearSelection()
-            if self.game_table.rowCount() > 0:
+            view = self._current_view()
+            view.clearSelection()
+            game_count = view.rowCount() if view is self.game_table else view.count()
+            if game_count > 0:
                 self.on_game_change()
 
     def _on_download_game(self):
-        selected_items = self.game_table.selectedItems()
-        if not selected_items:
+        selection = self._selected_game_info()
+        if selection is None:
             return
-        name_row = selected_items[0]
-        user_data = name_row.data(Qt.UserRole)
-        igdb_id, version_id, _, _ = user_data if len(user_data) == 4 else (user_data[0], user_data[1], False, False)
-        game_name = name_row.text()
+        _, version_id, _, _, game_name = selection
 
         download_url = self._gamedb.get_download_url(version_id)
         if not download_url:
@@ -805,7 +895,8 @@ class MainWindow(QMainWindow):
         binary = self.right_setup_tab.selected_binary
         config = self.right_setup_tab.dosbox_config_text.toPlainText()
         cycles = self.right_setup_tab.cpu_cycles
-        self._gamedb.update_version_info(version_id, None, binary, config, cycles)
+        config_executable = self.right_setup_tab.config_executable
+        self._gamedb.update_version_info(version_id, None, binary, config, cycles, config_executable or "")
 
     def _on_submit_local_config(self):
         local_versions = self._gamedb.get_locally_modified_game_versions()
@@ -839,14 +930,8 @@ class MainWindow(QMainWindow):
 
     @property
     def selected_game(self) -> tuple[int, int, str]:
-        selected_items = self.game_table.selectedItems()
-        if len(selected_items) != 4:
+        selection = self._selected_game_info()
+        if selection is None:
             raise RuntimeError("Invalid game selection")
-        name_row = selected_items[0]
-        user_data = name_row.data(Qt.UserRole)
-        if len(user_data) >= 3:
-            game_id, version_id, _ = user_data[:3]
-        else:
-            game_id, version_id = user_data
-        game_name = name_row.text()
-        return game_id, version_id, game_name
+        igdb_id, version_id, _, _, game_name = selection
+        return igdb_id, version_id, game_name

@@ -72,6 +72,29 @@ class TestUtils(TestCase):
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0][0], "file1.txt")
 
+    def test_compute_hashes_for_executables_in_zip(self):
+        contents = {
+            "GAME.EXE": b"GAME.EXE content",
+            "sub/START.BAT": b"START.BAT content",
+            "sub/RUN.COM": b"RUN.COM content",
+            "readme.txt": b"readme content",
+            "DATA.DAT": b"data content",
+        }
+        with tempfile.NamedTemporaryFile(suffix=".zip") as temp_file:
+            with zipfile.ZipFile(temp_file.name, "w", zipfile.ZIP_DEFLATED) as zf:
+                for name, data in contents.items():
+                    zf.writestr(name, data)
+
+            result = utils.compute_hashes_for_executables_in_zip(temp_file.name)
+
+        by_path = {path: (size, h) for path, size, h in result}
+        self.assertEqual(set(by_path), {"GAME.EXE", "sub/START.BAT", "sub/RUN.COM"})
+
+        for name in ("GAME.EXE", "sub/START.BAT", "sub/RUN.COM"):
+            size, h = by_path[name]
+            self.assertEqual(size, len(contents[name]))
+            self.assertEqual(h, hashlib.md5(contents[name]).hexdigest())
+
     # Test removed as functionality has been moved to GameDatabase class
 
     def test_to_bool(self):

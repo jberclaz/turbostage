@@ -94,6 +94,28 @@ class TestIsoUtils(TestCase):
             self.assertIsInstance(file_hash, str)
             self.assertEqual(len(file_hash), 32)
 
+    def test_compute_hashes_for_executables_in_iso(self):
+        """Test hashing all executables in an ISO, skipping non-executables."""
+        import hashlib
+
+        hashes = iso_utils.compute_hashes_for_executables_in_iso(self.test_iso)
+        self.assertIsInstance(hashes, list)
+
+        by_path = {path.split(";")[0]: h for path, _, h in hashes}
+        self.assertEqual(set(by_path), {"/GAME.EXE", "/SETUP.EXE"})
+
+        expected_game = hashlib.md5(b"GAME.EXE content here").hexdigest()
+        expected_setup = hashlib.md5(b"SETUP.EXE content here").hexdigest()
+        self.assertEqual(by_path["/GAME.EXE"], expected_game)
+        self.assertEqual(by_path["/SETUP.EXE"], expected_setup)
+
+        for entry in hashes:
+            self.assertEqual(len(entry), 3)
+            file_path, file_size, file_hash = entry
+            self.assertIsInstance(file_path, str)
+            self.assertEqual(file_size, 0)
+            self.assertEqual(len(file_hash), 32)
+
 
 class TestIsoUtilsWithDatabase(TestCase):
     """Tests that require a database connection."""
