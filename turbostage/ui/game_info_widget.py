@@ -7,20 +7,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
-GROUP_BOX_STYLE = """
-QGroupBox {
-    border: 1px solid palette(mid);
-    border-radius: 6px;
-    margin-top: 14px;
-    padding-top: 8px;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 6px;
-    font-weight: bold;
-}
-"""
+from turbostage.ui.theme import border_color, group_box_style, muted_text_color
 
 COVER_WIDTH = 180
 COVER_HEIGHT = 240
@@ -58,7 +45,7 @@ class GameInfoWidget(QWidget):
         self.cover_image_label.setFixedSize(COVER_WIDTH, COVER_HEIGHT)
         self.cover_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.cover_image_label.setStyleSheet(
-            "background-color: #2c2c2c; border: 1px solid palette(mid); border-radius: 6px;"
+            f"background-color: #2c2c2c; border: 1px solid {border_color()}; border-radius: 6px;"
         )
         details_layout.addWidget(self.cover_image_label, 0, Qt.AlignmentFlag.AlignTop)
 
@@ -118,13 +105,13 @@ class GameInfoWidget(QWidget):
     @staticmethod
     def _make_group(title: str) -> QGroupBox:
         group = QGroupBox(title)
-        group.setStyleSheet(GROUP_BOX_STYLE)
+        group.setStyleSheet(group_box_style())
         return group
 
     @staticmethod
     def _add_row(form: QFormLayout, label_text: str, field_widget: QLabel):
         label = QLabel(label_text)
-        label.setStyleSheet("color: palette(mid);")
+        label.setStyleSheet(f"color: {muted_text_color()};")
         form.addRow(label, field_widget)
 
     def clear_info(self):

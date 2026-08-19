@@ -20,21 +20,7 @@ from PySide6.QtWidgets import (
 from turbostage import constants
 from turbostage.db.game_database import GameDatabase
 from turbostage.ui.icons import load_icon
-
-GROUP_BOX_STYLE = """
-QGroupBox {
-    border: 1px solid palette(mid);
-    border-radius: 6px;
-    margin-top: 14px;
-    padding-top: 8px;
-}
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 12px;
-    padding: 0 6px;
-    font-weight: bold;
-}
-"""
+from turbostage.ui.theme import group_box_style, muted_text_color
 
 NO_CONFIG_LABEL = "(none)"
 
@@ -88,7 +74,7 @@ class GameSetupWidget(QWidget):
         self.empty_label = QLabel("Select a game to configure it.")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet("color: palette(mid); font-size: 14px; padding: 24px;")
+        self.empty_label.setStyleSheet(f"color: {muted_text_color()}; font-size: 14px; padding: 24px;")
         self.layout.addWidget(self.empty_label)
 
         self.scroll_area = QScrollArea(self)
@@ -117,7 +103,7 @@ class GameSetupWidget(QWidget):
         info_layout.addWidget(self.drive_icon_label, 0, Qt.AlignmentFlag.AlignTop)
         self.game_info_label = QLabel()
         self.game_info_label.setWordWrap(True)
-        self.game_info_label.setStyleSheet("color: palette(mid);")
+        self.game_info_label.setStyleSheet(f"color: {muted_text_color()};")
         info_layout.addWidget(self.game_info_label, 1)
         game_layout.addLayout(info_layout)
         self.binary_tabs = QTabWidget()
@@ -189,7 +175,7 @@ class GameSetupWidget(QWidget):
     def _make_group(title, checkable=False):
         group = QGroupBox(title)
         group.setCheckable(checkable)
-        group.setStyleSheet(GROUP_BOX_STYLE)
+        group.setStyleSheet(group_box_style())
         return group
 
     @staticmethod
