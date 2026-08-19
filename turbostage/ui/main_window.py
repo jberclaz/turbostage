@@ -1,11 +1,9 @@
-import gzip
 import importlib
 import json
 import os
 import tempfile
 from datetime import datetime, timezone
 
-import requests
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
 from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QKeySequence
@@ -652,24 +650,25 @@ class MainWindow(QMainWindow):
             self.load_games()
 
     def _on_update_game_database(self):
-        local_version = self._gamedb.get_version()
+        from turbostage.ui.update_database_dialog import UpdateDatabaseDialog, UpdateDatabaseWorker
 
-        response = requests.get(self.ONLINE_DB_URL)
-        if response.status_code != 200:
-            QMessageBox.critical(
-                self,
-                "Online database unavailable",
-                "Unable to access online database. Please retry in a few minutes.",
-                QMessageBox.Ok,
-            )
-        data = gzip.decompress(response.content)
-        database = json.loads(data.decode("utf-8"))
-        self._gamedb.merge_remote_json(database, self._igdb_client)
+        dialog = UpdateDatabaseDialog(self)
+        updated = {"value": False}
 
-        QMessageBox.information(
-            self, "Database updated", "The game database has been updated to the latest version.", QMessageBox.Ok
-        )
-        self.load_games()
+        def on_success(message):
+            updated["value"] = True
+            dialog.show_success(message)
+
+        worker = UpdateDatabaseWorker(self.db_path, self.ONLINE_DB_URL, self._igdb_client)
+        worker.success.connect(on_success)
+        worker.error.connect(dialog.show_error)
+        worker.start()
+
+        dialog.exec()
+        worker.wait()
+
+        if updated["value"]:
+            self.load_games()
 
     def _on_show_context_menu(self, pos):
         selection = self._selected_game_info()
