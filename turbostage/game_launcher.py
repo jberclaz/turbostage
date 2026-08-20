@@ -1,6 +1,7 @@
 import importlib
 import os
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
@@ -15,6 +16,36 @@ from turbostage.db.game_database import GameDatabase
 # A game that runs for less than this many seconds is considered to have
 # exited immediately, usually because it failed to start correctly.
 IMMEDIATE_EXIT_SECONDS = 5.0
+
+
+def _dosbox_env() -> dict | None:
+    """Return a sanitized environment for launching DOSBox, or None if unneeded.
+
+    PyInstaller prepends its extraction directory to LD_LIBRARY_PATH so the
+    bundled Qt/OpenGL libraries can be found. If DOSBox inherits that value it
+    loads the bundled GL libraries (which do not provide GLX) and aborts with
+    "Couldn't find matching GLX visual". Strip the bundle directory from
+    LD_LIBRARY_PATH before spawning DOSBox.
+    """
+    if not sys.platform.startswith("linux"):
+        return None
+
+    bundle_dir = getattr(sys, "_MEIPASS", None)
+    if not bundle_dir:
+        return None
+
+    env = os.environ.copy()
+    ld_library_path = env.get("LD_LIBRARY_PATH")
+    if not ld_library_path:
+        return env
+
+    bundle_dir = os.path.abspath(bundle_dir)
+    entries = [p for p in ld_library_path.split(os.pathsep) if p and os.path.abspath(p) != bundle_dir]
+    if entries:
+        env["LD_LIBRARY_PATH"] = os.pathsep.join(entries)
+    else:
+        env.pop("LD_LIBRARY_PATH", None)
+    return env
 
 
 class GameLauncher:
@@ -158,7 +189,7 @@ class GameLauncher:
             QGuiApplication.restoreOverrideCursor()
             start_time = time.monotonic()
             try:
-                subprocess.run(command, check=True)
+                subprocess.run(command, check=True, env=_dosbox_env())
                 if time.monotonic() - start_time < IMMEDIATE_EXIT_SECONDS:
                     self._warn_immediate_exit()
             except subprocess.CalledProcessError as e:
@@ -268,7 +299,7 @@ class GameLauncher:
 
             start_time = time.monotonic()
             try:
-                subprocess.run(command, check=True)
+                subprocess.run(command, check=True, env=_dosbox_env())
 
                 # If we were in install mode and DOSBox succeeded, mark as installed
                 if install_mode and not is_installed:
