@@ -14,16 +14,19 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFileDialog,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
+    QLabel,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QVBoxLayout,
 )
 
 from turbostage import constants, utils
-from turbostage.ui.clickable_line_edit import ClickableLineEdit
 from turbostage.ui.download_dialog import DownloaderDialog
-from turbostage.ui.icons import icon_widget, load_icon
+from turbostage.ui.icons import load_icon
+from turbostage.ui.theme import group_box_style
 
 
 class SettingsDialog(QDialog):
@@ -49,46 +52,45 @@ class SettingsDialog(QDialog):
         form_layout.addRow(self.show_downloadable_checkbox)
 
         self.grid_view_checkbox = QCheckBox("Display games as a grid of cover images", self)
-        self.grid_view_checkbox.setIcon(load_icon("pictures"))
         self.grid_view_checkbox.setChecked(utils.to_bool(self.settings.value("app/grid_view", True)))
         form_layout.addRow(self.grid_view_checkbox)
         self.layout.addLayout(form_layout)
 
-        self.emulator_path_input = ClickableLineEdit(self)
-        emulator_path = str(self.settings.value("app/emulator_path", ""))
-        self.emulator_path_input.setText(emulator_path)
-        self.emulator_path_input.clicked.connect(self._select_emulator)
+        self.emulator_path_input = self._make_path_field(str(self.settings.value("app/emulator_path", "")))
+        emulator_browse_button = QPushButton(load_icon("folder"), "Browse…", self)
+        emulator_browse_button.clicked.connect(self._select_emulator)
         self.emu_download_button = QPushButton(load_icon("download"), "Download", self)
         self.emu_download_button.clicked.connect(self._download_emulator)
-        self.emu_download_button.setEnabled(emulator_path == "")
-        emulator_layout = QHBoxLayout()
-        emulator_layout.addWidget(self.emulator_path_input)
-        emulator_layout.addWidget(self.emu_download_button)
-        form_layout.addRow(icon_widget("computer", "Emulator Path"), emulator_layout)
+        self.layout.addWidget(
+            self._make_path_group(
+                "computer", "Emulator Path", self.emulator_path_input, [emulator_browse_button, self.emu_download_button]
+            )
+        )
 
-        self.games_path_input = ClickableLineEdit(self)
-        self.games_path_input.setText(str(self.settings.value("app/games_path", "")))
-        self.games_path_input.clicked.connect(
+        self.games_path_input = self._make_path_field(str(self.settings.value("app/games_path", "")))
+        games_browse_button = QPushButton(load_icon("folder"), "Browse…", self)
+        games_browse_button.clicked.connect(
             lambda: self._select_directory(self.games_path_input, "Select the Games folder")
         )
-        form_layout.addRow(icon_widget("folder", "Games Path"), self.games_path_input)
+        self.layout.addWidget(self._make_path_group("folder", "Games Path", self.games_path_input, [games_browse_button]))
 
-        self.mt32_path_input = ClickableLineEdit(self)
-        mt32_roms_path = str(self.settings.value("app/mt32_path", ""))
-        self.mt32_path_input.setText(mt32_roms_path)
-        self.mt32_path_input.clicked.connect(
+        self.mt32_path_input = self._make_path_field(str(self.settings.value("app/mt32_path", "")))
+        mt32_browse_button = QPushButton(load_icon("folder"), "Browse…", self)
+        mt32_browse_button.clicked.connect(
             lambda: self._select_directory(self.mt32_path_input, "Select the MT-32 ROMs folder")
         )
         self.mt32_download_button = QPushButton(load_icon("download"), "Download", self)
         self.mt32_download_button.clicked.connect(self._download_mt32_roms)
-        self.mt32_download_button.setEnabled(mt32_roms_path == "")
-        mt32_layout = QHBoxLayout()
-        mt32_layout.addWidget(self.mt32_path_input)
-        mt32_layout.addWidget(self.mt32_download_button)
-        form_layout.addRow(icon_widget("midi", "MT-32 Roms Path"), mt32_layout)
+        self.layout.addWidget(
+            self._make_path_group(
+                "midi", "MT-32 Roms Path", self.mt32_path_input, [mt32_browse_button, self.mt32_download_button]
+            )
+        )
 
         button_box = QDialogButtonBox(self)
         button_box.setStandardButtons(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.button(QDialogButtonBox.Ok).setIcon(load_icon("ok"))
+        button_box.button(QDialogButtonBox.Cancel).setIcon(load_icon("cancel"))
         self.layout.addWidget(button_box)
 
         button_box.accepted.connect(self.accept)
@@ -106,14 +108,55 @@ class SettingsDialog(QDialog):
     def reject(self):
         super().reject()
 
+    def _make_path_field(self, text):
+        field = QLineEdit(self)
+        field.setReadOnly(True)
+        field.setText(text)
+        return field
+
+    def _make_path_group(self, icon_name, title, field, buttons):
+        group = QGroupBox(title, self)
+        group.setStyleSheet(group_box_style())
+        layout = QVBoxLayout(group)
+        field_row = QHBoxLayout()
+        icon_label = QLabel()
+        icon_label.setPixmap(load_icon(icon_name).pixmap(16, 16))
+        field_row.addWidget(icon_label)
+        field_row.addWidget(field, 1)
+        layout.addLayout(field_row)
+        button_layout = QHBoxLayout()
+        button_layout.setContentsMargins(icon_label.pixmap().width() + field_row.spacing(), 0, 0, 0)
+        for button in buttons:
+            button_layout.addWidget(button)
+        button_layout.addStretch(1)
+        layout.addLayout(button_layout)
+        return group
+
+    def _confirm_overwrite(self, title, message):
+        return (
+            QMessageBox.question(
+                self,
+                title,
+                message,
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            == QMessageBox.Yes
+        )
+
     def _select_emulator(self):
         os_name = utils.get_os()
         if os_name == "Windows":
             target_executable = "dosbox.exe"
         elif os_name in ["Linux", "Darwin"]:
             target_executable = "dosbox"
+        current_path = self.emulator_path_input.text()
+        start_dir = os.path.dirname(current_path) if current_path else ""
         file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select DosBox Staging binary", "", f"Executable Files ({target_executable});;All Files (*)"
+            self,
+            "Select DosBox Staging binary",
+            start_dir,
+            f"Executable Files ({target_executable});;All Files (*)",
         )
         if file_path:
             self.emulator_path_input.setText(file_path)
@@ -127,11 +170,18 @@ class SettingsDialog(QDialog):
                 )
 
     def _select_directory(self, target_widget, dialog_title):
-        folder = QFileDialog.getExistingDirectory(self, dialog_title, "", QFileDialog.ShowDirsOnly)
+        start_dir = target_widget.text() if target_widget.text() else ""
+        folder = QFileDialog.getExistingDirectory(self, dialog_title, start_dir, QFileDialog.ShowDirsOnly)
         if folder:
             target_widget.setText(folder)
 
     def _download_mt32_roms(self):
+        if self.mt32_path_input.text() and not self._confirm_overwrite(
+            "Download MT-32 roms",
+            "MT-32 roms are already configured.\nDownload and replace them?",
+        ):
+            return
+
         app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
         mt32_roms_path = os.path.join(app_data_folder, "mt32_roms")
         os.makedirs(mt32_roms_path, exist_ok=True)
@@ -147,6 +197,12 @@ class SettingsDialog(QDialog):
         self.mt32_path_input.setText(mt32_roms_path)
 
     def _download_emulator(self):
+        if self.emulator_path_input.text() and not self._confirm_overwrite(
+            "Download DosBox",
+            "A DosBox is already configured.\nDownload and replace it?",
+        ):
+            return
+
         app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
         emulator_path = os.path.join(app_data_folder, "dosbox")
         os.makedirs(emulator_path, exist_ok=True)
