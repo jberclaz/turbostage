@@ -162,7 +162,7 @@ class MainWindow(QMainWindow):
         self.right_panel = QTabWidget()
         self.right_info_tab = QScrollArea()
         self.right_info_tab.setWidgetResizable(True)
-        # self.right_info_tab.setHorizontalScrollBarPolicy(Qt.ScrollBa)
+        self.right_info_tab.setFrameShape(QtWidgets.QFrame.Shape.NoFrame)
         self._game_info = GameInfoWidget()
         self.right_info_tab.setWidget(self._game_info)
         self.right_setup_tab = GameSetupWidget()

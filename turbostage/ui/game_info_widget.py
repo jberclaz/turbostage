@@ -7,7 +7,7 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
-from turbostage.ui.theme import border_color, group_box_style, muted_text_color
+from turbostage.ui.theme import group_box_style, muted_text_color
 
 COVER_WIDTH = 180
 COVER_HEIGHT = 240
@@ -44,9 +44,7 @@ class GameInfoWidget(QWidget):
         self.cover_image_label = QLabel()
         self.cover_image_label.setFixedSize(COVER_WIDTH, COVER_HEIGHT)
         self.cover_image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.cover_image_label.setStyleSheet(
-            f"background-color: #2c2c2c; border: 1px solid {border_color()}; border-radius: 6px;"
-        )
+        self.cover_image_label.setStyleSheet("background-color: #2c2c2c;")
         details_layout.addWidget(self.cover_image_label, 0, Qt.AlignmentFlag.AlignTop)
 
         self.details_layout = QFormLayout()
