@@ -38,14 +38,20 @@ def run_dosbox(
     extra_config = _build_extra_config(
         cpu_cycles, mt32_roms_path, soundcanvas_roms_path, config_content
     )
+    temp_conf = None
     if extra_config:
         with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as f:
             f.write(extra_config)
             f.flush()
             command.extend(["--conf", f.name])
+            temp_conf = f.name
 
     command.append(executable_path)
-    return subprocess.run(command, check=True).returncode
+    try:
+        return subprocess.run(command, check=True).returncode
+    finally:
+        if temp_conf:
+            os.unlink(temp_conf)
 
 
 def _build_extra_config(

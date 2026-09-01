@@ -235,6 +235,8 @@ class GameLauncher:
                     QMessageBox.Ok,
                 )
 
+        os.unlink(conf_file.name)
+
         if self._track_change:
             self._extract_changed_files(temp_dir)
 
@@ -382,6 +384,8 @@ class GameLauncher:
                     f"The game failed with the following error: '{e}'",
                     QMessageBox.Ok,
                 )
+
+        os.unlink(conf_file.name)
 
         return (installation_completed, result_install_path)
 
