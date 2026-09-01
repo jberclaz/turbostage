@@ -40,7 +40,11 @@ def _dosbox_env() -> dict | None:
         return env
 
     bundle_dir = os.path.abspath(bundle_dir)
-    entries = [p for p in ld_library_path.split(os.pathsep) if p and os.path.abspath(p) != bundle_dir]
+    entries = [
+        p
+        for p in ld_library_path.split(os.pathsep)
+        if p and os.path.abspath(p) != bundle_dir
+    ]
     if entries:
         env["LD_LIBRARY_PATH"] = os.pathsep.join(entries)
     else:
@@ -94,10 +98,14 @@ class GameLauncher:
             executable = binary
 
         settings = QSettings("jberclaz", "TurboStage")
-        full_screen = utils.to_bool(settings.value("app/full_screen", False)) and binary is None
+        full_screen = (
+            utils.to_bool(settings.value("app/full_screen", False)) and binary is None
+        )
         dosbox_exec = str(settings.value("app/emulator_path", ""))
         games_path = str(settings.value("app/games_path", ""))
         mt32_roms_path = str(settings.value("app/mt32_path", ""))
+        soundcanvas_roms_path = str(settings.value("app/soundcanvas_path", ""))
+        disk_noise = utils.to_bool(settings.value("app/disk_noise", False))
         if not dosbox_exec:
             QGuiApplication.restoreOverrideCursor()
             QMessageBox.critical(
@@ -115,7 +123,9 @@ class GameLauncher:
             archive_path = os.path.join(games_path, archive)
 
             # Build DOSBox command
-            main_config = importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf")
+            main_config = importlib.resources.files("turbostage").joinpath(
+                "conf/dosbox-staging.conf"
+            )
             command = [dosbox_exec, "--noprimaryconf", "--conf", str(main_config)]
 
             if full_screen:
@@ -133,6 +143,8 @@ class GameLauncher:
                     executable=executable,
                     config=config,
                     mt32_roms_path=mt32_roms_path,
+                    soundcanvas_roms_path=soundcanvas_roms_path,
+                    disk_noise=disk_noise,
                     cpu_cycles=cpu_cycles,
                     save_games=save_games,
                     config_files=config_files,
@@ -148,6 +160,8 @@ class GameLauncher:
                     executable=executable,
                     config=config,
                     mt32_roms_path=mt32_roms_path,
+                    soundcanvas_roms_path=soundcanvas_roms_path,
+                    disk_noise=disk_noise,
                     cpu_cycles=cpu_cycles,
                     save_games=save_games,
                     config_files=config_files,
@@ -162,6 +176,8 @@ class GameLauncher:
         executable,
         config,
         mt32_roms_path,
+        soundcanvas_roms_path,
+        disk_noise,
         cpu_cycles,
         save_games,
         config_files,
@@ -171,19 +187,38 @@ class GameLauncher:
             zip_ref.extractall(temp_dir)
 
         if config_files:
-            GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
+            GameLauncher._write_game_extra_files(
+                self._version_id, temp_dir, db, constants.FileType.CONFIG
+            )
 
         if save_games:
-            GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
+            GameLauncher._write_game_extra_files(
+                self._version_id, temp_dir, db, constants.FileType.SAVEGAME
+            )
 
         if self._track_change:
             self._original_files = utils.list_files_with_md5(temp_dir)
 
         executable_path = os.path.join(temp_dir, executable)
 
-        with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
-            if config or mt32_roms_path or cpu_cycles > 0:
-                GameLauncher._write_custom_dosbox_config_file(conf_file, config, mt32_roms_path, cpu_cycles)
+        with tempfile.NamedTemporaryFile(
+            suffix=".conf", mode="wt", delete=False
+        ) as conf_file:
+            if (
+                config
+                or mt32_roms_path
+                or soundcanvas_roms_path
+                or disk_noise
+                or cpu_cycles > 0
+            ):
+                GameLauncher._write_custom_dosbox_config_file(
+                    conf_file,
+                    config,
+                    mt32_roms_path,
+                    soundcanvas_roms_path,
+                    disk_noise,
+                    cpu_cycles,
+                )
                 command.extend(["--conf", conf_file.name])
             command.append(executable_path)
             QGuiApplication.restoreOverrideCursor()
@@ -215,6 +250,8 @@ class GameLauncher:
         executable,
         config,
         mt32_roms_path,
+        soundcanvas_roms_path,
+        disk_noise,
         cpu_cycles,
         save_games,
         config_files,
@@ -232,29 +269,41 @@ class GameLauncher:
             c_drive_path = install_path
             # Write config and save files to install directory
             if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.CONFIG)
+                GameLauncher._write_game_extra_files(
+                    self._version_id, install_path, db, constants.FileType.CONFIG
+                )
             if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.SAVEGAME)
+                GameLauncher._write_game_extra_files(
+                    self._version_id, install_path, db, constants.FileType.SAVEGAME
+                )
         elif not is_installed:
             # Not installed and not in install mode: use temp directory
             c_drive_path = temp_dir
             if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
+                GameLauncher._write_game_extra_files(
+                    self._version_id, temp_dir, db, constants.FileType.CONFIG
+                )
             if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
+                GameLauncher._write_game_extra_files(
+                    self._version_id, temp_dir, db, constants.FileType.SAVEGAME
+                )
         else:
             # Normal mode: C: is the installation directory
             c_drive_path = install_path
             if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.CONFIG)
+                GameLauncher._write_game_extra_files(
+                    self._version_id, install_path, db, constants.FileType.CONFIG
+                )
             if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.SAVEGAME)
+                GameLauncher._write_game_extra_files(
+                    self._version_id, install_path, db, constants.FileType.SAVEGAME
+                )
 
         # Build autoexec commands for mounting
         autoexec_commands = []
         autoexec_commands.append(f'mount c "{c_drive_path}"')
         # For ISO files, use imgmount with -t iso
-        if archive_path.lower().endswith('.iso'):
+        if archive_path.lower().endswith(".iso"):
             autoexec_commands.append(f'imgmount d "{archive_path}" -t iso')
         else:
             autoexec_commands.append(f'mount d "{archive_path}" -t cdrom')
@@ -285,10 +334,25 @@ class GameLauncher:
 
         autoexec_section = "\n[autoexec]\n" + "\n".join(autoexec_commands)
 
-        with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
+        with tempfile.NamedTemporaryFile(
+            suffix=".conf", mode="wt", delete=False
+        ) as conf_file:
             # Write custom config
-            if config or mt32_roms_path or cpu_cycles > 0:
-                GameLauncher._write_custom_dosbox_config_file(conf_file, config, mt32_roms_path, cpu_cycles)
+            if (
+                config
+                or mt32_roms_path
+                or soundcanvas_roms_path
+                or disk_noise
+                or cpu_cycles > 0
+            ):
+                GameLauncher._write_custom_dosbox_config_file(
+                    conf_file,
+                    config,
+                    mt32_roms_path,
+                    soundcanvas_roms_path,
+                    disk_noise,
+                    cpu_cycles,
+                )
 
             # Write autoexec section
             conf_file.write(autoexec_section)
@@ -305,7 +369,10 @@ class GameLauncher:
                 if install_mode and not is_installed:
                     installation_completed = True
                     result_install_path = install_path
-                elif not install_mode and time.monotonic() - start_time < IMMEDIATE_EXIT_SECONDS:
+                elif (
+                    not install_mode
+                    and time.monotonic() - start_time < IMMEDIATE_EXIT_SECONDS
+                ):
                     self._warn_immediate_exit()
 
             except subprocess.CalledProcessError as e:
@@ -328,10 +395,14 @@ class GameLauncher:
             elif self._original_files[file_after_setup] != file_hash:
                 with open(file_after_setup, "rb") as f:
                     content = f.read()
-                self._modified_files[os.path.relpath(file_after_setup, temp_dir)] = content
+                self._modified_files[os.path.relpath(file_after_setup, temp_dir)] = (
+                    content
+                )
 
     @staticmethod
-    def _write_game_extra_files(version_id: int, temp_dir: str, db: GameDatabase, file_type: int):
+    def _write_game_extra_files(
+        version_id: int, temp_dir: str, db: GameDatabase, file_type: int
+    ):
         config_files = db.get_config_files_with_content(version_id, file_type)
 
         for config_file_path, content in config_files:
@@ -342,13 +413,30 @@ class GameLauncher:
                 f.write(content)
 
     @staticmethod
-    def _write_custom_dosbox_config_file(config_file, config_content: str | None, mt32_roms_path: str, cpu_cycles: int):
+    def _write_custom_dosbox_config_file(
+        config_file,
+        config_content: str | None,
+        mt32_roms_path: str,
+        soundcanvas_roms_path: str,
+        disk_noise: bool,
+        cpu_cycles: int,
+    ):
         if config_content:
             config_file.write(config_content)
         if cpu_cycles > 0:
-            config_file.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n")
+            config_file.write(
+                f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n"
+            )
         if mt32_roms_path:
             config_file.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
+        if soundcanvas_roms_path:
+            config_file.write(
+                f"\n[soundcanvas]\nsoundcanvas_rom_dir = {soundcanvas_roms_path}\n"
+            )
+        if disk_noise:
+            config_file.write(
+                "\n[disknoise]\nhard_disk_noise = on\nfloppy_disk_noise = on\n"
+            )
         config_file.flush()
 
     @staticmethod

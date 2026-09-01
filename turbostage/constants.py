@@ -6,11 +6,10 @@ class FileType(IntEnum):
     SAVEGAME = 2
 
 
-SUPPORTED_DOSBOX_VERSION = "0.82.2"
+SUPPORTED_DOSBOX_VERSION = "0.83.0"
 
-MT32_ROMS_DOWNLOAD_URL = (
-    "https://archive.org/download/mame-versioned-roland-mt-32-and-cm-32l-rom-files/MT-32_v1.07_legacy_ROM_files.zip"
-)
+MT32_ROMS_DOWNLOAD_URL = "https://archive.org/download/mame-versioned-roland-mt-32-and-cm-32l-rom-files/MT-32_v1.07_legacy_ROM_files.zip"
+SOUNDCANVAS_ROMS_DOWNLOAD_URL = "https://archive.org/download/nuked-sc-55-clap-rom-files/Nuked-SC55-CLAP-ROM-files.zip"
 DOSBOX_STAGING_LINUX = f"https://github.com/dosbox-staging/dosbox-staging/releases/download/v{SUPPORTED_DOSBOX_VERSION}/dosbox-staging-linux-x86_64-v{SUPPORTED_DOSBOX_VERSION}.tar.xz"
 DOSBOX_STAGING_WINDOWS = f"https://github.com/dosbox-staging/dosbox-staging/releases/download/v{SUPPORTED_DOSBOX_VERSION}/dosbox-staging-windows-x64-v{SUPPORTED_DOSBOX_VERSION}.zip"
 DOSBOX_STAGING_MACOS = f"https://github.com/dosbox-staging/dosbox-staging/releases/download/v{SUPPORTED_DOSBOX_VERSION}/dosbox-staging-macOS-v{SUPPORTED_DOSBOX_VERSION}.dmg"

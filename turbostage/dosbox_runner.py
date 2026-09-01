@@ -11,6 +11,7 @@ def run_dosbox(
     full_screen: bool = False,
     cpu_cycles: int = 0,
     mt32_roms_path: str | None = None,
+    soundcanvas_roms_path: str | None = None,
     config_content: str | None = None,
 ) -> int:
     """Run DOSBox Staging with a given executable.
@@ -22,6 +23,7 @@ def run_dosbox(
         full_screen: Launch in fullscreen mode.
         cpu_cycles: CPU cycles (0 = auto/default).
         mt32_roms_path: Path to MT-32 ROM directory.
+        soundcanvas_roms_path: Path to SoundCanvas ROM directory.
         config_content: Raw DOSBox config text to append.
 
     Returns:
@@ -33,7 +35,9 @@ def run_dosbox(
     if full_screen:
         command.append("--fullscreen")
 
-    extra_config = _build_extra_config(cpu_cycles, mt32_roms_path, config_content)
+    extra_config = _build_extra_config(
+        cpu_cycles, mt32_roms_path, soundcanvas_roms_path, config_content
+    )
     if extra_config:
         with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as f:
             f.write(extra_config)
@@ -47,6 +51,7 @@ def run_dosbox(
 def _build_extra_config(
     cpu_cycles: int = 0,
     mt32_roms_path: str | None = None,
+    soundcanvas_roms_path: str | None = None,
     config_content: str | None = None,
 ) -> str:
     """Build extra DOSBox config sections from optional overrides."""
@@ -54,7 +59,13 @@ def _build_extra_config(
     if config_content:
         parts.append(config_content)
     if cpu_cycles > 0:
-        parts.append(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n")
+        parts.append(
+            f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n"
+        )
     if mt32_roms_path:
         parts.append(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
+    if soundcanvas_roms_path:
+        parts.append(
+            f"\n[soundcanvas]\nsoundcanvas_rom_dir = {soundcanvas_roms_path}\n"
+        )
     return "\n".join(parts)
