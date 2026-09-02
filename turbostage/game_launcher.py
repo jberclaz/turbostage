@@ -18,6 +18,28 @@ from turbostage.db.game_database import GameDatabase
 IMMEDIATE_EXIT_SECONDS = 5.0
 
 
+def is_midi_device_available(midi_device: int, mt32_roms_path: str, soundcanvas_roms_path: str) -> bool:
+    """Check if the ROMs for a given MIDI device are installed.
+
+    Args:
+        midi_device: MIDI device (0=None, 1=MT-32, 2=Sound Canvas).
+        mt32_roms_path: Path to MT-32 ROM directory.
+        soundcanvas_roms_path: Path to SoundCanvas ROM directory.
+
+    Returns:
+        True if the device is None or if the corresponding ROMs are available.
+    """
+    if midi_device == 0:
+        return True
+    if midi_device == 1:
+        return bool(mt32_roms_path) and os.path.isdir(mt32_roms_path) and os.listdir(mt32_roms_path)
+    if midi_device == 2:
+        return (
+            bool(soundcanvas_roms_path) and os.path.isdir(soundcanvas_roms_path) and os.listdir(soundcanvas_roms_path)
+        )
+    return False
+
+
 def _dosbox_env() -> dict | None:
     """Return a sanitized environment for launching DOSBox, or None if unneeded.
 
@@ -89,6 +111,7 @@ class GameLauncher:
         archive = game_info.archive
         config = game_info.config
         cpu_cycles = game_info.cycles
+        midi_device = game_info.midi_device or 0
         self._version_id = game_info.version_id
         if binary is not None:
             executable = binary
@@ -98,6 +121,13 @@ class GameLauncher:
         dosbox_exec = str(settings.value("app/emulator_path", ""))
         games_path = str(settings.value("app/games_path", ""))
         mt32_roms_path = str(settings.value("app/mt32_path", ""))
+        soundcanvas_roms_path = str(settings.value("app/soundcanvas_path", ""))
+        disk_noise = utils.to_bool(settings.value("app/disk_noise", False))
+
+        # Revert MIDI device to None if ROMs are not available
+        if not is_midi_device_available(midi_device, mt32_roms_path, soundcanvas_roms_path):
+            midi_device = 0
+
         if not dosbox_exec:
             QGuiApplication.restoreOverrideCursor()
             QMessageBox.critical(
@@ -133,7 +163,10 @@ class GameLauncher:
                     executable=executable,
                     config=config,
                     mt32_roms_path=mt32_roms_path,
+                    soundcanvas_roms_path=soundcanvas_roms_path,
+                    disk_noise=disk_noise,
                     cpu_cycles=cpu_cycles,
+                    midi_device=midi_device,
                     save_games=save_games,
                     config_files=config_files,
                     install_mode=install_mode,
@@ -148,7 +181,10 @@ class GameLauncher:
                     executable=executable,
                     config=config,
                     mt32_roms_path=mt32_roms_path,
+                    soundcanvas_roms_path=soundcanvas_roms_path,
+                    disk_noise=disk_noise,
                     cpu_cycles=cpu_cycles,
+                    midi_device=midi_device,
                     save_games=save_games,
                     config_files=config_files,
                 )
@@ -162,7 +198,10 @@ class GameLauncher:
         executable,
         config,
         mt32_roms_path,
+        soundcanvas_roms_path,
+        disk_noise,
         cpu_cycles,
+        midi_device,
         save_games,
         config_files,
     ):
@@ -182,8 +221,16 @@ class GameLauncher:
         executable_path = os.path.join(temp_dir, executable)
 
         with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
-            if config or mt32_roms_path or cpu_cycles > 0:
-                GameLauncher._write_custom_dosbox_config_file(conf_file, config, mt32_roms_path, cpu_cycles)
+            if config or mt32_roms_path or soundcanvas_roms_path or disk_noise or cpu_cycles > 0 or midi_device > 0:
+                GameLauncher._write_custom_dosbox_config_file(
+                    conf_file,
+                    config,
+                    mt32_roms_path,
+                    soundcanvas_roms_path,
+                    disk_noise,
+                    cpu_cycles,
+                    midi_device,
+                )
                 command.extend(["--conf", conf_file.name])
             command.append(executable_path)
             QGuiApplication.restoreOverrideCursor()
@@ -200,6 +247,8 @@ class GameLauncher:
                     QMessageBox.Ok,
                 )
 
+        os.unlink(conf_file.name)
+
         if self._track_change:
             self._extract_changed_files(temp_dir)
 
@@ -215,7 +264,10 @@ class GameLauncher:
         executable,
         config,
         mt32_roms_path,
+        soundcanvas_roms_path,
+        disk_noise,
         cpu_cycles,
+        midi_device,
         save_games,
         config_files,
         install_mode,
@@ -254,7 +306,7 @@ class GameLauncher:
         autoexec_commands = []
         autoexec_commands.append(f'mount c "{c_drive_path}"')
         # For ISO files, use imgmount with -t iso
-        if archive_path.lower().endswith('.iso'):
+        if archive_path.lower().endswith(".iso"):
             autoexec_commands.append(f'imgmount d "{archive_path}" -t iso')
         else:
             autoexec_commands.append(f'mount d "{archive_path}" -t cdrom')
@@ -287,8 +339,16 @@ class GameLauncher:
 
         with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
             # Write custom config
-            if config or mt32_roms_path or cpu_cycles > 0:
-                GameLauncher._write_custom_dosbox_config_file(conf_file, config, mt32_roms_path, cpu_cycles)
+            if config or mt32_roms_path or soundcanvas_roms_path or disk_noise or cpu_cycles > 0 or midi_device > 0:
+                GameLauncher._write_custom_dosbox_config_file(
+                    conf_file,
+                    config,
+                    mt32_roms_path,
+                    soundcanvas_roms_path,
+                    disk_noise,
+                    cpu_cycles,
+                    midi_device,
+                )
 
             # Write autoexec section
             conf_file.write(autoexec_section)
@@ -316,6 +376,8 @@ class GameLauncher:
                     QMessageBox.Ok,
                 )
 
+        os.unlink(conf_file.name)
+
         return (installation_completed, result_install_path)
 
     def _extract_changed_files(self, temp_dir: str):
@@ -342,13 +404,30 @@ class GameLauncher:
                 f.write(content)
 
     @staticmethod
-    def _write_custom_dosbox_config_file(config_file, config_content: str | None, mt32_roms_path: str, cpu_cycles: int):
+    def _write_custom_dosbox_config_file(
+        config_file,
+        config_content: str | None,
+        mt32_roms_path: str,
+        soundcanvas_roms_path: str,
+        disk_noise: bool,
+        cpu_cycles: int,
+        midi_device: int = 0,
+    ):
+        # Write MIDI device setting first so it takes precedence over free-form config
+        if midi_device == 1:
+            config_file.write("\n[midi]\nmididevice = mt32\n")
+        elif midi_device == 2:
+            config_file.write("\n[midi]\nmididevice = soundcanvas\n")
         if config_content:
             config_file.write(config_content)
         if cpu_cycles > 0:
             config_file.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n")
         if mt32_roms_path:
             config_file.write(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
+        if soundcanvas_roms_path:
+            config_file.write(f"\n[soundcanvas]\nsoundcanvas_rom_dir = {soundcanvas_roms_path}\n")
+        if disk_noise:
+            config_file.write("\n[disknoise]\nhard_disk_noise = on\nfloppy_disk_noise = on\n")
         config_file.flush()
 
     @staticmethod

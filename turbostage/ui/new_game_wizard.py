@@ -66,6 +66,7 @@ class NewGameWizard(QWizard):
         # ConfigPage will be conditionally skipped for ISO with installation
         self.addPage(ConfigPage(executables, is_iso=self._is_iso))
         self.addPage(CPUPage())
+        self.addPage(MidiDevicePage())
         self.addPage(DosBoxOptions())
 
     def nextId(self):
@@ -107,6 +108,10 @@ class NewGameWizard(QWizard):
     @property
     def cpu(self) -> int:
         return self.field("game.cpu")
+
+    @property
+    def midi_device(self) -> int:
+        return self.field("game.midi_device")
 
     @property
     def dosbox_config(self) -> str:
@@ -186,8 +191,18 @@ class GameTitlePage(QWizardPage):
         """
         # Strip version/build tokens and years before normalizing separators, using
         # explicit non-alphanumeric boundaries so "_", "-" and "." delimit them too.
-        raw = re.sub(r"(?<![A-Za-z0-9])v[-\s.]?\d+(?:\.\d+)*(?![A-Za-z0-9])", " ", base_name, flags=re.IGNORECASE)
-        raw = re.sub(r"(?<![A-Za-z0-9])\d+\.\d+[a-z]?(?![A-Za-z0-9])", " ", raw, flags=re.IGNORECASE)
+        raw = re.sub(
+            r"(?<![A-Za-z0-9])v[-\s.]?\d+(?:\.\d+)*(?![A-Za-z0-9])",
+            " ",
+            base_name,
+            flags=re.IGNORECASE,
+        )
+        raw = re.sub(
+            r"(?<![A-Za-z0-9])\d+\.\d+[a-z]?(?![A-Za-z0-9])",
+            " ",
+            raw,
+            flags=re.IGNORECASE,
+        )
         raw = re.sub(r"(?<![A-Za-z0-9])(?:19|20)\d{2}(?![A-Za-z0-9])", " ", raw)
 
         # Keep model-number hyphens ("A-10", "F-15") before normalizing separators.
@@ -210,7 +225,12 @@ class GameTitlePage(QWizardPage):
     @staticmethod
     def _clean_query(query: str) -> str:
         query = re.sub(r"\b(?:DOS|EN|RIP|ENG)\b", " ", query, flags=re.IGNORECASE)  # scene/language tags
-        query = re.sub(r"\b(?:CD|DISC|DISK)\s*\d+(?:\s*of\s*\d+)?\b", " ", query, flags=re.IGNORECASE)  # disc numbers
+        query = re.sub(
+            r"\b(?:CD|DISC|DISK)\s*\d+(?:\s*of\s*\d+)?\b",
+            " ",
+            query,
+            flags=re.IGNORECASE,
+        )  # disc numbers
         query = re.sub(r"(?<=[A-Za-z])\d{2,}\b", " ", query)  # digits glued to a word ("screamer01")
         query = re.sub(r"\b0\d+\b", " ", query)  # zero-padded standalone numbers
         for phrase in GameTitlePage._PUBLISHER_PHRASES:
@@ -409,6 +429,24 @@ class CPUPage(QWizardPage):
         self.setLayout(layout)
 
         self.registerField("game.cpu", self.cpu_combobox)
+
+
+class MidiDevicePage(QWizardPage):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setTitle("MIDI device")
+        self.setSubTitle(
+            "Select the MIDI device for this game. Use 'None' for games that don't require MT-32 or Sound Canvas."
+        )
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(icon_widget("midi", "MIDI Device"))
+        self.midi_combobox = QComboBox()
+        self.midi_combobox.addItems(list(constants.MIDI_DEVICE.keys()))
+        layout.addWidget(self.midi_combobox)
+        self.setLayout(layout)
+
+        self.registerField("game.midi_device", self.midi_combobox)
 
 
 class DosBoxOptions(QWizardPage):

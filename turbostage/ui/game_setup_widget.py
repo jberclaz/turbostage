@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from turbostage import constants
 from turbostage.db.game_database import GameDatabase
+from turbostage.game_launcher import is_midi_device_available
 from turbostage.ui.icons import load_icon
 from turbostage.ui.theme import group_box_style, muted_text_color
 
@@ -63,6 +64,7 @@ class GameSetupWidget(QWidget):
         self._pristine_binary = None
         self._pristine_config_binary = None
         self._pristine_cpu_index = 0
+        self._pristine_midi_index = 0
         self._pristine_config = ""
 
         self._init_ui()
@@ -135,6 +137,12 @@ class GameSetupWidget(QWidget):
         self.cpu_combobox.currentIndexChanged.connect(self._on_settings_changed)
         self.cpu_combobox.setEnabled(False)
         performance_layout.addWidget(self.cpu_combobox)
+        performance_layout.addLayout(self._icon_row("midi", "MIDI Device"))
+        self.midi_combobox = QComboBox()
+        self.midi_combobox.addItems(list(constants.MIDI_DEVICE.keys()))
+        self.midi_combobox.currentIndexChanged.connect(self._on_settings_changed)
+        self.midi_combobox.setEnabled(False)
+        performance_layout.addWidget(self.midi_combobox)
         self.content_layout.addWidget(self.performance_group)
 
         # Advanced group (collapsible)
@@ -202,6 +210,7 @@ class GameSetupWidget(QWidget):
         self.binary_list_view.setEnabled(enabled)
         self.config_binary_list_view.setEnabled(enabled)
         self.cpu_combobox.setEnabled(enabled)
+        self.midi_combobox.setEnabled(enabled)
         self.version_combobox.setEnabled(enabled)
         self.dosbox_config_text.setEnabled(enabled and self.advanced_group.isChecked())
 
@@ -248,6 +257,7 @@ class GameSetupWidget(QWidget):
             game_binary = version_details.executable
             game_config = version_details.config
             cpu_cycles = version_details.cycles
+            midi_device = version_details.midi_device or 0
             game_archive = version_details.archive
 
             archive_type = self._db.get_archive_type(self.version_id)
@@ -259,17 +269,23 @@ class GameSetupWidget(QWidget):
 
             warning = None
             binaries = []
+            settings = QSettings("jberclaz", "TurboStage")
+            mt32_roms_path = str(settings.value("app/mt32_path", ""))
+            soundcanvas_roms_path = str(settings.value("app/soundcanvas_path", ""))
             try:
                 if is_installed and install_path:
                     binaries = self._list_binaries_from_dir(install_path)
                 else:
-                    settings = QSettings("jberclaz", "TurboStage")
                     games_path = str(settings.value("app/games_path", ""))
                     game_archive_path = os.path.join(games_path, game_archive)
                     binaries = self._list_binaries(game_archive_path)
             except (FileNotFoundError, zipfile.BadZipFile, OSError) as e:
                 binaries = []
                 warning = f"Unable to read game archive: {e}"
+
+            # Revert MIDI device to None if ROMs are not available
+            if not is_midi_device_available(midi_device, mt32_roms_path, soundcanvas_roms_path):
+                midi_device = 0
 
             self.binary_list_model.set_binaries(binaries)
             self.config_binary_list_model.set_binaries([NO_CONFIG_LABEL] + binaries)
@@ -278,12 +294,19 @@ class GameSetupWidget(QWidget):
 
             self._select_binary(game_binary)
             self._select_config_binary(version_details.config_executable)
-            self._set_game_config(cpu_cycles, game_config)
+            self._set_game_config(cpu_cycles, midi_device, game_config)
             self._capture_pristine()
         finally:
             self._loading = False
 
-    def _update_game_info(self, version_details, archive_type, requires_install, is_installed, warning=None):
+    def _update_game_info(
+        self,
+        version_details,
+        archive_type,
+        requires_install,
+        is_installed,
+        warning=None,
+    ):
         if archive_type == "iso":
             if requires_install:
                 status = "ISO (installed)" if is_installed else "ISO (requires installation)"
@@ -361,12 +384,18 @@ class GameSetupWidget(QWidget):
     def populates_binary_list_from_dir(directory: str, list_model):
         list_model.set_binaries(GameSetupWidget._list_binaries_from_dir(directory))
 
-    def _set_game_config(self, cpu_cycles, game_config):
+    def _set_game_config(self, cpu_cycles, midi_device, game_config):
         if cpu_cycles is not None:
             index = list(constants.CPU_CYCLES.values()).index(cpu_cycles)
             self.cpu_combobox.setCurrentIndex(index)
         else:
             self.cpu_combobox.setCurrentIndex(0)
+
+        if midi_device is not None and midi_device in constants.MIDI_DEVICE.values():
+            index = list(constants.MIDI_DEVICE.values()).index(midi_device)
+            self.midi_combobox.setCurrentIndex(index)
+        else:
+            self.midi_combobox.setCurrentIndex(0)
 
         self.dosbox_config_text.setPlainText(game_config or "")
 
@@ -391,7 +420,11 @@ class GameSetupWidget(QWidget):
     def _select_config_binary(self, config_binary):
         value = config_binary if config_binary else NO_CONFIG_LABEL
         if not self._select_value(self.config_binary_list_view, self.config_binary_list_model, value):
-            self._select_value(self.config_binary_list_view, self.config_binary_list_model, NO_CONFIG_LABEL)
+            self._select_value(
+                self.config_binary_list_view,
+                self.config_binary_list_model,
+                NO_CONFIG_LABEL,
+            )
             value = NO_CONFIG_LABEL
         self.selected_config_binary = value
 
@@ -399,6 +432,7 @@ class GameSetupWidget(QWidget):
         self._pristine_binary = self.selected_binary
         self._pristine_config_binary = self.selected_config_binary
         self._pristine_cpu_index = self.cpu_combobox.currentIndex()
+        self._pristine_midi_index = self.midi_combobox.currentIndex()
         self._pristine_config = self.dosbox_config_text.toPlainText()
         self.save_button.setEnabled(False)
         self.reset_button.setEnabled(False)
@@ -427,6 +461,7 @@ class GameSetupWidget(QWidget):
             self._select_binary(self._pristine_binary)
             self._select_config_binary(self._pristine_config_binary)
             self.cpu_combobox.setCurrentIndex(self._pristine_cpu_index)
+            self.midi_combobox.setCurrentIndex(self._pristine_midi_index)
             self.dosbox_config_text.setPlainText(self._pristine_config)
             self.selected_binary = self._pristine_binary
             self.selected_config_binary = self._pristine_config_binary
@@ -442,6 +477,10 @@ class GameSetupWidget(QWidget):
     @property
     def cpu_cycles(self) -> int:
         return constants.CPU_CYCLES[self.cpu_combobox.currentText()]
+
+    @property
+    def midi_device(self) -> int:
+        return constants.MIDI_DEVICE[self.midi_combobox.currentText()]
 
     @property
     def config_executable(self) -> str | None:

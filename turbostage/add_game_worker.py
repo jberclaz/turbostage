@@ -25,6 +25,7 @@ class AddGameWorker(QRunnable):
         db_path: str,
         igdb_client,
         requires_install: bool = False,
+        midi_device: int = 0,
     ):
         super().__init__()
         self.signals = WorkerSignals()
@@ -39,6 +40,7 @@ class AddGameWorker(QRunnable):
         self._db_path = db_path
         self._igdb_client = igdb_client
         self._requires_install = requires_install
+        self._midi_device = midi_device
 
     def run(self):
         # Create database instance
@@ -68,7 +70,9 @@ class AddGameWorker(QRunnable):
             if existing_version.version_name == self._version_name:
                 # Version already exists, just update the local version entry
                 db.add_local_game_version(
-                    existing_version.version_id, archive_basename, archive_type=archive_type,
+                    existing_version.version_id,
+                    archive_basename,
+                    archive_type=archive_type,
                     requires_install=self._requires_install,
                 )
                 self.signals.task_finished.emit()
@@ -83,6 +87,7 @@ class AddGameWorker(QRunnable):
             self._config,
             self._cpu_cycles,
             requires_install=self._requires_install,
+            midi_device=self._midi_device,
         )
 
         # 4. add hashes based on archive type
@@ -102,7 +107,12 @@ class AddGameWorker(QRunnable):
         db.insert_multiple_hashes(version_id, hashes)
 
         # 5. add local version with archive type
-        db.add_local_game_version(version_id, archive_basename, archive_type=archive_type, requires_install=self._requires_install)
+        db.add_local_game_version(
+            version_id,
+            archive_basename,
+            archive_type=archive_type,
+            requires_install=self._requires_install,
+        )
 
         # 6. For ISO games that require installation, create installation record
         if archive_type == "iso" and self._requires_install:
@@ -113,6 +123,7 @@ class AddGameWorker(QRunnable):
             # Clean old install directory if it exists (from a previous deletion)
             if os.path.isdir(install_path):
                 import shutil
+
                 shutil.rmtree(install_path)
             os.makedirs(install_path, exist_ok=True)
             db.create_installation(version_id, install_path)

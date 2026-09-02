@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
 
 from turbostage import __version__, constants, utils
 from turbostage.add_game_worker import AddGameWorker
-from turbostage.constants import CPU_CYCLES
+from turbostage.constants import CPU_CYCLES, MIDI_DEVICE
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase
 from turbostage.db.remote_db import RemoteDB
@@ -116,7 +116,12 @@ class MainWindow(QMainWindow):
 
         # Window dimensions
         geometry = self.screen().availableGeometry()
-        self.setGeometry(geometry.width() // 4, geometry.height() // 4, geometry.width() // 2, geometry.height() // 2)
+        self.setGeometry(
+            geometry.width() // 4,
+            geometry.height() // 4,
+            geometry.width() // 2,
+            geometry.height() // 2,
+        )
         self.setMinimumSize(800, 600)
 
         self.search_box = QLineEdit(self)
@@ -361,9 +366,7 @@ class MainWindow(QMainWindow):
         dialog1.setWindowTitle("Select Game Executable")
         layout1 = QVBoxLayout(dialog1)
         layout1.addWidget(QLabel("Select the game executable:"))
-        layout1.addWidget(
-            QLabel(f"<small>Files found in: {install_path}</small>")
-        )
+        layout1.addWidget(QLabel(f"<small>Files found in: {install_path}</small>"))
         list_view1 = QListView(dialog1)
         model1 = BinaryListModel()
         model1.set_binaries(executables)
@@ -488,7 +491,10 @@ class MainWindow(QMainWindow):
             is_downloadable = game.download_url is not None
 
             # Store version_id, igdb_id, installation status, and downloadable flag
-            game_title.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install, is_downloadable))
+            game_title.setData(
+                Qt.UserRole,
+                (game.igdb_id, game.version_id, needs_install, is_downloadable),
+            )
 
             dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
             release_date = dt_object.strftime("%Y-%m-%d")
@@ -588,13 +594,18 @@ class MainWindow(QMainWindow):
             hashes.extend(executable_hashes)
             local_executable, local_config_executable = self._gamedb.resolve_local_executables(version_id, hashes)
             added = self._gamedb.add_local_game_version(
-                version_id, os.path.basename(game_path),
-                executable=local_executable, config_executable=local_config_executable,
-                archive_type=archive_type, requires_install=requires_install,
+                version_id,
+                os.path.basename(game_path),
+                executable=local_executable,
+                config_executable=local_config_executable,
+                archive_type=archive_type,
+                requires_install=requires_install,
             )
             if added == 0:
                 QMessageBox.warning(
-                    self, "Game already installed", "The game you tried to add is already installed in TurboStage"
+                    self,
+                    "Game already installed",
+                    "The game you tried to add is already installed in TurboStage",
                 )
                 return
             if requires_install:
@@ -604,6 +615,7 @@ class MainWindow(QMainWindow):
                 install_path = os.path.join(installs_folder, str(version_id))
                 if os.path.isdir(install_path):
                     import shutil
+
                     shutil.rmtree(install_path)
                 os.makedirs(install_path, exist_ok=True)
                 self._gamedb.create_installation(version_id, install_path)
@@ -630,6 +642,7 @@ class MainWindow(QMainWindow):
             self.db_path,
             self._igdb_client,
             new_game_wizard.requires_install,
+            list(MIDI_DEVICE.values())[new_game_wizard.midi_device],
         )
         add_game_worker.signals.task_finished.connect(self._on_game_added)
         self._thread_pool.start(add_game_worker)
@@ -730,6 +743,7 @@ class MainWindow(QMainWindow):
                 self._gamedb.delete_installation(version_id)
                 if os.path.isdir(install_path):
                     import shutil
+
                     shutil.rmtree(install_path)
             self._gamedb.delete_local_game_by_igdb_id(game_id)
             self._game_info.clear_info()
@@ -843,6 +857,7 @@ class MainWindow(QMainWindow):
 
         if install_path and os.path.isdir(install_path):
             import shutil
+
             shutil.rmtree(install_path)
 
         self.load_games()
@@ -885,7 +900,14 @@ class MainWindow(QMainWindow):
                 needs_install = not is_installed
 
         gl = GameLauncher(track_change=True)
-        gl.launch_game(version_id, self._gamedb, False, False, config_executable, install_mode=needs_install)
+        gl.launch_game(
+            version_id,
+            self._gamedb,
+            False,
+            False,
+            config_executable,
+            install_mode=needs_install,
+        )
         if gl.new_files or gl.modified_files:
             config_files = {**gl.new_files, **gl.modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
@@ -895,8 +917,17 @@ class MainWindow(QMainWindow):
         binary = self.right_setup_tab.selected_binary
         config = self.right_setup_tab.dosbox_config_text.toPlainText()
         cycles = self.right_setup_tab.cpu_cycles
+        midi_device = self.right_setup_tab.midi_device
         config_executable = self.right_setup_tab.config_executable
-        self._gamedb.update_version_info(version_id, None, binary, config, cycles, config_executable or "")
+        self._gamedb.update_version_info(
+            version_id,
+            None,
+            binary,
+            config,
+            cycles,
+            config_executable or "",
+            midi_device,
+        )
 
     def _on_submit_local_config(self):
         local_versions = self._gamedb.get_locally_modified_game_versions()

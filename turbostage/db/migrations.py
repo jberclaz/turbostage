@@ -5,6 +5,7 @@ This module handles database schema migrations, allowing safe upgrades
 between different database versions without data loss or requiring users
 to delete their database files.
 """
+
 import json
 import sqlite3
 from typing import Callable, Dict, List, Tuple
@@ -104,22 +105,18 @@ def migrate_to_0_5_1(conn: sqlite3.Connection) -> None:
     cursor.execute("ALTER TABLE config_files ADD COLUMN name TEXT")
 
     # Update name field with basename of path for existing rows
-    cursor.execute(
-        """
+    cursor.execute("""
         UPDATE config_files
         SET name = SUBSTR(path, INSTR(path, '/') + 1)
         WHERE name IS NULL AND INSTR(path, '/') > 0
-    """
-    )
+    """)
 
     # For paths without a slash, use the whole path
-    cursor.execute(
-        """
+    cursor.execute("""
         UPDATE config_files
         SET name = path
         WHERE name IS NULL
-    """
-    )
+    """)
 
 
 @migration("0.6.0")
@@ -176,7 +173,12 @@ def migrate_to_0_9_0(conn: sqlite3.Connection) -> None:
         info = igdb_client.get_game_info(igdb_id)
         cursor.execute(
             "UPDATE games SET developer = ?, screenshot_urls = ?, rating = ? WHERE igdb_id = ?",
-            (info["developer"], json.dumps(info["screenshot_urls"]), info["rating"], igdb_id),
+            (
+                info["developer"],
+                json.dumps(info["screenshot_urls"]),
+                info["rating"],
+                igdb_id,
+            ),
         )
 
 
@@ -219,8 +221,7 @@ def migrate_to_0_10_0(conn: sqlite3.Connection) -> None:
         cursor.execute("ALTER TABLE local_versions ADD COLUMN archive_type TEXT DEFAULT 'zip'")
 
     # Create installations table
-    cursor.execute(
-        """
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS installations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             version_id INTEGER UNIQUE NOT NULL,
@@ -229,8 +230,7 @@ def migrate_to_0_10_0(conn: sqlite3.Connection) -> None:
             install_date INTEGER,
             FOREIGN KEY (version_id) REFERENCES versions(id)
         )
-    """
-    )
+    """)
 
     # Create index for installations table
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_installations_version_id ON installations(version_id)")
@@ -276,3 +276,17 @@ def migrate_to_0_12_0(conn: sqlite3.Connection) -> None:
     columns = {row[1] for row in cursor.fetchall()}
     if "requires_install" not in columns:
         cursor.execute("ALTER TABLE versions ADD COLUMN requires_install INTEGER DEFAULT 0")
+
+
+@migration("0.13.0")
+def migrate_to_0_13_0(conn: sqlite3.Connection) -> None:
+    """Migration to version 0.13.0.
+
+    Adds midi_device column to versions table for per-game MIDI device selection
+    (None=0, MT-32=1, Sound Canvas=2).
+    """
+    cursor = conn.cursor()
+    cursor.execute("PRAGMA table_info(versions)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "midi_device" not in columns:
+        cursor.execute("ALTER TABLE versions ADD COLUMN midi_device INTEGER DEFAULT 0")

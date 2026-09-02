@@ -46,14 +46,17 @@ class SettingsDialog(QDialog):
 
         self.show_downloadable_checkbox = QCheckBox("Show downloadable games in library", self)
         self.show_downloadable_checkbox.setIcon(load_icon("download"))
-        self.show_downloadable_checkbox.setChecked(
-            utils.to_bool(self.settings.value("app/show_downloadable", True))
-        )
+        self.show_downloadable_checkbox.setChecked(utils.to_bool(self.settings.value("app/show_downloadable", True)))
         form_layout.addRow(self.show_downloadable_checkbox)
 
         self.grid_view_checkbox = QCheckBox("Display games as a grid of cover images", self)
         self.grid_view_checkbox.setChecked(utils.to_bool(self.settings.value("app/grid_view", True)))
         form_layout.addRow(self.grid_view_checkbox)
+
+        self.disk_noise_checkbox = QCheckBox("Enable disk noise emulation", self)
+        self.disk_noise_checkbox.setIcon(load_icon("speaker"))
+        self.disk_noise_checkbox.setChecked(utils.to_bool(self.settings.value("app/disk_noise", False)))
+        form_layout.addRow(self.disk_noise_checkbox)
         self.layout.addLayout(form_layout)
 
         self.emulator_path_input = self._make_path_field(str(self.settings.value("app/emulator_path", "")))
@@ -63,7 +66,10 @@ class SettingsDialog(QDialog):
         self.emu_download_button.clicked.connect(self._download_emulator)
         self.layout.addWidget(
             self._make_path_group(
-                "computer", "Emulator Path", self.emulator_path_input, [emulator_browse_button, self.emu_download_button]
+                "computer",
+                "Emulator Path",
+                self.emulator_path_input,
+                [emulator_browse_button, self.emu_download_button],
             )
         )
 
@@ -72,7 +78,9 @@ class SettingsDialog(QDialog):
         games_browse_button.clicked.connect(
             lambda: self._select_directory(self.games_path_input, "Select the Games folder")
         )
-        self.layout.addWidget(self._make_path_group("folder", "Games Path", self.games_path_input, [games_browse_button]))
+        self.layout.addWidget(
+            self._make_path_group("folder", "Games Path", self.games_path_input, [games_browse_button])
+        )
 
         self.mt32_path_input = self._make_path_field(str(self.settings.value("app/mt32_path", "")))
         mt32_browse_button = QPushButton(load_icon("folder"), "Browse…", self)
@@ -83,7 +91,26 @@ class SettingsDialog(QDialog):
         self.mt32_download_button.clicked.connect(self._download_mt32_roms)
         self.layout.addWidget(
             self._make_path_group(
-                "midi", "MT-32 Roms Path", self.mt32_path_input, [mt32_browse_button, self.mt32_download_button]
+                "midi",
+                "MT-32 Roms Path",
+                self.mt32_path_input,
+                [mt32_browse_button, self.mt32_download_button],
+            )
+        )
+
+        self.soundcanvas_path_input = self._make_path_field(str(self.settings.value("app/soundcanvas_path", "")))
+        soundcanvas_browse_button = QPushButton(load_icon("folder"), "Browse…", self)
+        soundcanvas_browse_button.clicked.connect(
+            lambda: self._select_directory(self.soundcanvas_path_input, "Select the SoundCanvas ROMs folder")
+        )
+        self.soundcanvas_download_button = QPushButton(load_icon("download"), "Download", self)
+        self.soundcanvas_download_button.clicked.connect(self._download_soundcanvas_roms)
+        self.layout.addWidget(
+            self._make_path_group(
+                "midi",
+                "SoundCanvas Roms Path",
+                self.soundcanvas_path_input,
+                [soundcanvas_browse_button, self.soundcanvas_download_button],
             )
         )
 
@@ -100,9 +127,11 @@ class SettingsDialog(QDialog):
         self.settings.setValue("app/full_screen", self.full_screen_checkbox.isChecked())
         self.settings.setValue("app/show_downloadable", self.show_downloadable_checkbox.isChecked())
         self.settings.setValue("app/grid_view", self.grid_view_checkbox.isChecked())
+        self.settings.setValue("app/disk_noise", self.disk_noise_checkbox.isChecked())
         self.settings.setValue("app/emulator_path", self.emulator_path_input.text())
         self.settings.setValue("app/games_path", self.games_path_input.text())
         self.settings.setValue("app/mt32_path", self.mt32_path_input.text())
+        self.settings.setValue("app/soundcanvas_path", self.soundcanvas_path_input.text())
         super().accept()
 
     def reject(self):
@@ -196,6 +225,42 @@ class SettingsDialog(QDialog):
 
         self.mt32_path_input.setText(mt32_roms_path)
 
+    def _download_soundcanvas_roms(self):
+        if self.soundcanvas_path_input.text() and not self._confirm_overwrite(
+            "Download SoundCanvas roms",
+            "SoundCanvas roms are already configured.\nDownload and replace them?",
+        ):
+            return
+
+        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        soundcanvas_roms_path = os.path.join(app_data_folder, "soundcanvas_roms")
+        os.makedirs(soundcanvas_roms_path, exist_ok=True)
+
+        download_dialog = DownloaderDialog(self, "Download SoundCanvas roms")
+        download_dialog.start_download(constants.SOUNDCANVAS_ROMS_DOWNLOAD_URL)
+        if not download_dialog.exec():
+            return
+
+        import shutil
+
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            with ZipFile(download_dialog.data_buffer, "r") as zip_ref:
+                zip_ref.extractall(tmp_dir)
+            # The ZIP extracts to Nuked-SC55-CLAP-ROM-files/Nuked-SC55-Resources/ROMs/
+            # DOSBox expects SC-55-v1.xx/ folders directly in the roms directory
+            roms_src = os.path.join(tmp_dir, "Nuked-SC55-CLAP-ROM-files", "Nuked-SC55-Resources", "ROMs")
+            for item in os.listdir(roms_src):
+                src = os.path.join(roms_src, item)
+                dst = os.path.join(soundcanvas_roms_path, item)
+                if os.path.isdir(src):
+                    if os.path.exists(dst):
+                        shutil.rmtree(dst)
+                    shutil.copytree(src, dst)
+                else:
+                    shutil.copy2(src, dst)
+
+        self.soundcanvas_path_input.setText(soundcanvas_roms_path)
+
     def _download_emulator(self):
         if self.emulator_path_input.text() and not self._confirm_overwrite(
             "Download DosBox",
@@ -240,8 +305,18 @@ class SettingsDialog(QDialog):
                 dmg_path = tmp_dmg.name
             try:
                 result = subprocess.run(
-                    ["hdiutil", "attach", "-plist", "-nobrowse", "-mountrandom", "/tmp", dmg_path],
-                    capture_output=True, text=True, check=True,
+                    [
+                        "hdiutil",
+                        "attach",
+                        "-plist",
+                        "-nobrowse",
+                        "-mountrandom",
+                        "/tmp",
+                        dmg_path,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    check=True,
                 )
                 plist = plistlib.loads(result.stdout.encode())
                 mount_point = None
@@ -257,10 +332,16 @@ class SettingsDialog(QDialog):
                         subprocess.run(["cp", "-R", app_bundle, target_app], check=True)
                         macos_dir = os.path.join(target_app, "Contents", "MacOS")
                         executables = os.listdir(macos_dir)
-                        executable = os.path.join(
-                            os.path.basename(app_bundle),
-                            "Contents", "MacOS", executables[0],
-                        ) if executables else ""
+                        executable = (
+                            os.path.join(
+                                os.path.basename(app_bundle),
+                                "Contents",
+                                "MacOS",
+                                executables[0],
+                            )
+                            if executables
+                            else ""
+                        )
                     subprocess.run(["hdiutil", "detach", mount_point], check=True)
             finally:
                 os.unlink(dmg_path)

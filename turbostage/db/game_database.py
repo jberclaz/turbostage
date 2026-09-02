@@ -49,6 +49,7 @@ class GameVersionInfo:
     config_executable: Optional[str] = None
     config: Optional[str] = None
     cycles: Optional[int] = None
+    midi_device: Optional[int] = None
     download_url: Optional[str] = None
 
 
@@ -197,7 +198,10 @@ class GameDatabase:
             # ---- 3. Versions + Hashes ---------------------------------------------------
             for igdb_id in data.get("games"):
                 for version_name, version_data in data["games"][igdb_id].get("versions").items():
-                    cur.execute("SELECT 1 FROM versions WHERE game_id = ? AND version = ?", (igdb_id, version_name))
+                    cur.execute(
+                        "SELECT 1 FROM versions WHERE game_id = ? AND version = ?",
+                        (igdb_id, version_name),
+                    )
                     if cur.fetchone():
                         continue
                     # Insert version
@@ -205,8 +209,15 @@ class GameDatabase:
                     version_columns = {row[1] for row in cur.fetchall()}
                     has_download_url = "download_url" in version_columns
 
-                    columns = ["game_id", "version", "executable", "config_executable",
-                               "config", "cycles", "source"]
+                    columns = [
+                        "game_id",
+                        "version",
+                        "executable",
+                        "config_executable",
+                        "config",
+                        "cycles",
+                        "source",
+                    ]
                     values = [
                         igdb_id,
                         version_name,
@@ -233,7 +244,8 @@ class GameDatabase:
                     version_id = (
                         cur.lastrowid
                         or cur.execute(
-                            "SELECT id FROM versions WHERE game_id=? AND version=?", (igdb_id, version_name)
+                            "SELECT id FROM versions WHERE game_id=? AND version=?",
+                            (igdb_id, version_name),
                         ).fetchone()[0]
                     )
 
@@ -429,7 +441,14 @@ class GameDatabase:
                     cover_url    = ?
                 WHERE igdb_id = ?
                 """,
-                (details.summary, details.release_date, details.genre, details.publisher, details.cover_url, igdb_id),
+                (
+                    details.summary,
+                    details.release_date,
+                    details.genre,
+                    details.publisher,
+                    details.cover_url,
+                    igdb_id,
+                ),
             )
 
     def insert_game_with_details(self, game_name: str, details: GameDetails) -> int:
@@ -470,6 +489,7 @@ class GameDatabase:
         config: str,
         cycles: int,
         requires_install: bool = False,
+        midi_device: int = 0,
     ) -> int:
         """Insert a game version with all details and return its ID."""
         with self.transaction() as conn:
@@ -477,8 +497,19 @@ class GameDatabase:
             cursor.execute("PRAGMA table_info(versions)")
             columns = {row[1] for row in cursor.fetchall()}
 
-            col_names = ["game_id", "version", "executable", "config_executable", "config", "cycles"]
+            col_names = [
+                "game_id",
+                "version",
+                "executable",
+                "config_executable",
+                "config",
+                "cycles",
+            ]
             values = [game_id, version, executable, config_executable, config, cycles]
+
+            if "midi_device" in columns:
+                col_names.append("midi_device")
+                values.append(midi_device)
 
             if "requires_install" in columns:
                 col_names.append("requires_install")
@@ -520,17 +551,25 @@ class GameDatabase:
             has_local_executable = "executable" in columns
             has_local_config_executable = "config_executable" in columns
 
+            cursor.execute("PRAGMA table_info(versions)")
+            version_columns = {row[1] for row in cursor.fetchall()}
+            has_midi_device = "midi_device" in version_columns
+
+            midi_col = "v.midi_device" if has_midi_device else "0 as midi_device"
+
             if has_local_executable and has_local_config_executable:
-                select_query = """
+                select_query = f"""
                 SELECT v.version, lv.archive, v.executable, v.config_executable, v.config, v.cycles,
+                       {midi_col},
                        lv.executable as local_executable, lv.config_executable as local_config_executable
                 FROM versions v
                          JOIN local_versions lv ON v.id = lv.version_id
                 WHERE v.id = ?
                 """
             else:
-                select_query = """
+                select_query = f"""
                 SELECT v.version, lv.archive, v.executable, v.config_executable, v.config, v.cycles,
+                       {midi_col},
                        NULL as local_executable, NULL as local_config_executable
                 FROM versions v
                          JOIN local_versions lv ON v.id = lv.version_id
@@ -540,8 +579,8 @@ class GameDatabase:
             row = cursor.fetchone()
             if row:
                 # Use local executable paths if available, otherwise fall back to version defaults
-                executable = row[6] if row[6] is not None else row[2]
-                config_executable = row[7] if row[7] is not None else row[3]
+                executable = row[7] if row[7] is not None else row[2]
+                config_executable = row[8] if row[8] is not None else row[3]
                 return GameVersionInfo(
                     version_id=version_id,
                     version_name=row[0],
@@ -550,6 +589,7 @@ class GameDatabase:
                     config_executable=config_executable,
                     config=row[4],
                     cycles=row[5],
+                    midi_device=row[6],
                 )
         return None
 
@@ -570,16 +610,22 @@ class GameDatabase:
             has_local_executable = "executable" in columns
             has_local_config_executable = "config_executable" in columns
 
+            cursor.execute("PRAGMA table_info(versions)")
+            version_columns = {row[1] for row in cursor.fetchall()}
+            has_midi_device = "midi_device" in version_columns
+
+            midi_col = "v.midi_device" if has_midi_device else "0 as midi_device"
+
             if detailed:
                 if has_local_executable and has_local_config_executable:
                     select_query = (
-                        "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
-                        "v.config, v.cycles, lv.executable as local_exec, lv.config_executable as local_config"
+                        f"SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
+                        f"v.config, v.cycles, {midi_col}, lv.executable as local_exec, lv.config_executable as local_config"
                     )
                 else:
                     select_query = (
-                        "SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
-                        "v.config, v.cycles, NULL as local_exec, NULL as local_config"
+                        f"SELECT v.id, v.version, lv.archive, v.executable, v.config_executable, "
+                        f"v.config, v.cycles, {midi_col}, NULL as local_exec, NULL as local_config"
                     )
             else:
                 select_query = "SELECT v.id, v.version, lv.archive"
@@ -599,8 +645,8 @@ class GameDatabase:
             for row in rows:
                 if detailed:
                     # Use local executable paths if available, otherwise fall back to version defaults
-                    executable = row[7] if row[7] is not None else row[3]
-                    config_executable = row[8] if row[8] is not None else row[4]
+                    executable = row[8] if row[8] is not None else row[3]
+                    config_executable = row[9] if row[9] is not None else row[4]
                     result.append(
                         GameVersionInfo(
                             version_id=row[0],
@@ -610,6 +656,7 @@ class GameDatabase:
                             config_executable=config_executable,
                             config=row[5],
                             cycles=row[6],
+                            midi_device=row[7],
                         )
                     )
                 else:
@@ -624,15 +671,13 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id, g.cover_url
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
                          JOIN local_versions lv ON v.id = lv.version_id
                 ORDER BY g.title
-                """
-            )
+                """)
             return [
                 LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0], cover_url=row[6])
                 for row in cursor.fetchall()
@@ -651,8 +696,7 @@ class GameDatabase:
             if "download_url" not in columns:
                 return []
 
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT g.igdb_id, g.title, g.release_date, g.genre, v.version, v.id, v.download_url, g.cover_url
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
@@ -660,10 +704,18 @@ class GameDatabase:
                 WHERE v.download_url IS NOT NULL
                   AND lv.version_id IS NULL
                 ORDER BY g.title
-                """
-            )
+                """)
             return [
-                LocalGameDetails(row[0], row[1], row[2], row[3], row[4], row[5], download_url=row[6], cover_url=row[7])
+                LocalGameDetails(
+                    row[0],
+                    row[1],
+                    row[2],
+                    row[3],
+                    row[4],
+                    row[5],
+                    download_url=row[6],
+                    cover_url=row[7],
+                )
                 for row in cursor.fetchall()
             ]
 
@@ -817,7 +869,10 @@ class GameDatabase:
         with self.transaction() as conn:
             cursor = conn.cursor()
 
-            cursor.execute("SELECT count(*) FROM local_versions WHERE version_id = ?", (version_id,))
+            cursor.execute(
+                "SELECT count(*) FROM local_versions WHERE version_id = ?",
+                (version_id,),
+            )
             rows = cursor.fetchall()
             if rows[0][0] > 0:
                 return 0
@@ -852,14 +907,12 @@ class GameDatabase:
     def get_locally_modified_game_versions(self):
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT g.title, g.igdb_id, v.id, v.version
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
                 WHERE v.source = 'local'
-                """
-            )
+                """)
             return cursor.fetchall()
 
     def clear_local_versions(self) -> None:
@@ -985,8 +1038,12 @@ class GameDatabase:
             row = cursor.fetchone()
             return bool(row[0]) if row else False
 
-    def set_local_executables(self, version_id: int, executable: str | None = None,
-                               config_executable: str | None = None) -> None:
+    def set_local_executables(
+        self,
+        version_id: int,
+        executable: str | None = None,
+        config_executable: str | None = None,
+    ) -> None:
         with self.transaction() as conn:
             cursor = conn.cursor()
             if executable is not None:
@@ -1038,6 +1095,7 @@ class GameDatabase:
         config: str = None,
         cycles: int = None,
         config_executable: str = None,
+        midi_device: int = None,
     ):
         """Update version information for a game version.
 
@@ -1048,6 +1106,7 @@ class GameDatabase:
             config: New DOSBox configuration (if None, not updated)
             cycles: New CPU cycles (if None, not updated)
             config_executable: New config executable path (if None, not updated)
+            midi_device: New MIDI device setting (if None, not updated)
         """
         # Only include fields that are not None
         update_fields = []
@@ -1072,6 +1131,10 @@ class GameDatabase:
         if config_executable is not None:
             update_fields.append("config_executable = ?")
             params.append(config_executable)
+
+        if midi_device is not None:
+            update_fields.append("midi_device = ?")
+            params.append(midi_device)
 
         if not update_fields or not params:
             return  # Nothing to update
@@ -1222,7 +1285,7 @@ class GameDatabase:
                 continue
 
             row_data = [
-                version_id_mapping[input_version_id] if col == "version_id" else row[columns.index(col)]
+                (version_id_mapping[input_version_id] if col == "version_id" else row[columns.index(col)])
                 for col in insert_columns
             ]
             output_cursor.execute(insert_query, tuple(row_data))
@@ -1232,7 +1295,11 @@ class GameDatabase:
         print(f"Inserted {inserted_row_count} new {table_name} rows into output database.")
 
     @staticmethod
-    def _copy_versions(input_cursor: sqlite3.Cursor, output_cursor: sqlite3.Cursor, game_id_mapping: dict) -> dict:
+    def _copy_versions(
+        input_cursor: sqlite3.Cursor,
+        output_cursor: sqlite3.Cursor,
+        game_id_mapping: dict,
+    ) -> dict:
         input_game_ids = list(game_id_mapping.keys())
         placeholders = ",".join(["?" for _ in input_game_ids])
         input_cursor.execute(f"SELECT * FROM versions WHERE game_id IN ({placeholders})", input_game_ids)
@@ -1254,7 +1321,7 @@ class GameDatabase:
 
             # Prepare row data, excluding 'id' and updating 'game_id'
             row_data = [
-                game_id_mapping[input_game_id] if col == "game_id" else row[version_columns.index(col)]
+                (game_id_mapping[input_game_id] if col == "game_id" else row[version_columns.index(col)])
                 for col in insert_columns
             ]
             output_cursor.execute(version_insert_query, row_data)
