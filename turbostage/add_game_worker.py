@@ -25,6 +25,7 @@ class AddGameWorker(QRunnable):
         db_path: str,
         igdb_client,
         requires_install: bool = False,
+        midi_device: int = 0,
     ):
         super().__init__()
         self.signals = WorkerSignals()
@@ -39,6 +40,7 @@ class AddGameWorker(QRunnable):
         self._db_path = db_path
         self._igdb_client = igdb_client
         self._requires_install = requires_install
+        self._midi_device = midi_device
 
     def run(self):
         # Create database instance
@@ -49,7 +51,9 @@ class AddGameWorker(QRunnable):
 
         # Strip ISO version number (e.g., ;1) from executables
         binary = self._binary.split(";")[0] if self._binary else None
-        config_binary = self._config_binary.split(";")[0] if self._config_binary else None
+        config_binary = (
+            self._config_binary.split(";")[0] if self._config_binary else None
+        )
 
         # 1. check if game exists in db
         game = db.get_game_details_by_igdb_id(self._igdb_id)
@@ -68,7 +72,9 @@ class AddGameWorker(QRunnable):
             if existing_version.version_name == self._version_name:
                 # Version already exists, just update the local version entry
                 db.add_local_game_version(
-                    existing_version.version_id, archive_basename, archive_type=archive_type,
+                    existing_version.version_id,
+                    archive_basename,
+                    archive_type=archive_type,
                     requires_install=self._requires_install,
                 )
                 self.signals.task_finished.emit()
@@ -83,17 +89,22 @@ class AddGameWorker(QRunnable):
             self._config,
             self._cpu_cycles,
             requires_install=self._requires_install,
+            midi_device=self._midi_device,
         )
 
         # 4. add hashes based on archive type
         if archive_type == "iso":
-            hashes = iso_utils.compute_hash_for_largest_files_in_iso(self._game_archive, n=4)
+            hashes = iso_utils.compute_hash_for_largest_files_in_iso(
+                self._game_archive, n=4
+            )
             # Only compute hash for binary if it's selected (not None/empty)
             if binary and binary not in [h[0] for h in hashes]:
                 h = iso_utils.compute_md5_from_iso(self._game_archive, binary)
                 hashes.append((binary, 0, h))
         else:
-            hashes = utils.compute_hash_for_largest_files_in_zip(self._game_archive, n=4)
+            hashes = utils.compute_hash_for_largest_files_in_zip(
+                self._game_archive, n=4
+            )
             if binary and binary not in [h[0] for h in hashes]:
                 with zipfile.ZipFile(self._game_archive, "r") as zf:
                     h = utils.compute_md5_from_zip(zf, binary)
@@ -102,17 +113,25 @@ class AddGameWorker(QRunnable):
         db.insert_multiple_hashes(version_id, hashes)
 
         # 5. add local version with archive type
-        db.add_local_game_version(version_id, archive_basename, archive_type=archive_type, requires_install=self._requires_install)
+        db.add_local_game_version(
+            version_id,
+            archive_basename,
+            archive_type=archive_type,
+            requires_install=self._requires_install,
+        )
 
         # 6. For ISO games that require installation, create installation record
         if archive_type == "iso" and self._requires_install:
-            app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+            app_data_folder = os.path.dirname(
+                QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
+            )
             installs_folder = os.path.join(app_data_folder, "installs")
             os.makedirs(installs_folder, exist_ok=True)
             install_path = os.path.join(installs_folder, str(version_id))
             # Clean old install directory if it exists (from a previous deletion)
             if os.path.isdir(install_path):
                 import shutil
+
                 shutil.rmtree(install_path)
             os.makedirs(install_path, exist_ok=True)
             db.create_installation(version_id, install_path)

@@ -29,6 +29,12 @@ CPU_CYCLES = {
     "Pentium II 300": 200000,
 }
 
+MIDI_DEVICE = {
+    "None": 0,
+    "MT-32": 1,
+    "Sound Canvas": 2,
+}
+
 # IGDB API constants
 IGDB_CLIENT_ID = "finu9rpxtjmau9p7gv6tmt5rejv3qz"
 IGDB_CLIENT_SECRET = "mxp3b0ihmkza3lxihsu6vpm9otrq5v"

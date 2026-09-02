@@ -13,6 +13,7 @@ def run_dosbox(
     mt32_roms_path: str | None = None,
     soundcanvas_roms_path: str | None = None,
     config_content: str | None = None,
+    midi_device: int = 0,
 ) -> int:
     """Run DOSBox Staging with a given executable.
 
@@ -25,6 +26,7 @@ def run_dosbox(
         mt32_roms_path: Path to MT-32 ROM directory.
         soundcanvas_roms_path: Path to SoundCanvas ROM directory.
         config_content: Raw DOSBox config text to append.
+        midi_device: MIDI device (0=None, 1=MT-32, 2=Sound Canvas).
 
     Returns:
         Exit code from the DOSBox process.
@@ -36,7 +38,7 @@ def run_dosbox(
         command.append("--fullscreen")
 
     extra_config = _build_extra_config(
-        cpu_cycles, mt32_roms_path, soundcanvas_roms_path, config_content
+        cpu_cycles, mt32_roms_path, soundcanvas_roms_path, config_content, midi_device
     )
     temp_conf = None
     if extra_config:
@@ -59,9 +61,15 @@ def _build_extra_config(
     mt32_roms_path: str | None = None,
     soundcanvas_roms_path: str | None = None,
     config_content: str | None = None,
+    midi_device: int = 0,
 ) -> str:
     """Build extra DOSBox config sections from optional overrides."""
     parts = []
+    # Write MIDI device setting first so it takes precedence over free-form config
+    if midi_device == 1:
+        parts.append("\n[midi]\nmididevice = mt32\n")
+    elif midi_device == 2:
+        parts.append("\n[midi]\nmididevice = soundcanvas\n")
     if config_content:
         parts.append(config_content)
     if cpu_cycles > 0:

@@ -1,7 +1,14 @@
 import os
 import zipfile
 
-from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, QSettings, Qt, Signal
+from PySide6.QtCore import (
+    QAbstractListModel,
+    QItemSelectionModel,
+    QModelIndex,
+    QSettings,
+    Qt,
+    Signal,
+)
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -63,6 +70,7 @@ class GameSetupWidget(QWidget):
         self._pristine_binary = None
         self._pristine_config_binary = None
         self._pristine_cpu_index = 0
+        self._pristine_midi_index = 0
         self._pristine_config = ""
 
         self._init_ui()
@@ -74,13 +82,17 @@ class GameSetupWidget(QWidget):
         self.empty_label = QLabel("Select a game to configure it.")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet(f"color: {muted_text_color()}; font-size: 14px; padding: 24px;")
+        self.empty_label.setStyleSheet(
+            f"color: {muted_text_color()}; font-size: 14px; padding: 24px;"
+        )
         self.layout.addWidget(self.empty_label)
 
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.scroll_area.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setContentsMargins(4, 4, 4, 4)
@@ -112,16 +124,24 @@ class GameSetupWidget(QWidget):
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
         self.selected_binary = None
-        self.binary_list_view.selectionModel().selectionChanged.connect(self._on_settings_changed)
+        self.binary_list_view.selectionModel().selectionChanged.connect(
+            self._on_settings_changed
+        )
         self.binary_list_view.setEnabled(False)
         self.config_binary_list_view = QListView()
         self.config_binary_list_model = BinaryListModel()
         self.config_binary_list_view.setModel(self.config_binary_list_model)
         self.config_binary_list_view.setSelectionMode(QListView.SingleSelection)
-        self.config_binary_list_view.selectionModel().selectionChanged.connect(self._on_settings_changed)
+        self.config_binary_list_view.selectionModel().selectionChanged.connect(
+            self._on_settings_changed
+        )
         self.config_binary_list_view.setEnabled(False)
-        self.binary_tabs.addTab(self.binary_list_view, load_icon("executable"), "Game executable")
-        self.binary_tabs.addTab(self.config_binary_list_view, load_icon("installer"), "Config executable")
+        self.binary_tabs.addTab(
+            self.binary_list_view, load_icon("executable"), "Game executable"
+        )
+        self.binary_tabs.addTab(
+            self.config_binary_list_view, load_icon("installer"), "Config executable"
+        )
         self.binary_tabs.setMinimumHeight(160)
         game_layout.addWidget(self.binary_tabs)
         self.content_layout.addWidget(self.game_group)
@@ -135,17 +155,27 @@ class GameSetupWidget(QWidget):
         self.cpu_combobox.currentIndexChanged.connect(self._on_settings_changed)
         self.cpu_combobox.setEnabled(False)
         performance_layout.addWidget(self.cpu_combobox)
+        performance_layout.addLayout(self._icon_row("midi", "MIDI Device"))
+        self.midi_combobox = QComboBox()
+        self.midi_combobox.addItems(list(constants.MIDI_DEVICE.keys()))
+        self.midi_combobox.currentIndexChanged.connect(self._on_settings_changed)
+        self.midi_combobox.setEnabled(False)
+        performance_layout.addWidget(self.midi_combobox)
         self.content_layout.addWidget(self.performance_group)
 
         # Advanced group (collapsible)
-        self.advanced_group = self._make_group("Advanced (extra DOSBox config)", checkable=True)
+        self.advanced_group = self._make_group(
+            "Advanced (extra DOSBox config)", checkable=True
+        )
         advanced_layout = QVBoxLayout(self.advanced_group)
         self.advanced_content = QWidget()
         advanced_inner_layout = QVBoxLayout(self.advanced_content)
         advanced_inner_layout.setContentsMargins(0, 0, 0, 0)
         self.dosbox_config_text = QTextEdit()
         self.dosbox_config_text.setMinimumHeight(120)
-        self.dosbox_config_text.setPlaceholderText("Enter custom DOSBox configuration here...")
+        self.dosbox_config_text.setPlaceholderText(
+            "Enter custom DOSBox configuration here..."
+        )
         self.dosbox_config_text.textChanged.connect(self._on_settings_changed)
         self.dosbox_config_text.setEnabled(False)
         advanced_inner_layout.addWidget(self.dosbox_config_text)
@@ -202,6 +232,7 @@ class GameSetupWidget(QWidget):
         self.binary_list_view.setEnabled(enabled)
         self.config_binary_list_view.setEnabled(enabled)
         self.cpu_combobox.setEnabled(enabled)
+        self.midi_combobox.setEnabled(enabled)
         self.version_combobox.setEnabled(enabled)
         self.dosbox_config_text.setEnabled(enabled and self.advanced_group.isChecked())
 
@@ -232,7 +263,9 @@ class GameSetupWidget(QWidget):
         self.version_combobox.blockSignals(True)
         self.version_combobox.clear()
         for index, version in enumerate(self._versions):
-            self.version_combobox.addItem(version.version_name or f"Version {index + 1}")
+            self.version_combobox.addItem(
+                version.version_name or f"Version {index + 1}"
+            )
         self.version_combobox.setCurrentIndex(0)
         self.version_combobox.blockSignals(False)
 
@@ -248,6 +281,7 @@ class GameSetupWidget(QWidget):
             game_binary = version_details.executable
             game_config = version_details.config
             cpu_cycles = version_details.cycles
+            midi_device = version_details.midi_device
             game_archive = version_details.archive
 
             archive_type = self._db.get_archive_type(self.version_id)
@@ -255,7 +289,9 @@ class GameSetupWidget(QWidget):
             is_installed = False
             install_path = None
             if archive_type == "iso" and requires_install:
-                is_installed, install_path = self._db.get_installation_status(self.version_id)
+                is_installed, install_path = self._db.get_installation_status(
+                    self.version_id
+                )
 
             warning = None
             binaries = []
@@ -274,19 +310,30 @@ class GameSetupWidget(QWidget):
             self.binary_list_model.set_binaries(binaries)
             self.config_binary_list_model.set_binaries([NO_CONFIG_LABEL] + binaries)
 
-            self._update_game_info(version_details, archive_type, requires_install, is_installed, warning)
+            self._update_game_info(
+                version_details, archive_type, requires_install, is_installed, warning
+            )
 
             self._select_binary(game_binary)
             self._select_config_binary(version_details.config_executable)
-            self._set_game_config(cpu_cycles, game_config)
+            self._set_game_config(cpu_cycles, midi_device, game_config)
             self._capture_pristine()
         finally:
             self._loading = False
 
-    def _update_game_info(self, version_details, archive_type, requires_install, is_installed, warning=None):
+    def _update_game_info(
+        self,
+        version_details,
+        archive_type,
+        requires_install,
+        is_installed,
+        warning=None,
+    ):
         if archive_type == "iso":
             if requires_install:
-                status = "ISO (installed)" if is_installed else "ISO (requires installation)"
+                status = (
+                    "ISO (installed)" if is_installed else "ISO (requires installation)"
+                )
                 drive_icon = "harddrive" if is_installed else "cdrom"
             else:
                 status = "ISO"
@@ -361,12 +408,18 @@ class GameSetupWidget(QWidget):
     def populates_binary_list_from_dir(directory: str, list_model):
         list_model.set_binaries(GameSetupWidget._list_binaries_from_dir(directory))
 
-    def _set_game_config(self, cpu_cycles, game_config):
+    def _set_game_config(self, cpu_cycles, midi_device, game_config):
         if cpu_cycles is not None:
             index = list(constants.CPU_CYCLES.values()).index(cpu_cycles)
             self.cpu_combobox.setCurrentIndex(index)
         else:
             self.cpu_combobox.setCurrentIndex(0)
+
+        if midi_device is not None and midi_device in constants.MIDI_DEVICE.values():
+            index = list(constants.MIDI_DEVICE.values()).index(midi_device)
+            self.midi_combobox.setCurrentIndex(index)
+        else:
+            self.midi_combobox.setCurrentIndex(0)
 
         self.dosbox_config_text.setPlainText(game_config or "")
 
@@ -383,15 +436,23 @@ class GameSetupWidget(QWidget):
         return False
 
     def _select_binary(self, game_binary):
-        if self._select_value(self.binary_list_view, self.binary_list_model, game_binary):
+        if self._select_value(
+            self.binary_list_view, self.binary_list_model, game_binary
+        ):
             self.selected_binary = game_binary
         else:
             self.selected_binary = None
 
     def _select_config_binary(self, config_binary):
         value = config_binary if config_binary else NO_CONFIG_LABEL
-        if not self._select_value(self.config_binary_list_view, self.config_binary_list_model, value):
-            self._select_value(self.config_binary_list_view, self.config_binary_list_model, NO_CONFIG_LABEL)
+        if not self._select_value(
+            self.config_binary_list_view, self.config_binary_list_model, value
+        ):
+            self._select_value(
+                self.config_binary_list_view,
+                self.config_binary_list_model,
+                NO_CONFIG_LABEL,
+            )
             value = NO_CONFIG_LABEL
         self.selected_config_binary = value
 
@@ -399,6 +460,7 @@ class GameSetupWidget(QWidget):
         self._pristine_binary = self.selected_binary
         self._pristine_config_binary = self.selected_config_binary
         self._pristine_cpu_index = self.cpu_combobox.currentIndex()
+        self._pristine_midi_index = self.midi_combobox.currentIndex()
         self._pristine_config = self.dosbox_config_text.toPlainText()
         self.save_button.setEnabled(False)
         self.reset_button.setEnabled(False)
@@ -412,10 +474,14 @@ class GameSetupWidget(QWidget):
             return
         selected_index = self.binary_list_view.selectedIndexes()
         if selected_index:
-            self.selected_binary = self.binary_list_model.binaries[selected_index[0].row()]
+            self.selected_binary = self.binary_list_model.binaries[
+                selected_index[0].row()
+            ]
         config_index = self.config_binary_list_view.selectedIndexes()
         if config_index:
-            self.selected_config_binary = self.config_binary_list_model.binaries[config_index[0].row()]
+            self.selected_config_binary = self.config_binary_list_model.binaries[
+                config_index[0].row()
+            ]
         if self._auto_save_enable:
             self.enable_button(True)
         self.reset_button.setEnabled(True)
@@ -427,6 +493,7 @@ class GameSetupWidget(QWidget):
             self._select_binary(self._pristine_binary)
             self._select_config_binary(self._pristine_config_binary)
             self.cpu_combobox.setCurrentIndex(self._pristine_cpu_index)
+            self.midi_combobox.setCurrentIndex(self._pristine_midi_index)
             self.dosbox_config_text.setPlainText(self._pristine_config)
             self.selected_binary = self._pristine_binary
             self.selected_config_binary = self._pristine_config_binary
@@ -442,6 +509,10 @@ class GameSetupWidget(QWidget):
     @property
     def cpu_cycles(self) -> int:
         return constants.CPU_CYCLES[self.cpu_combobox.currentText()]
+
+    @property
+    def midi_device(self) -> int:
+        return constants.MIDI_DEVICE[self.midi_combobox.currentText()]
 
     @property
     def config_executable(self) -> str | None:

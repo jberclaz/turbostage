@@ -42,7 +42,7 @@
         "version": "en",
         "executable": "COMANCHE/C.EXE",
         "archive": "comanche.zip",
-        "config": "[midi]\nmididevice = mt32\n"
+        "config": ""
       }
     ],
     "igdb_id": 7494

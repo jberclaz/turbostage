@@ -41,11 +41,15 @@ class NewGameWizard(QWizard):
         super(NewGameWizard, self).__init__(parent)
         self.setWindowTitle("Add New Game")
         self.setWizardStyle(QWizard.ModernStyle)
-        with importlib.resources.files("turbostage").joinpath("content/msdos_logo.png").open("rb") as file:
+        with importlib.resources.files("turbostage").joinpath(
+            "content/msdos_logo.png"
+        ).open("rb") as file:
             pixmap = QPixmap()
             pixmap.loadFromData(file.read())
             self.setPixmap(QWizard.WizardPixmap.LogoPixmap, pixmap)
-        with importlib.resources.files("turbostage").joinpath("content/wizard.png").open("rb") as file:
+        with importlib.resources.files("turbostage").joinpath(
+            "content/wizard.png"
+        ).open("rb") as file:
             pixmap = QPixmap()
             pixmap.loadFromData(file.read())
             self.setPixmap(QWizard.WizardPixmap.WatermarkPixmap, pixmap)
@@ -66,6 +70,7 @@ class NewGameWizard(QWizard):
         # ConfigPage will be conditionally skipped for ISO with installation
         self.addPage(ConfigPage(executables, is_iso=self._is_iso))
         self.addPage(CPUPage())
+        self.addPage(MidiDevicePage())
         self.addPage(DosBoxOptions())
 
     def nextId(self):
@@ -109,6 +114,10 @@ class NewGameWizard(QWizard):
         return self.field("game.cpu")
 
     @property
+    def midi_device(self) -> int:
+        return self.field("game.midi_device")
+
+    @property
     def dosbox_config(self) -> str:
         return self.field("game.extra_config")
 
@@ -127,7 +136,8 @@ class NewGameWizard(QWizard):
                 return [
                     info.filename
                     for info in zf.infolist()
-                    if os.path.splitext(info.filename)[1].lower() in EXECUTABLE_EXTENSIONS
+                    if os.path.splitext(info.filename)[1].lower()
+                    in EXECUTABLE_EXTENSIONS
                 ]
 
 
@@ -135,7 +145,9 @@ class GameTitlePage(QWizardPage):
     def __init__(self, igdb_client, file_name, parent=None):
         super().__init__(parent)
         self.setTitle("Game title")
-        self.setSubTitle("Search for the game title in the search box and pick the correct version")
+        self.setSubTitle(
+            "Search for the game title in the search box and pick the correct version"
+        )
         self._igdb_client = igdb_client
 
         layout = QVBoxLayout(self)
@@ -148,7 +160,9 @@ class GameTitlePage(QWizardPage):
         self.game_list_view = QListView(self)
         self.game_list_model = GameListModel()
         self.game_list_view.setModel(self.game_list_model)
-        self.game_list_view.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.game_list_view.selectionModel().selectionChanged.connect(
+            self._selection_changed
+        )
         self.game_list_view.setSelectionMode(QListView.SingleSelection)
         layout.addWidget(self.game_list_view)
         self.setLayout(layout)
@@ -186,8 +200,18 @@ class GameTitlePage(QWizardPage):
         """
         # Strip version/build tokens and years before normalizing separators, using
         # explicit non-alphanumeric boundaries so "_", "-" and "." delimit them too.
-        raw = re.sub(r"(?<![A-Za-z0-9])v[-\s.]?\d+(?:\.\d+)*(?![A-Za-z0-9])", " ", base_name, flags=re.IGNORECASE)
-        raw = re.sub(r"(?<![A-Za-z0-9])\d+\.\d+[a-z]?(?![A-Za-z0-9])", " ", raw, flags=re.IGNORECASE)
+        raw = re.sub(
+            r"(?<![A-Za-z0-9])v[-\s.]?\d+(?:\.\d+)*(?![A-Za-z0-9])",
+            " ",
+            base_name,
+            flags=re.IGNORECASE,
+        )
+        raw = re.sub(
+            r"(?<![A-Za-z0-9])\d+\.\d+[a-z]?(?![A-Za-z0-9])",
+            " ",
+            raw,
+            flags=re.IGNORECASE,
+        )
         raw = re.sub(r"(?<![A-Za-z0-9])(?:19|20)\d{2}(?![A-Za-z0-9])", " ", raw)
 
         # Keep model-number hyphens ("A-10", "F-15") before normalizing separators.
@@ -197,8 +221,12 @@ class GameTitlePage(QWizardPage):
         normalized = re.sub(r"\s+", " ", normalized).strip()
 
         plain = cls._clean_query(normalized)
-        split = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", plain)  # "WingCommanderIII" -> "Wing CommanderIII"
-        split = re.sub(r"(?<=[A-Za-z])(?<![IVXLC])(?=[IVXLC]{2,}$)", " ", split)  # trailing roman numeral
+        split = re.sub(
+            r"(?<=[a-z0-9])(?=[A-Z])", " ", plain
+        )  # "WingCommanderIII" -> "Wing CommanderIII"
+        split = re.sub(
+            r"(?<=[A-Za-z])(?<![IVXLC])(?=[IVXLC]{2,}$)", " ", split
+        )  # trailing roman numeral
         split = cls._clean_query(split)
 
         candidates = []
@@ -209,12 +237,23 @@ class GameTitlePage(QWizardPage):
 
     @staticmethod
     def _clean_query(query: str) -> str:
-        query = re.sub(r"\b(?:DOS|EN|RIP|ENG)\b", " ", query, flags=re.IGNORECASE)  # scene/language tags
-        query = re.sub(r"\b(?:CD|DISC|DISK)\s*\d+(?:\s*of\s*\d+)?\b", " ", query, flags=re.IGNORECASE)  # disc numbers
-        query = re.sub(r"(?<=[A-Za-z])\d{2,}\b", " ", query)  # digits glued to a word ("screamer01")
+        query = re.sub(
+            r"\b(?:DOS|EN|RIP|ENG)\b", " ", query, flags=re.IGNORECASE
+        )  # scene/language tags
+        query = re.sub(
+            r"\b(?:CD|DISC|DISK)\s*\d+(?:\s*of\s*\d+)?\b",
+            " ",
+            query,
+            flags=re.IGNORECASE,
+        )  # disc numbers
+        query = re.sub(
+            r"(?<=[A-Za-z])\d{2,}\b", " ", query
+        )  # digits glued to a word ("screamer01")
         query = re.sub(r"\b0\d+\b", " ", query)  # zero-padded standalone numbers
         for phrase in GameTitlePage._PUBLISHER_PHRASES:
-            query = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", query, flags=re.IGNORECASE)
+            query = re.sub(
+                r"\b" + re.escape(phrase) + r"\b", " ", query, flags=re.IGNORECASE
+            )
         query = GameTitlePage._strip_allcaps_duplicates(query)
         return re.sub(r"\s+", " ", query).strip()
 
@@ -265,7 +304,9 @@ class GameTitlePage(QWizardPage):
 
 
 class VersionPage(QWizardPage):
-    def __init__(self, volume_label: str | None = None, is_iso: bool = False, parent=None):
+    def __init__(
+        self, volume_label: str | None = None, is_iso: bool = False, parent=None
+    ):
         super().__init__(parent)
         self._is_iso = is_iso
         self.setTitle("Game version")
@@ -313,7 +354,9 @@ class ExecutablePage(QWizardPage):
         self.binary_list_model.set_binaries(executables)
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
-        self.binary_list_view.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.binary_list_view.selectionModel().selectionChanged.connect(
+            self._selection_changed
+        )
         layout.addWidget(self.binary_list_view)
         self.setLayout(layout)
 
@@ -362,7 +405,9 @@ class ConfigPage(QWizardPage):
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
         self.selected_binary = None
-        self.binary_list_view.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.binary_list_view.selectionModel().selectionChanged.connect(
+            self._selection_changed
+        )
         layout.addWidget(self.binary_list_view)
         self.setLayout(layout)
 
@@ -411,6 +456,24 @@ class CPUPage(QWizardPage):
         self.registerField("game.cpu", self.cpu_combobox)
 
 
+class MidiDevicePage(QWizardPage):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setTitle("MIDI device")
+        self.setSubTitle(
+            "Select the MIDI device for this game. Use 'None' for games that don't require MT-32 or Sound Canvas."
+        )
+
+        layout = QVBoxLayout(self)
+        layout.addWidget(icon_widget("midi", "MIDI Device"))
+        self.midi_combobox = QComboBox()
+        self.midi_combobox.addItems(list(constants.MIDI_DEVICE.keys()))
+        layout.addWidget(self.midi_combobox)
+        self.setLayout(layout)
+
+        self.registerField("game.midi_device", self.midi_combobox)
+
+
 class DosBoxOptions(QWizardPage):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -419,7 +482,9 @@ class DosBoxOptions(QWizardPage):
 
         layout = QVBoxLayout(self)
         self.dosbox_config_text = QTextEdit(self)
-        self.dosbox_config_text.setPlaceholderText("Enter custom DOSBox configuration here...")
+        self.dosbox_config_text.setPlaceholderText(
+            "Enter custom DOSBox configuration here..."
+        )
         self.dosbox_config_text.textChanged.connect(self._text_changed)
         layout.addWidget(self.dosbox_config_text)
 

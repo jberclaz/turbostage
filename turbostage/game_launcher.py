@@ -93,6 +93,7 @@ class GameLauncher:
         archive = game_info.archive
         config = game_info.config
         cpu_cycles = game_info.cycles
+        midi_device = game_info.midi_device or 0
         self._version_id = game_info.version_id
         if binary is not None:
             executable = binary
@@ -146,6 +147,7 @@ class GameLauncher:
                     soundcanvas_roms_path=soundcanvas_roms_path,
                     disk_noise=disk_noise,
                     cpu_cycles=cpu_cycles,
+                    midi_device=midi_device,
                     save_games=save_games,
                     config_files=config_files,
                     install_mode=install_mode,
@@ -163,6 +165,7 @@ class GameLauncher:
                     soundcanvas_roms_path=soundcanvas_roms_path,
                     disk_noise=disk_noise,
                     cpu_cycles=cpu_cycles,
+                    midi_device=midi_device,
                     save_games=save_games,
                     config_files=config_files,
                 )
@@ -179,6 +182,7 @@ class GameLauncher:
         soundcanvas_roms_path,
         disk_noise,
         cpu_cycles,
+        midi_device,
         save_games,
         config_files,
     ):
@@ -210,6 +214,7 @@ class GameLauncher:
                 or soundcanvas_roms_path
                 or disk_noise
                 or cpu_cycles > 0
+                or midi_device > 0
             ):
                 GameLauncher._write_custom_dosbox_config_file(
                     conf_file,
@@ -218,6 +223,7 @@ class GameLauncher:
                     soundcanvas_roms_path,
                     disk_noise,
                     cpu_cycles,
+                    midi_device,
                 )
                 command.extend(["--conf", conf_file.name])
             command.append(executable_path)
@@ -255,6 +261,7 @@ class GameLauncher:
         soundcanvas_roms_path,
         disk_noise,
         cpu_cycles,
+        midi_device,
         save_games,
         config_files,
         install_mode,
@@ -346,6 +353,7 @@ class GameLauncher:
                 or soundcanvas_roms_path
                 or disk_noise
                 or cpu_cycles > 0
+                or midi_device > 0
             ):
                 GameLauncher._write_custom_dosbox_config_file(
                     conf_file,
@@ -354,6 +362,7 @@ class GameLauncher:
                     soundcanvas_roms_path,
                     disk_noise,
                     cpu_cycles,
+                    midi_device,
                 )
 
             # Write autoexec section
@@ -424,7 +433,13 @@ class GameLauncher:
         soundcanvas_roms_path: str,
         disk_noise: bool,
         cpu_cycles: int,
+        midi_device: int = 0,
     ):
+        # Write MIDI device setting first so it takes precedence over free-form config
+        if midi_device == 1:
+            config_file.write("\n[midi]\nmididevice = mt32\n")
+        elif midi_device == 2:
+            config_file.write("\n[midi]\nmididevice = soundcanvas\n")
         if config_content:
             config_file.write(config_content)
         if cpu_cycles > 0:
