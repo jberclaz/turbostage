@@ -18,6 +18,36 @@ from turbostage.db.game_database import GameDatabase
 IMMEDIATE_EXIT_SECONDS = 5.0
 
 
+def is_midi_device_available(
+    midi_device: int, mt32_roms_path: str, soundcanvas_roms_path: str
+) -> bool:
+    """Check if the ROMs for a given MIDI device are installed.
+
+    Args:
+        midi_device: MIDI device (0=None, 1=MT-32, 2=Sound Canvas).
+        mt32_roms_path: Path to MT-32 ROM directory.
+        soundcanvas_roms_path: Path to SoundCanvas ROM directory.
+
+    Returns:
+        True if the device is None or if the corresponding ROMs are available.
+    """
+    if midi_device == 0:
+        return True
+    if midi_device == 1:
+        return (
+            bool(mt32_roms_path)
+            and os.path.isdir(mt32_roms_path)
+            and os.listdir(mt32_roms_path)
+        )
+    if midi_device == 2:
+        return (
+            bool(soundcanvas_roms_path)
+            and os.path.isdir(soundcanvas_roms_path)
+            and os.listdir(soundcanvas_roms_path)
+        )
+    return False
+
+
 def _dosbox_env() -> dict | None:
     """Return a sanitized environment for launching DOSBox, or None if unneeded.
 
@@ -107,6 +137,13 @@ class GameLauncher:
         mt32_roms_path = str(settings.value("app/mt32_path", ""))
         soundcanvas_roms_path = str(settings.value("app/soundcanvas_path", ""))
         disk_noise = utils.to_bool(settings.value("app/disk_noise", False))
+
+        # Revert MIDI device to None if ROMs are not available
+        if not is_midi_device_available(
+            midi_device, mt32_roms_path, soundcanvas_roms_path
+        ):
+            midi_device = 0
+
         if not dosbox_exec:
             QGuiApplication.restoreOverrideCursor()
             QMessageBox.critical(

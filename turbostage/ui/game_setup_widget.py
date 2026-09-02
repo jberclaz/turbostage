@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 
 from turbostage import constants
 from turbostage.db.game_database import GameDatabase
+from turbostage.game_launcher import is_midi_device_available
 from turbostage.ui.icons import load_icon
 from turbostage.ui.theme import group_box_style, muted_text_color
 
@@ -281,7 +282,7 @@ class GameSetupWidget(QWidget):
             game_binary = version_details.executable
             game_config = version_details.config
             cpu_cycles = version_details.cycles
-            midi_device = version_details.midi_device
+            midi_device = version_details.midi_device or 0
             game_archive = version_details.archive
 
             archive_type = self._db.get_archive_type(self.version_id)
@@ -295,17 +296,25 @@ class GameSetupWidget(QWidget):
 
             warning = None
             binaries = []
+            settings = QSettings("jberclaz", "TurboStage")
+            mt32_roms_path = str(settings.value("app/mt32_path", ""))
+            soundcanvas_roms_path = str(settings.value("app/soundcanvas_path", ""))
             try:
                 if is_installed and install_path:
                     binaries = self._list_binaries_from_dir(install_path)
                 else:
-                    settings = QSettings("jberclaz", "TurboStage")
                     games_path = str(settings.value("app/games_path", ""))
                     game_archive_path = os.path.join(games_path, game_archive)
                     binaries = self._list_binaries(game_archive_path)
             except (FileNotFoundError, zipfile.BadZipFile, OSError) as e:
                 binaries = []
                 warning = f"Unable to read game archive: {e}"
+
+            # Revert MIDI device to None if ROMs are not available
+            if not is_midi_device_available(
+                midi_device, mt32_roms_path, soundcanvas_roms_path
+            ):
+                midi_device = 0
 
             self.binary_list_model.set_binaries(binaries)
             self.config_binary_list_model.set_binaries([NO_CONFIG_LABEL] + binaries)
