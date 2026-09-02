@@ -51,9 +51,7 @@ class AddGameWorker(QRunnable):
 
         # Strip ISO version number (e.g., ;1) from executables
         binary = self._binary.split(";")[0] if self._binary else None
-        config_binary = (
-            self._config_binary.split(";")[0] if self._config_binary else None
-        )
+        config_binary = self._config_binary.split(";")[0] if self._config_binary else None
 
         # 1. check if game exists in db
         game = db.get_game_details_by_igdb_id(self._igdb_id)
@@ -94,17 +92,13 @@ class AddGameWorker(QRunnable):
 
         # 4. add hashes based on archive type
         if archive_type == "iso":
-            hashes = iso_utils.compute_hash_for_largest_files_in_iso(
-                self._game_archive, n=4
-            )
+            hashes = iso_utils.compute_hash_for_largest_files_in_iso(self._game_archive, n=4)
             # Only compute hash for binary if it's selected (not None/empty)
             if binary and binary not in [h[0] for h in hashes]:
                 h = iso_utils.compute_md5_from_iso(self._game_archive, binary)
                 hashes.append((binary, 0, h))
         else:
-            hashes = utils.compute_hash_for_largest_files_in_zip(
-                self._game_archive, n=4
-            )
+            hashes = utils.compute_hash_for_largest_files_in_zip(self._game_archive, n=4)
             if binary and binary not in [h[0] for h in hashes]:
                 with zipfile.ZipFile(self._game_archive, "r") as zf:
                     h = utils.compute_md5_from_zip(zf, binary)
@@ -122,9 +116,7 @@ class AddGameWorker(QRunnable):
 
         # 6. For ISO games that require installation, create installation record
         if archive_type == "iso" and self._requires_install:
-            app_data_folder = os.path.dirname(
-                QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)
-            )
+            app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
             installs_folder = os.path.join(app_data_folder, "installs")
             os.makedirs(installs_folder, exist_ok=True)
             install_path = os.path.join(installs_folder, str(version_id))

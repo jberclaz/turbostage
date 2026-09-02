@@ -34,9 +34,7 @@ def migration(version: str) -> Callable:
     return decorator
 
 
-def get_ordered_migrations(
-    from_version: str, to_version: str
-) -> List[Tuple[str, Callable]]:
+def get_ordered_migrations(from_version: str, to_version: str) -> List[Tuple[str, Callable]]:
     """Get a list of migration functions to execute in order.
 
     Args:
@@ -66,9 +64,7 @@ def get_ordered_migrations(
     return applicable_migrations
 
 
-def migrate_database(
-    db_conn: sqlite3.Connection, from_version: str, to_version: str
-) -> None:
+def migrate_database(db_conn: sqlite3.Connection, from_version: str, to_version: str) -> None:
     """Apply all necessary migrations to upgrade a database from one version to another.
 
     Args:
@@ -133,22 +129,12 @@ def migrate_to_0_6_0(conn: sqlite3.Connection) -> None:
 
     # Add indexes to frequently searched columns
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id)")
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_versions_game_id ON versions(game_id)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_hashes_version_id ON hashes(version_id)"
-    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_versions_game_id ON versions(game_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_hashes_version_id ON hashes(version_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_hashes_hash ON hashes(hash)")
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_config_files_version_id ON config_files(version_id)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_config_files_version_path ON config_files(version_id, path, type)"
-    )
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_local_versions_version_id ON local_versions(version_id)"
-    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_config_files_version_id ON config_files(version_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_config_files_version_path ON config_files(version_id, path, type)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_local_versions_version_id ON local_versions(version_id)")
 
 
 @migration("0.7.0")
@@ -166,15 +152,11 @@ def migrate_to_0_8_0(conn: sqlite3.Connection) -> None:
     cursor.execute(
         "INSERT INTO new_games (igdb_id, title, release_date, genre, summary, publisher, cover_url) SELECT igdb_id, title, release_date, genre, summary, publisher, cover_url FROM games"
     )
-    cursor.execute(
-        "UPDATE versions SET game_id = (SELECT igdb_id FROM games WHERE games.id = versions.game_id)"
-    )
+    cursor.execute("UPDATE versions SET game_id = (SELECT igdb_id FROM games WHERE games.id = versions.game_id)")
     cursor.execute("DROP TABLE games")
     cursor.execute("ALTER TABLE new_games RENAME TO games")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_games_igdb_id ON games(igdb_id)")
-    cursor.execute(
-        "UPDATE games SET cover_url = 'https:' || cover_url WHERE cover_url NOT LIKE 'https:%';"
-    )
+    cursor.execute("UPDATE games SET cover_url = 'https:' || cover_url WHERE cover_url NOT LIKE 'https:%';")
 
 
 @migration("0.9.0")
@@ -236,9 +218,7 @@ def migrate_to_0_10_0(conn: sqlite3.Connection) -> None:
     cursor.execute("PRAGMA table_info(local_versions)")
     columns = {row[1] for row in cursor.fetchall()}
     if "archive_type" not in columns:
-        cursor.execute(
-            "ALTER TABLE local_versions ADD COLUMN archive_type TEXT DEFAULT 'zip'"
-        )
+        cursor.execute("ALTER TABLE local_versions ADD COLUMN archive_type TEXT DEFAULT 'zip'")
 
     # Create installations table
     cursor.execute("""
@@ -253,9 +233,7 @@ def migrate_to_0_10_0(conn: sqlite3.Connection) -> None:
     """)
 
     # Create index for installations table
-    cursor.execute(
-        "CREATE INDEX IF NOT EXISTS idx_installations_version_id ON installations(version_id)"
-    )
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_installations_version_id ON installations(version_id)")
 
 
 @migration("0.10.1")
@@ -269,9 +247,7 @@ def migrate_to_0_10_1(conn: sqlite3.Connection) -> None:
     cursor.execute("PRAGMA table_info(local_versions)")
     columns = {row[1] for row in cursor.fetchall()}
     if "requires_install" not in columns:
-        cursor.execute(
-            "ALTER TABLE local_versions ADD COLUMN requires_install INTEGER DEFAULT 0"
-        )
+        cursor.execute("ALTER TABLE local_versions ADD COLUMN requires_install INTEGER DEFAULT 0")
 
 
 @migration("0.11.0")
@@ -299,9 +275,7 @@ def migrate_to_0_12_0(conn: sqlite3.Connection) -> None:
     cursor.execute("PRAGMA table_info(versions)")
     columns = {row[1] for row in cursor.fetchall()}
     if "requires_install" not in columns:
-        cursor.execute(
-            "ALTER TABLE versions ADD COLUMN requires_install INTEGER DEFAULT 0"
-        )
+        cursor.execute("ALTER TABLE versions ADD COLUMN requires_install INTEGER DEFAULT 0")
 
 
 @migration("0.13.0")

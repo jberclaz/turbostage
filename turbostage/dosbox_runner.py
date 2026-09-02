@@ -37,9 +37,7 @@ def run_dosbox(
     if full_screen:
         command.append("--fullscreen")
 
-    extra_config = _build_extra_config(
-        cpu_cycles, mt32_roms_path, soundcanvas_roms_path, config_content, midi_device
-    )
+    extra_config = _build_extra_config(cpu_cycles, mt32_roms_path, soundcanvas_roms_path, config_content, midi_device)
     temp_conf = None
     if extra_config:
         with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as f:
@@ -73,13 +71,9 @@ def _build_extra_config(
     if config_content:
         parts.append(config_content)
     if cpu_cycles > 0:
-        parts.append(
-            f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n"
-        )
+        parts.append(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n")
     if mt32_roms_path:
         parts.append(f"\n[mt32]\nromdir = {mt32_roms_path}\n")
     if soundcanvas_roms_path:
-        parts.append(
-            f"\n[soundcanvas]\nsoundcanvas_rom_dir = {soundcanvas_roms_path}\n"
-        )
+        parts.append(f"\n[soundcanvas]\nsoundcanvas_rom_dir = {soundcanvas_roms_path}\n")
     return "\n".join(parts)

@@ -1,14 +1,7 @@
 import os
 import zipfile
 
-from PySide6.QtCore import (
-    QAbstractListModel,
-    QItemSelectionModel,
-    QModelIndex,
-    QSettings,
-    Qt,
-    Signal,
-)
+from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -83,17 +76,13 @@ class GameSetupWidget(QWidget):
         self.empty_label = QLabel("Select a game to configure it.")
         self.empty_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.empty_label.setWordWrap(True)
-        self.empty_label.setStyleSheet(
-            f"color: {muted_text_color()}; font-size: 14px; padding: 24px;"
-        )
+        self.empty_label.setStyleSheet(f"color: {muted_text_color()}; font-size: 14px; padding: 24px;")
         self.layout.addWidget(self.empty_label)
 
         self.scroll_area = QScrollArea(self)
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        self.scroll_area.setHorizontalScrollBarPolicy(
-            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
-        )
+        self.scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.content = QWidget()
         self.content_layout = QVBoxLayout(self.content)
         self.content_layout.setContentsMargins(4, 4, 4, 4)
@@ -125,24 +114,16 @@ class GameSetupWidget(QWidget):
         self.binary_list_view.setModel(self.binary_list_model)
         self.binary_list_view.setSelectionMode(QListView.SingleSelection)
         self.selected_binary = None
-        self.binary_list_view.selectionModel().selectionChanged.connect(
-            self._on_settings_changed
-        )
+        self.binary_list_view.selectionModel().selectionChanged.connect(self._on_settings_changed)
         self.binary_list_view.setEnabled(False)
         self.config_binary_list_view = QListView()
         self.config_binary_list_model = BinaryListModel()
         self.config_binary_list_view.setModel(self.config_binary_list_model)
         self.config_binary_list_view.setSelectionMode(QListView.SingleSelection)
-        self.config_binary_list_view.selectionModel().selectionChanged.connect(
-            self._on_settings_changed
-        )
+        self.config_binary_list_view.selectionModel().selectionChanged.connect(self._on_settings_changed)
         self.config_binary_list_view.setEnabled(False)
-        self.binary_tabs.addTab(
-            self.binary_list_view, load_icon("executable"), "Game executable"
-        )
-        self.binary_tabs.addTab(
-            self.config_binary_list_view, load_icon("installer"), "Config executable"
-        )
+        self.binary_tabs.addTab(self.binary_list_view, load_icon("executable"), "Game executable")
+        self.binary_tabs.addTab(self.config_binary_list_view, load_icon("installer"), "Config executable")
         self.binary_tabs.setMinimumHeight(160)
         game_layout.addWidget(self.binary_tabs)
         self.content_layout.addWidget(self.game_group)
@@ -165,18 +146,14 @@ class GameSetupWidget(QWidget):
         self.content_layout.addWidget(self.performance_group)
 
         # Advanced group (collapsible)
-        self.advanced_group = self._make_group(
-            "Advanced (extra DOSBox config)", checkable=True
-        )
+        self.advanced_group = self._make_group("Advanced (extra DOSBox config)", checkable=True)
         advanced_layout = QVBoxLayout(self.advanced_group)
         self.advanced_content = QWidget()
         advanced_inner_layout = QVBoxLayout(self.advanced_content)
         advanced_inner_layout.setContentsMargins(0, 0, 0, 0)
         self.dosbox_config_text = QTextEdit()
         self.dosbox_config_text.setMinimumHeight(120)
-        self.dosbox_config_text.setPlaceholderText(
-            "Enter custom DOSBox configuration here..."
-        )
+        self.dosbox_config_text.setPlaceholderText("Enter custom DOSBox configuration here...")
         self.dosbox_config_text.textChanged.connect(self._on_settings_changed)
         self.dosbox_config_text.setEnabled(False)
         advanced_inner_layout.addWidget(self.dosbox_config_text)
@@ -264,9 +241,7 @@ class GameSetupWidget(QWidget):
         self.version_combobox.blockSignals(True)
         self.version_combobox.clear()
         for index, version in enumerate(self._versions):
-            self.version_combobox.addItem(
-                version.version_name or f"Version {index + 1}"
-            )
+            self.version_combobox.addItem(version.version_name or f"Version {index + 1}")
         self.version_combobox.setCurrentIndex(0)
         self.version_combobox.blockSignals(False)
 
@@ -290,9 +265,7 @@ class GameSetupWidget(QWidget):
             is_installed = False
             install_path = None
             if archive_type == "iso" and requires_install:
-                is_installed, install_path = self._db.get_installation_status(
-                    self.version_id
-                )
+                is_installed, install_path = self._db.get_installation_status(self.version_id)
 
             warning = None
             binaries = []
@@ -311,17 +284,13 @@ class GameSetupWidget(QWidget):
                 warning = f"Unable to read game archive: {e}"
 
             # Revert MIDI device to None if ROMs are not available
-            if not is_midi_device_available(
-                midi_device, mt32_roms_path, soundcanvas_roms_path
-            ):
+            if not is_midi_device_available(midi_device, mt32_roms_path, soundcanvas_roms_path):
                 midi_device = 0
 
             self.binary_list_model.set_binaries(binaries)
             self.config_binary_list_model.set_binaries([NO_CONFIG_LABEL] + binaries)
 
-            self._update_game_info(
-                version_details, archive_type, requires_install, is_installed, warning
-            )
+            self._update_game_info(version_details, archive_type, requires_install, is_installed, warning)
 
             self._select_binary(game_binary)
             self._select_config_binary(version_details.config_executable)
@@ -340,9 +309,7 @@ class GameSetupWidget(QWidget):
     ):
         if archive_type == "iso":
             if requires_install:
-                status = (
-                    "ISO (installed)" if is_installed else "ISO (requires installation)"
-                )
+                status = "ISO (installed)" if is_installed else "ISO (requires installation)"
                 drive_icon = "harddrive" if is_installed else "cdrom"
             else:
                 status = "ISO"
@@ -445,18 +412,14 @@ class GameSetupWidget(QWidget):
         return False
 
     def _select_binary(self, game_binary):
-        if self._select_value(
-            self.binary_list_view, self.binary_list_model, game_binary
-        ):
+        if self._select_value(self.binary_list_view, self.binary_list_model, game_binary):
             self.selected_binary = game_binary
         else:
             self.selected_binary = None
 
     def _select_config_binary(self, config_binary):
         value = config_binary if config_binary else NO_CONFIG_LABEL
-        if not self._select_value(
-            self.config_binary_list_view, self.config_binary_list_model, value
-        ):
+        if not self._select_value(self.config_binary_list_view, self.config_binary_list_model, value):
             self._select_value(
                 self.config_binary_list_view,
                 self.config_binary_list_model,
@@ -483,14 +446,10 @@ class GameSetupWidget(QWidget):
             return
         selected_index = self.binary_list_view.selectedIndexes()
         if selected_index:
-            self.selected_binary = self.binary_list_model.binaries[
-                selected_index[0].row()
-            ]
+            self.selected_binary = self.binary_list_model.binaries[selected_index[0].row()]
         config_index = self.config_binary_list_view.selectedIndexes()
         if config_index:
-            self.selected_config_binary = self.config_binary_list_model.binaries[
-                config_index[0].row()
-            ]
+            self.selected_config_binary = self.config_binary_list_model.binaries[config_index[0].row()]
         if self._auto_save_enable:
             self.enable_button(True)
         self.reset_button.setEnabled(True)

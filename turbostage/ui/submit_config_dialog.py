@@ -51,12 +51,10 @@ class SubmitLocalConfigDialog(QDialog):
         # ---- List of games -----------------------------------------------
         self.list_widget = QListWidget()
         self.list_widget.setAlternatingRowColors(True)
-        self.list_widget.setStyleSheet(
-            """
+        self.list_widget.setStyleSheet("""
     QListWidget::item { padding: 4px; }
     QListWidget::item:checked { font-weight: bold; }
-"""
-        )
+""")
         layout.addWidget(self.list_widget)
 
         # ---- Buttons ----------------------------------------------------
