@@ -63,6 +63,7 @@ class MainWindow(QMainWindow):
 
         self._init_ui()
         self.load_games()
+        self.maybe_show_setup_wizard()
 
     def _init_ui(self):
         self.setWindowTitle(f"TurboStage {__version__}")
@@ -100,6 +101,10 @@ class MainWindow(QMainWindow):
         settings_action.setMenuRole(QAction.NoRole)
         settings_action.triggered.connect(self._on_show_settings_dialog)
 
+        # Setup wizard (first-run flow, re-runnable)
+        setup_wizard_action = QAction(load_icon("setup"), "Setup Wizard", self)
+        setup_wizard_action.triggered.connect(self._on_show_setup_wizard)
+
         self.file_menu.addAction(add_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(scan_action)
@@ -107,6 +112,7 @@ class MainWindow(QMainWindow):
         self.file_menu.addSeparator()
         self.file_menu.addAction(submit_local_config_action)
         self.file_menu.addSeparator()
+        self.file_menu.addAction(setup_wizard_action)
         self.file_menu.addAction(settings_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
@@ -661,6 +667,41 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             self._apply_view_mode()
             self.load_games()
+
+    def maybe_show_setup_wizard(self, force: bool = False):
+        """Show the first-run setup wizard on fresh installs (or on demand)."""
+        from turbostage.ui.setup_wizard import SETUP_COMPLETED_KEY, SetupWizard, is_setup_completed
+
+        settings = QSettings("jberclaz", "TurboStage")
+        if not force and is_setup_completed(settings):
+            return
+        if not force and self._has_prior_setup(settings):
+            # Upgraders with a working setup shouldn't see the wizard once.
+            settings.setValue(SETUP_COMPLETED_KEY, True)
+            return
+        wizard = SetupWizard(self)
+        if wizard.exec() != QDialog.Accepted:
+            # Don't nag on every launch if the user dismissed it.
+            settings.setValue(SETUP_COMPLETED_KEY, True)
+            return
+        self._apply_view_mode()
+        self.load_games()
+        if wizard.do_update_db:
+            self._on_update_game_database()
+        if wizard.do_scan and self.games_path:
+            self.scan_local_games()
+
+    def _on_show_setup_wizard(self):
+        self.maybe_show_setup_wizard(force=True)
+
+    @staticmethod
+    def _has_prior_setup(settings: QSettings) -> bool:
+        """Existing installs with an emulator + games folder skip the first-run flow."""
+        import os
+
+        emulator = str(settings.value("app/emulator_path", ""))
+        games = str(settings.value("app/games_path", ""))
+        return bool(emulator) and os.path.isfile(emulator) and bool(games) and os.path.isdir(games)
 
     def _on_update_game_database(self):
         from turbostage.ui.update_database_dialog import UpdateDatabaseDialog, UpdateDatabaseWorker
