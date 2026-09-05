@@ -1,4 +1,5 @@
 import glob
+import importlib
 import lzma
 import os
 import plistlib
@@ -8,7 +9,8 @@ import tarfile
 import tempfile
 from zipfile import ZipFile
 
-from PySide6.QtCore import QSettings, QStandardPaths
+from PySide6.QtCore import QSettings, QStandardPaths, Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
@@ -390,6 +392,21 @@ class SetupWizard(QWizard):
         self.setPage(2, self._games_page)
         self.setPage(3, self._music_page)
         self.setPage(4, self._finish_page)
+
+        with importlib.resources.files("turbostage").joinpath("content/icon.png").open("rb") as file:
+            logo = QPixmap()
+            logo.loadFromData(file.read())
+            self.setPixmap(QWizard.WizardPixmap.LogoPixmap, logo)
+        with importlib.resources.files("turbostage").joinpath("content/splash.jpg").open("rb") as file:
+            splash = QPixmap()
+            splash.loadFromData(file.read())
+            watermark = splash.scaled(
+                220,
+                420,
+                Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            self.setPixmap(QWizard.WizardPixmap.WatermarkPixmap, watermark)
 
     @property
     def emulator_path(self) -> str:

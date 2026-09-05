@@ -102,7 +102,7 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(self._on_show_settings_dialog)
 
         # Setup wizard (first-run flow, re-runnable)
-        setup_wizard_action = QAction(load_icon("setup"), "Setup Wizard", self)
+        setup_wizard_action = QAction(load_icon("wizard"), "Setup Wizard", self)
         setup_wizard_action.triggered.connect(self._on_show_setup_wizard)
 
         self.file_menu.addAction(add_action)
