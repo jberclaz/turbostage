@@ -1,12 +1,12 @@
-import importlib
+import importlib.resources
 import os
-import subprocess
+import shutil
 import sys
 import tempfile
 import time
 import zipfile
 
-from PySide6.QtCore import QSettings
+from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QSettings, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, Qt
 from PySide6.QtWidgets import QMessageBox
 
@@ -16,6 +16,9 @@ from turbostage.db.game_database import GameDatabase
 # A game that runs for less than this many seconds is considered to have
 # exited immediately, usually because it failed to start correctly.
 IMMEDIATE_EXIT_SECONDS = 5.0
+
+# Grace period between terminate() and kill() in stop().
+STOP_KILL_DELAY_MS = 5000
 
 
 def is_midi_device_available(midi_device: int, mt32_roms_path: str, soundcanvas_roms_path: str) -> bool:
@@ -40,8 +43,49 @@ def is_midi_device_available(midi_device: int, mt32_roms_path: str, soundcanvas_
     return False
 
 
-def _dosbox_env() -> dict | None:
-    """Return a sanitized environment for launching DOSBox, or None if unneeded.
+def build_dosbox_command(
+    dosbox_exec: str,
+    base_conf: str | None = None,
+    full_screen: bool = False,
+    extra_conf: str | None = None,
+) -> list[str]:
+    """Build the DOSBox command line (program + arguments)."""
+    command = [dosbox_exec, "--noprimaryconf"]
+    if base_conf:
+        command.extend(["--conf", base_conf])
+    if full_screen:
+        command.append("--fullscreen")
+    if extra_conf:
+        command.extend(["--conf", extra_conf])
+    return command
+
+
+def build_iso_autoexec(c_drive_path: str, archive_path: str, executable: str | None, is_installed: bool) -> list[str]:
+    """Build the autoexec commands used to mount and start an ISO game."""
+    commands = [f'mount c "{c_drive_path}"']
+    if archive_path.lower().endswith(".iso"):
+        commands.append(f'imgmount d "{archive_path}" -t iso')
+    else:
+        commands.append(f'mount d "{archive_path}" -t cdrom')
+    # Normalize the executable path to DOS style: strip the ISO version
+    # number (e.g. ";1"), leading separators and convert '/' to '\' so the
+    # autoexec 'cd' command works regardless of how the path was stored.
+    exec_path = executable.split(";")[0] if executable else ""
+    exec_path = exec_path.replace("/", "\\").strip("\\")
+    if "\\" in exec_path:
+        exec_dir, exec_name = exec_path.rsplit("\\", 1)
+    else:
+        exec_dir, exec_name = "", exec_path
+
+    commands.append("c:" if is_installed else "d:")
+    if exec_dir:
+        commands.append(f"cd {exec_dir}")
+    commands.append(exec_name)
+    return commands
+
+
+def _dosbox_process_env() -> QProcessEnvironment | None:
+    """Return a sanitized process environment for launching DOSBox, or None if unneeded.
 
     PyInstaller prepends its extraction directory to LD_LIBRARY_PATH so the
     bundled Qt/OpenGL libraries can be found. If DOSBox inherits that value it
@@ -56,27 +100,60 @@ def _dosbox_env() -> dict | None:
     if not bundle_dir:
         return None
 
-    env = os.environ.copy()
-    ld_library_path = env.get("LD_LIBRARY_PATH")
+    env = QProcessEnvironment.systemEnvironment()
+    ld_library_path = env.value("LD_LIBRARY_PATH")
     if not ld_library_path:
         return env
 
     bundle_dir = os.path.abspath(bundle_dir)
     entries = [p for p in ld_library_path.split(os.pathsep) if p and os.path.abspath(p) != bundle_dir]
     if entries:
-        env["LD_LIBRARY_PATH"] = os.pathsep.join(entries)
+        env.insert("LD_LIBRARY_PATH", os.pathsep.join(entries))
     else:
-        env.pop("LD_LIBRARY_PATH", None)
+        env.remove("LD_LIBRARY_PATH")
     return env
 
 
-class GameLauncher:
-    def __init__(self, track_change: bool = False):
+class GameLauncher(QObject):
+    """Launch DOSBox asynchronously via QProcess so the UI stays responsive.
+
+    Emits finished(installation_completed, install_path) when the DOSBox
+    process ends, whether it exited cleanly, crashed, or was stopped.
+    """
+
+    finished = Signal(bool, object)
+
+    def __init__(self, track_change: bool = False, parent: QObject | None = None):
+        super().__init__(parent)
         self._track_change = track_change
         self._original_files = {}
         self._new_files = {}
         self._modified_files = {}
         self._version_id = None
+        self._process: QProcess | None = None
+        self._temp_dir: str | None = None
+        self._conf_path: str | None = None
+        self._start_time = 0.0
+        self._install_mode = False
+        self._was_installed = False
+        self._install_path: str | None = None
+        self._stopped_by_user = False
+        self._finalized = False
+
+    @property
+    def is_running(self) -> bool:
+        return self._process is not None and self._process.state() != QProcess.ProcessState.NotRunning
+
+    def stop(self):
+        """Ask DOSBox to terminate, escalating to kill after a grace period."""
+        self._stopped_by_user = True
+        if self.is_running:
+            self._process.terminate()
+            QTimer.singleShot(STOP_KILL_DELAY_MS, self._kill_if_running)
+
+    def _kill_if_running(self):
+        if self.is_running:
+            self._process.kill()
 
     def launch_game(
         self,
@@ -86,24 +163,16 @@ class GameLauncher:
         config_files: bool = True,
         binary: str | None = None,
         install_mode: bool = False,
-    ) -> tuple[bool, str | None]:
-        """Launch a game.
+    ) -> bool:
+        """Start a game without blocking. Returns True if DOSBox was started.
 
-        Args:
-            version_id: The game version ID to launch
-            db: GameDatabase instance
-            save_games: Whether to load save games
-            config_files: Whether to load config files
-            binary: Optional override for the executable to run
-            install_mode: If True, launch in installation mode (ISO games only)
-
-        Returns:
-            Tuple of (installation_completed, install_path) - installation_completed is True
-            if a new installation was completed, install_path is the path where game is installed
+        Results (changed files, installation outcome) are delivered through
+        the finished signal; read new_files/modified_files/version_id there.
         """
+        if self.is_running:
+            return False
+
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
-        installation_completed = False
-        result_install_path = None
 
         game_info = db.get_version_by_version_id(version_id)
 
@@ -136,63 +205,91 @@ class GameLauncher:
                 "Cannot start game, because the DosBox Staging binary has not been specified. Use the Settings dialog to set it up or download DosBox Staging",
                 QMessageBox.Ok,
             )
-            return (False, None)
+            return False
+
+        self._install_mode = install_mode
+        self._stopped_by_user = False
+        self._finalized = False
 
         # Get archive type from database
         archive_type = db.get_archive_type(version_id)
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            archive_path = os.path.join(games_path, archive)
+        main_config = str(importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf"))
 
-            # Build DOSBox command
-            main_config = importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf")
-            command = [dosbox_exec, "--noprimaryconf", "--conf", str(main_config)]
+        # The temp dir outlives this call on purpose: it is removed in
+        # _on_process_finished once DOSBox has exited.
+        self._temp_dir = tempfile.mkdtemp()
+        temp_dir = self._temp_dir
+        archive_path = os.path.join(games_path, archive)
 
-            if full_screen:
-                command.append("--fullscreen")
-
-            # Handle different archive types
+        try:
             if archive_type == "iso":
-                # For ISO files, we mount as CD-ROM
-                return self._launch_iso_game(
+                command = self._prepare_iso_game(
                     db,
-                    command,
-                    conf_file_path=None,
-                    temp_dir=temp_dir,
-                    archive_path=archive_path,
-                    executable=executable,
-                    config=config,
-                    mt32_roms_path=mt32_roms_path,
-                    soundcanvas_roms_path=soundcanvas_roms_path,
-                    disk_noise=disk_noise,
-                    cpu_cycles=cpu_cycles,
-                    midi_device=midi_device,
-                    save_games=save_games,
-                    config_files=config_files,
-                    install_mode=install_mode,
+                    dosbox_exec,
+                    main_config,
+                    full_screen,
+                    temp_dir,
+                    archive_path,
+                    executable,
+                    config,
+                    mt32_roms_path,
+                    soundcanvas_roms_path,
+                    disk_noise,
+                    cpu_cycles,
+                    midi_device,
+                    save_games,
+                    config_files,
                 )
             else:
-                # For ZIP files, extract to temp directory (existing behavior)
-                return self._launch_zip_game(
+                command = self._prepare_zip_game(
                     db,
-                    command,
-                    temp_dir=temp_dir,
-                    archive_path=archive_path,
-                    executable=executable,
-                    config=config,
-                    mt32_roms_path=mt32_roms_path,
-                    soundcanvas_roms_path=soundcanvas_roms_path,
-                    disk_noise=disk_noise,
-                    cpu_cycles=cpu_cycles,
-                    midi_device=midi_device,
-                    save_games=save_games,
-                    config_files=config_files,
+                    dosbox_exec,
+                    main_config,
+                    full_screen,
+                    temp_dir,
+                    archive_path,
+                    executable,
+                    config,
+                    mt32_roms_path,
+                    soundcanvas_roms_path,
+                    disk_noise,
+                    cpu_cycles,
+                    midi_device,
+                    save_games,
+                    config_files,
                 )
+        except (OSError, zipfile.BadZipFile) as e:
+            QGuiApplication.restoreOverrideCursor()
+            QMessageBox.warning(
+                None,
+                "Cannot start game",
+                f"Failed to prepare the game files: '{e}'",
+                QMessageBox.Ok,
+            )
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            self._temp_dir = None
+            return False
 
-    def _launch_zip_game(
+        self._process = QProcess(self)
+        self._process.started.connect(self._on_process_started)
+        self._process.finished.connect(self._on_process_finished)
+        self._process.errorOccurred.connect(self._on_process_error)
+        process_env = _dosbox_process_env()
+        if process_env is not None:
+            self._process.setProcessEnvironment(process_env)
+        self._start_time = time.monotonic()
+        self._process.setProgram(command[0])
+        self._process.setArguments(command[1:])
+        self._process.start()
+        return True
+
+    def _prepare_zip_game(
         self,
         db,
-        command,
+        dosbox_exec,
+        main_config,
+        full_screen,
         temp_dir,
         archive_path,
         executable,
@@ -205,7 +302,7 @@ class GameLauncher:
         save_games,
         config_files,
     ):
-        """Launch a ZIP archive game by extracting to temp directory."""
+        """Extract a ZIP game and build its DOSBox command."""
         with zipfile.ZipFile(archive_path, "r") as zip_ref:
             zip_ref.extractall(temp_dir)
 
@@ -218,47 +315,19 @@ class GameLauncher:
         if self._track_change:
             self._original_files = utils.list_files_with_md5(temp_dir)
 
-        executable_path = os.path.join(temp_dir, executable)
+        self._conf_path = self._write_extra_conf(
+            config, mt32_roms_path, soundcanvas_roms_path, disk_noise, cpu_cycles, midi_device
+        )
+        command = build_dosbox_command(dosbox_exec, main_config, full_screen, self._conf_path)
+        command.append(os.path.join(temp_dir, executable))
+        return command
 
-        with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
-            if config or mt32_roms_path or soundcanvas_roms_path or disk_noise or cpu_cycles > 0 or midi_device > 0:
-                GameLauncher._write_custom_dosbox_config_file(
-                    conf_file,
-                    config,
-                    mt32_roms_path,
-                    soundcanvas_roms_path,
-                    disk_noise,
-                    cpu_cycles,
-                    midi_device,
-                )
-                command.extend(["--conf", conf_file.name])
-            command.append(executable_path)
-            QGuiApplication.restoreOverrideCursor()
-            start_time = time.monotonic()
-            try:
-                subprocess.run(command, check=True, env=_dosbox_env())
-                if time.monotonic() - start_time < IMMEDIATE_EXIT_SECONDS:
-                    self._warn_immediate_exit()
-            except subprocess.CalledProcessError as e:
-                QMessageBox.warning(
-                    None,
-                    "Error in DosBox",
-                    f"The game failed with the following error: '{e}'",
-                    QMessageBox.Ok,
-                )
-
-        os.unlink(conf_file.name)
-
-        if self._track_change:
-            self._extract_changed_files(temp_dir)
-
-        return (False, None)
-
-    def _launch_iso_game(
+    def _prepare_iso_game(
         self,
         db,
-        command,
-        conf_file_path,
+        dosbox_exec,
+        main_config,
+        full_screen,
         temp_dir,
         archive_path,
         executable,
@@ -270,115 +339,116 @@ class GameLauncher:
         midi_device,
         save_games,
         config_files,
-        install_mode,
     ):
-        """Launch an ISO game by mounting as CD-ROM."""
+        """Mount an ISO game and build its DOSBox command."""
         # Get installation status
         is_installed, install_path = db.get_installation_status(self._version_id)
-        installation_completed = False
-        result_install_path = None
+        self._was_installed = bool(is_installed)
+        self._install_path = install_path
 
         # Determine what to mount as C: drive
-        if install_mode and not is_installed:
+        if self._install_mode and not is_installed:
             # Installation mode: C: is the installation directory (to persist files)
             c_drive_path = install_path
-            # Write config and save files to install directory
-            if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.CONFIG)
-            if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.SAVEGAME)
         elif not is_installed:
             # Not installed and not in install mode: use temp directory
             c_drive_path = temp_dir
-            if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
-            if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.SAVEGAME)
         else:
             # Normal mode: C: is the installation directory
             c_drive_path = install_path
-            if config_files:
-                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.CONFIG)
-            if save_games:
-                GameLauncher._write_game_extra_files(self._version_id, install_path, db, constants.FileType.SAVEGAME)
 
-        # Build autoexec commands for mounting
-        autoexec_commands = []
-        autoexec_commands.append(f'mount c "{c_drive_path}"')
-        # For ISO files, use imgmount with -t iso
-        if archive_path.lower().endswith(".iso"):
-            autoexec_commands.append(f'imgmount d "{archive_path}" -t iso')
-        else:
-            autoexec_commands.append(f'mount d "{archive_path}" -t cdrom')
-        # Normalize the executable path to DOS style: strip the ISO version
-        # number (e.g. ";1"), leading separators and convert '/' to '\' so the
-        # autoexec 'cd' command works regardless of how the path was stored.
-        exec_path = executable.split(";")[0] if executable else ""
-        exec_path = exec_path.replace("/", "\\").strip("\\")
-        if "\\" in exec_path:
-            exec_dir, exec_name = exec_path.rsplit("\\", 1)
-        else:
-            exec_dir, exec_name = "", exec_path
+        if config_files:
+            GameLauncher._write_game_extra_files(self._version_id, c_drive_path, db, constants.FileType.CONFIG)
+        if save_games:
+            GameLauncher._write_game_extra_files(self._version_id, c_drive_path, db, constants.FileType.SAVEGAME)
 
-        # For installed games, executable is on C: drive (hard drive)
-        # For non-installed games, executable is on D: drive (ISO)
-        if is_installed and install_path:
-            # Game is installed - executable is relative to install_path (C:)
-            autoexec_commands.append("c:")
-            if exec_dir:
-                autoexec_commands.append(f"cd {exec_dir}")
-        else:
-            # Game is not installed - executable is on D: (ISO)
-            autoexec_commands.append("d:")
-            if exec_dir:
-                autoexec_commands.append(f"cd {exec_dir}")
+        autoexec_commands = build_iso_autoexec(c_drive_path, archive_path, executable, bool(is_installed))
 
-        autoexec_commands.append(exec_name)
-
-        autoexec_section = "\n[autoexec]\n" + "\n".join(autoexec_commands)
-
+        extra_conf = self._write_extra_conf(
+            config, mt32_roms_path, soundcanvas_roms_path, disk_noise, cpu_cycles, midi_device
+        )
         with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
-            # Write custom config
-            if config or mt32_roms_path or soundcanvas_roms_path or disk_noise or cpu_cycles > 0 or midi_device > 0:
-                GameLauncher._write_custom_dosbox_config_file(
-                    conf_file,
-                    config,
-                    mt32_roms_path,
-                    soundcanvas_roms_path,
-                    disk_noise,
-                    cpu_cycles,
-                    midi_device,
-                )
+            if extra_conf:
+                with open(extra_conf) as extra:
+                    conf_file.write(extra.read())
+                os.unlink(extra_conf)
+            conf_file.write("\n[autoexec]\n" + "\n".join(autoexec_commands) + "\n")
+            self._conf_path = conf_file.name
 
-            # Write autoexec section
-            conf_file.write(autoexec_section)
-            conf_file.flush()
+        return build_dosbox_command(dosbox_exec, main_config, full_screen, self._conf_path)
 
-            command.extend(["--conf", conf_file.name])
+    def _write_extra_conf(
+        self, config, mt32_roms_path, soundcanvas_roms_path, disk_noise, cpu_cycles, midi_device
+    ) -> str | None:
+        if not (config or mt32_roms_path or soundcanvas_roms_path or disk_noise or cpu_cycles > 0 or midi_device > 0):
+            return None
+        with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
+            GameLauncher._write_custom_dosbox_config_file(
+                conf_file,
+                config,
+                mt32_roms_path,
+                soundcanvas_roms_path,
+                disk_noise,
+                cpu_cycles,
+                midi_device,
+            )
+            return conf_file.name
+
+    def _on_process_started(self):
+        # The game window is up; the busy cursor has served its purpose.
+        QGuiApplication.restoreOverrideCursor()
+
+    def _on_process_error(self, error: QProcess.ProcessError):
+        if error == QProcess.ProcessError.FailedToStart:
             QGuiApplication.restoreOverrideCursor()
+            QMessageBox.warning(
+                None,
+                "Error in DosBox",
+                "Failed to start DOSBox. Check the emulator path in Settings.",
+                QMessageBox.Ok,
+            )
+            self._finalize(False, None)
 
-            start_time = time.monotonic()
-            try:
-                subprocess.run(command, check=True, env=_dosbox_env())
-
-                # If we were in install mode and DOSBox succeeded, mark as installed
-                if install_mode and not is_installed:
-                    installation_completed = True
-                    result_install_path = install_path
-                elif not install_mode and time.monotonic() - start_time < IMMEDIATE_EXIT_SECONDS:
-                    self._warn_immediate_exit()
-
-            except subprocess.CalledProcessError as e:
+    def _on_process_finished(self, exit_code: int, exit_status: QProcess.ExitStatus):
+        if self._finalized:
+            # Already handled via errorOccurred (e.g. FailedToStart).
+            return
+        crashed = exit_status != QProcess.ExitStatus.NormalExit
+        if not self._stopped_by_user:
+            if crashed or exit_code != 0:
                 QMessageBox.warning(
                     None,
                     "Error in DosBox",
-                    f"The game failed with the following error: '{e}'",
+                    f"The game failed with exit code {exit_code}.",
                     QMessageBox.Ok,
                 )
+            elif not self._install_mode and time.monotonic() - self._start_time < IMMEDIATE_EXIT_SECONDS:
+                self._warn_immediate_exit()
 
-        os.unlink(conf_file.name)
+        installation_completed = False
+        result_install_path = None
+        if self._install_mode and not self._was_installed and not crashed and exit_code == 0:
+            installation_completed = True
+            result_install_path = self._install_path
 
-        return (installation_completed, result_install_path)
+        self._finalize(installation_completed, result_install_path)
+
+    def _finalize(self, installation_completed: bool, install_path: str | None):
+        # finished and errorOccurred can both fire; run cleanup exactly once.
+        if self._finalized:
+            return
+        self._finalized = True
+        try:
+            if self._track_change and self._temp_dir and os.path.isdir(self._temp_dir):
+                self._extract_changed_files(self._temp_dir)
+        finally:
+            if self._conf_path and os.path.isfile(self._conf_path):
+                os.unlink(self._conf_path)
+            self._conf_path = None
+            if self._temp_dir and os.path.isdir(self._temp_dir):
+                shutil.rmtree(self._temp_dir, ignore_errors=True)
+            self._temp_dir = None
+        self.finished.emit(installation_completed, install_path)
 
     def _extract_changed_files(self, temp_dir: str):
         files_after_setup = utils.list_files_with_md5(temp_dir)

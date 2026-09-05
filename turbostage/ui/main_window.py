@@ -2,10 +2,11 @@ import importlib
 import json
 import os
 import tempfile
+import time
 from datetime import datetime, timezone
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer
 from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -224,8 +225,16 @@ class MainWindow(QMainWindow):
 
         # Launch button
         self.launch_button = QPushButton(load_icon("launch"), "Launch Game")
-        self.launch_button.clicked.connect(self.launch_game)
+        self.launch_button.clicked.connect(self._on_launch_button_clicked)
         self.launch_button.setEnabled(False)
+
+        # Async game process state ("Now Playing")
+        self._launcher = None
+        self._play_title = ""
+        self._play_start = 0.0
+        self._play_timer = QTimer(self)
+        self._play_timer.setInterval(1000)
+        self._play_timer.timeout.connect(self._update_play_status)
 
         layout = QVBoxLayout()
         layout.addWidget(self.splitter)
@@ -301,7 +310,18 @@ class MainWindow(QMainWindow):
                 match = query in item.text().lower()
                 item.setHidden(not match)
 
+    def _on_launch_button_clicked(self):
+        if self._launcher is not None and self._launcher.is_running:
+            self.status.showMessage("Stopping game...", 3000)
+            self._launcher.stop()
+        else:
+            self.launch_game()
+
     def launch_game(self):
+        if self._launcher is not None and self._launcher.is_running:
+            self.status.showMessage("A game is already running — stop it before launching another.", 3000)
+            return
+
         # Check if we're in install mode
         needs_install = getattr(self, "_current_needs_install", False)
         version_id = getattr(self, "_current_version_id", None)
@@ -326,8 +346,40 @@ class MainWindow(QMainWindow):
         if not needs_install and not self._ensure_cdrom_executable(version_id):
             return
 
-        gl = GameLauncher(track_change=True)
-        install_completed, install_path = gl.launch_game(version_id, self._gamedb, install_mode=needs_install)
+        selection = self._selected_game_info()
+        game_name = selection[4] if selection else "game"
+
+        launcher = GameLauncher(track_change=True)
+        launcher.finished.connect(
+            lambda completed, path, gl=launcher, install=needs_install: self._on_game_finished(
+                completed, path, install, gl
+            )
+        )
+        if not launcher.launch_game(version_id, self._gamedb, install_mode=needs_install):
+            return
+        self._start_play_ui(game_name, launcher)
+
+    def _start_play_ui(self, title: str, launcher: GameLauncher):
+        """Track a running game and show the Now Playing state."""
+        self._launcher = launcher
+        self._play_title = title
+        self._play_start = time.monotonic()
+        self.launch_button.setText("Stop Game")
+        self.launch_button.setEnabled(True)
+        self._update_play_status()
+        self._play_timer.start()
+
+    def _update_play_status(self):
+        elapsed = int(time.monotonic() - self._play_start)
+        self.status.showMessage(f"Now playing: {self._play_title} ({elapsed // 60}:{elapsed % 60:02d})")
+
+    def _on_game_finished(self, install_completed, install_path, needs_install, launcher: GameLauncher):
+        new_files = dict(launcher.new_files)
+        modified_files = dict(launcher.modified_files)
+        version_id = launcher.version_id
+        self._play_timer.stop()
+        self._launcher = None
+        self.status.showMessage(f"{self._play_title} finished.", 3000)
 
         # If installation completed, prompt user to select game binary from installed files
         if install_completed and install_path:
@@ -336,10 +388,11 @@ class MainWindow(QMainWindow):
         # If we were in install mode and it succeeded, refresh the game list
         if needs_install or install_completed:
             self.load_games()
-            self.on_game_change()  # Update button text
-        elif gl.new_files or gl.modified_files:
-            config_files = {**gl.new_files, **gl.modified_files}
-            self._gamedb.add_extra_files(config_files, gl.version_id, constants.FileType.SAVEGAME)
+        elif new_files or modified_files:
+            config_files = {**new_files, **modified_files}
+            self._gamedb.add_extra_files(config_files, version_id, constants.FileType.SAVEGAME)
+        # Refresh the button state (restores "Launch Game" after "Stop Game")
+        self.on_game_change()
 
     def _ensure_cdrom_executable(self, version_id: int) -> bool:
         """Ensure a non-install CD-ROM game has an executable selected.
@@ -1031,18 +1084,36 @@ class MainWindow(QMainWindow):
                 is_installed, _ = self._gamedb.get_installation_status(version_id)
                 needs_install = not is_installed
 
+        if self._launcher is not None and self._launcher.is_running:
+            self.status.showMessage("A game is already running — stop it before running setup.", 3000)
+            return
+
         gl = GameLauncher(track_change=True)
-        gl.launch_game(
+        gl.finished.connect(
+            lambda completed, path, vid=version_id, launcher=gl: self._on_game_setup_finished(vid, launcher)
+        )
+        if not gl.launch_game(
             version_id,
             self._gamedb,
             False,
             False,
             config_executable,
             install_mode=needs_install,
-        )
-        if gl.new_files or gl.modified_files:
-            config_files = {**gl.new_files, **gl.modified_files}
+        ):
+            return
+        _, _, game_name = self.selected_game
+        self._start_play_ui(f"{game_name} (setup)", gl)
+
+    def _on_game_setup_finished(self, version_id: int, launcher: GameLauncher):
+        new_files = dict(launcher.new_files)
+        modified_files = dict(launcher.modified_files)
+        self._play_timer.stop()
+        self._launcher = None
+        self.status.showMessage(f"{self._play_title} finished.", 3000)
+        if new_files or modified_files:
+            config_files = {**new_files, **modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
+        self.on_game_change()
 
     def _on_game_settings_saved(self):
         version_id = self.right_setup_tab.version_id
@@ -1078,6 +1149,17 @@ class MainWindow(QMainWindow):
     def _export_and_open_github(self, version_ids):
         export = RemoteDB(self._gamedb).export_specific_versions(version_ids)
         RemoteDB.open_github_with_payload(self, json.dumps(export))
+
+    def closeEvent(self, event):
+        launcher = self._launcher
+        if launcher is not None and launcher.is_running:
+            # Don't touch widgets from the finished handler during teardown.
+            try:
+                launcher.finished.disconnect()
+            except (TypeError, RuntimeError):
+                pass
+            launcher.stop()
+        super().closeEvent(event)
 
     @property
     def db_path(self):
