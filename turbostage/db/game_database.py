@@ -135,7 +135,14 @@ class ConnectionPool:
             while not self._pool.empty():
                 try:
                     conn = self._pool.get_nowait()
-                    conn.close()
+                    try:
+                        conn.close()
+                    except sqlite3.ProgrammingError:
+                        # The connection was created in another (likely dead)
+                        # thread — e.g. a worker database kept alive by an
+                        # exception traceback and collected elsewhere. It
+                        # cannot be closed from here; the OS reclaims it.
+                        pass
                     self._active_connections -= 1
                 except queue.Empty:
                     break
@@ -671,13 +678,15 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id, g.cover_url
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
                          JOIN local_versions lv ON v.id = lv.version_id
                 ORDER BY g.title
-                """)
+                """
+            )
             return [
                 LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0], cover_url=row[6])
                 for row in cursor.fetchall()
@@ -696,7 +705,8 @@ class GameDatabase:
             if "download_url" not in columns:
                 return []
 
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT g.igdb_id, g.title, g.release_date, g.genre, v.version, v.id, v.download_url, g.cover_url
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
@@ -704,7 +714,8 @@ class GameDatabase:
                 WHERE v.download_url IS NOT NULL
                   AND lv.version_id IS NULL
                 ORDER BY g.title
-                """)
+                """
+            )
             return [
                 LocalGameDetails(
                     row[0],
@@ -877,42 +888,81 @@ class GameDatabase:
             if rows[0][0] > 0:
                 return 0
 
-            # Check what columns exist in local_versions table
-            cursor.execute("PRAGMA table_info(local_versions)")
-            columns = {row[1] for row in cursor.fetchall()}
-
-            # Build INSERT statement based on available columns
-            col_names = ["version_id", "archive"]
-            values = [version_id, game_archive_name]
-
-            if "executable" in columns:
-                col_names.append("executable")
-                values.append(executable)
-            if "config_executable" in columns:
-                col_names.append("config_executable")
-                values.append(config_executable)
-            if "archive_type" in columns:
-                col_names.append("archive_type")
-                values.append(archive_type)
-            if "requires_install" in columns:
-                col_names.append("requires_install")
-                values.append(1 if requires_install else 0)
-
-            cursor.execute(
-                f"INSERT INTO local_versions ({', '.join(col_names)}) VALUES ({', '.join(['?'] * len(values))})",
-                values,
+            GameDatabase._insert_local_version(
+                conn, version_id, game_archive_name, executable, config_executable, archive_type, requires_install
             )
         return 1
+
+    @staticmethod
+    def _insert_local_version(
+        conn,
+        version_id: int,
+        game_archive_name: str,
+        executable: str | None,
+        config_executable: str | None,
+        archive_type: str,
+        requires_install: bool,
+    ) -> None:
+        """Insert one local_versions row using whatever columns the schema has."""
+        cursor = conn.cursor()
+
+        # Check what columns exist in local_versions table
+        cursor.execute("PRAGMA table_info(local_versions)")
+        columns = {row[1] for row in cursor.fetchall()}
+
+        # Build INSERT statement based on available columns
+        col_names = ["version_id", "archive"]
+        values = [version_id, game_archive_name]
+
+        if "executable" in columns:
+            col_names.append("executable")
+            values.append(executable)
+        if "config_executable" in columns:
+            col_names.append("config_executable")
+            values.append(config_executable)
+        if "archive_type" in columns:
+            col_names.append("archive_type")
+            values.append(archive_type)
+        if "requires_install" in columns:
+            col_names.append("requires_install")
+            values.append(1 if requires_install else 0)
+
+        cursor.execute(
+            f"INSERT INTO local_versions ({', '.join(col_names)}) VALUES ({', '.join(['?'] * len(values))})",
+            values,
+        )
+
+    def replace_local_versions(self, entries: list[tuple]) -> None:
+        """Atomically replace all local versions with fresh scan results.
+
+        Each entry is (version_id, archive, executable, config_executable,
+        archive_type, requires_install). The swap happens in a single
+        transaction so an interrupted scan never leaves a half-empty library.
+        """
+        with self.transaction() as conn:
+            conn.execute("DELETE FROM local_versions")
+            seen = set()
+            for version_id, archive, executable, config_executable, archive_type, requires_install in entries:
+                if version_id in seen:
+                    # Several archives can match the same version (e.g. a zip
+                    # and an iso of the same game); keep the first, as before.
+                    continue
+                seen.add(version_id)
+                GameDatabase._insert_local_version(
+                    conn, version_id, archive, executable, config_executable, archive_type, requires_install
+                )
 
     def get_locally_modified_game_versions(self):
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT g.title, g.igdb_id, v.id, v.version
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
                 WHERE v.source = 'local'
-                """)
+                """
+            )
             return cursor.fetchall()
 
     def clear_local_versions(self) -> None:
