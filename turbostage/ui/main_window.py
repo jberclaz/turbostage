@@ -96,20 +96,20 @@ class MainWindow(QMainWindow):
         exit_action.triggered.connect(self.close)
 
         # Scan QAction
-        scan_action = QAction(load_icon("scan"), "Scan local games", self)
-        scan_action.triggered.connect(self.scan_local_games)
+        self._scan_action = QAction(load_icon("scan"), "Scan local games", self)
+        self._scan_action.triggered.connect(self.scan_local_games)
 
         # Add new game
-        add_action = QAction(load_icon("add_game"), "Add new game", self)
-        add_action.triggered.connect(self._on_add_new_game)
+        self._add_action = QAction(load_icon("add_game"), "Add new game", self)
+        self._add_action.triggered.connect(self._on_add_new_game)
 
         # Update game database
-        update_db_action = QAction(load_icon("download"), "Update game database", self)
-        update_db_action.triggered.connect(self._on_update_game_database)
+        self._update_db_action = QAction(load_icon("download"), "Update game database", self)
+        self._update_db_action.triggered.connect(self._on_update_game_database)
 
         # Update game database
-        submit_local_config_action = QAction(load_icon("upload"), "Upload local config", self)
-        submit_local_config_action.triggered.connect(self._on_submit_local_config)
+        self._submit_config_action = QAction(load_icon("upload"), "Upload local config", self)
+        self._submit_config_action.triggered.connect(self._on_submit_local_config)
 
         # Settings
         settings_action = QAction(load_icon("setup"), "Settings", self)
@@ -117,17 +117,17 @@ class MainWindow(QMainWindow):
         settings_action.triggered.connect(self._on_show_settings_dialog)
 
         # Setup wizard (first-run flow, re-runnable)
-        setup_wizard_action = QAction(load_icon("wizard"), "Setup Wizard", self)
-        setup_wizard_action.triggered.connect(self._on_show_setup_wizard)
+        self._setup_wizard_action = QAction(load_icon("wizard"), "Setup Wizard", self)
+        self._setup_wizard_action.triggered.connect(self._on_show_setup_wizard)
 
-        self.file_menu.addAction(add_action)
+        self.file_menu.addAction(self._add_action)
         self.file_menu.addSeparator()
-        self.file_menu.addAction(scan_action)
-        self.file_menu.addAction(update_db_action)
+        self.file_menu.addAction(self._scan_action)
+        self.file_menu.addAction(self._update_db_action)
         self.file_menu.addSeparator()
-        self.file_menu.addAction(submit_local_config_action)
+        self.file_menu.addAction(self._submit_config_action)
         self.file_menu.addSeparator()
-        self.file_menu.addAction(setup_wizard_action)
+        self.file_menu.addAction(self._setup_wizard_action)
         self.file_menu.addAction(settings_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
@@ -359,6 +359,20 @@ class MainWindow(QMainWindow):
             return
         self._start_play_ui(game_name, launcher)
 
+    def _is_game_running(self) -> bool:
+        return self._launcher is not None and self._launcher.is_running
+
+    def _set_library_locked(self, locked: bool):
+        """Disable library-mutating actions while a game is running."""
+        for action in (
+            self._scan_action,
+            self._add_action,
+            self._update_db_action,
+            self._submit_config_action,
+            self._setup_wizard_action,
+        ):
+            action.setEnabled(not locked)
+
     def _start_play_ui(self, title: str, launcher: GameLauncher):
         """Track a running game and show the Now Playing state."""
         self._launcher = launcher
@@ -366,6 +380,7 @@ class MainWindow(QMainWindow):
         self._play_start = time.monotonic()
         self.launch_button.setText("Stop Game")
         self.launch_button.setEnabled(True)
+        self._set_library_locked(True)
         self._update_play_status()
         self._play_timer.start()
 
@@ -379,6 +394,7 @@ class MainWindow(QMainWindow):
         version_id = launcher.version_id
         self._play_timer.stop()
         self._launcher = None
+        self._set_library_locked(False)
         self.status.showMessage(f"{self._play_title} finished.", 3000)
 
         # If installation completed, prompt user to select game binary from installed files
@@ -543,7 +559,8 @@ class MainWindow(QMainWindow):
             self._game_info.clear_info()
             self._game_info.set_game_name("Select a game to see details here.")
             self.right_setup_tab.set_game(None, None)
-            self.launch_button.setEnabled(False)
+            if not self._is_game_running():
+                self.launch_button.setEnabled(False)
             return
         if self._current_fetch_cancel_flag is not None:
             self._current_fetch_cancel_flag.cancelled = True
@@ -559,16 +576,18 @@ class MainWindow(QMainWindow):
         settings = QSettings("jberclaz", "TurboStage")
         dosbox_exec = str(settings.value("app/emulator_path", ""))
 
-        # Update launch button based on installation status
-        if is_downloadable:
-            self.launch_button.setText("Download Game")
-            self.launch_button.setEnabled(True)
-        elif needs_install:
-            self.launch_button.setText("Install Game")
-            self.launch_button.setEnabled(dosbox_exec != "")
-        else:
-            self.launch_button.setText("Launch Game")
-            self.launch_button.setEnabled(dosbox_exec != "")
+        # Update launch button based on installation status. While a game is
+        # running the button stays "Stop Game" regardless of selection.
+        if not self._is_game_running():
+            if is_downloadable:
+                self.launch_button.setText("Download Game")
+                self.launch_button.setEnabled(True)
+            elif needs_install:
+                self.launch_button.setText("Install Game")
+                self.launch_button.setEnabled(dosbox_exec != "")
+            else:
+                self.launch_button.setText("Launch Game")
+                self.launch_button.setEnabled(dosbox_exec != "")
 
         # Store current game info for launch
         self._current_version_id = version_id
@@ -649,6 +668,9 @@ class MainWindow(QMainWindow):
         self.filter_games(self.search_box.text())
 
     def scan_local_games(self):
+        if self._is_game_running():
+            self.status.showMessage("Stop the running game before scanning.", 3000)
+            return
         games_path = self.games_path
         if not games_path:
             QMessageBox.critical(
@@ -715,6 +737,9 @@ class MainWindow(QMainWindow):
             self.status.showMessage(f"Scan complete: {matched} game(s) found.", 5000)
 
     def _on_add_new_game(self):
+        if self._is_game_running():
+            self.status.showMessage("Stop the running game before adding a game.", 3000)
+            return
         games_path = self.games_path
         dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip *.iso)")
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
@@ -836,6 +861,9 @@ class MainWindow(QMainWindow):
             self.scan_local_games()
 
     def _on_show_setup_wizard(self):
+        if self._is_game_running():
+            self.status.showMessage("Stop the running game before running setup.", 3000)
+            return
         self.maybe_show_setup_wizard(force=True)
 
     @staticmethod
@@ -848,6 +876,9 @@ class MainWindow(QMainWindow):
         return bool(emulator) and os.path.isfile(emulator) and bool(games) and os.path.isdir(games)
 
     def _on_update_game_database(self):
+        if self._is_game_running():
+            self.status.showMessage("Stop the running game before updating the database.", 3000)
+            return
         from turbostage.ui.update_database_dialog import UpdateDatabaseDialog, UpdateDatabaseWorker
 
         dialog = UpdateDatabaseDialog(self)
@@ -869,6 +900,18 @@ class MainWindow(QMainWindow):
             self.load_games()
 
     def _on_show_context_menu(self, pos):
+        view = self._current_view()
+        # Right-click does not move the selection by itself: select the
+        # game under the cursor first so the menu (and its locks) apply to
+        # the game that was actually clicked.
+        if view is self.game_table:
+            clicked = view.itemAt(pos)
+            if clicked is not None:
+                view.selectRow(clicked.row())
+        else:
+            clicked = view.itemAt(pos)
+            if clicked is not None:
+                view.setCurrentItem(clicked)
         selection = self._selected_game_info()
         if selection is None:
             return
@@ -882,6 +925,10 @@ class MainWindow(QMainWindow):
             download_action.triggered.connect(self._on_download_game)
             context_menu.addAction(download_action)
         else:
+            # While any game is playing the library is read-only: never
+            # pull files or config out from under the running game, and
+            # don't start anything else (a second DOSBox, a setup tool).
+            locked = self._is_game_running()
             # Check if this is an installed ISO game that can be reinstalled/uninstalled
             archive_type = self._gamedb.get_archive_type(version_id)
             is_installed_iso = False
@@ -893,25 +940,33 @@ class MainWindow(QMainWindow):
 
             setup_action = QAction(load_icon("setup"), "Run Game Setup", self)
             setup_action.triggered.connect(self._on_run_game_setup)
+            setup_action.setEnabled(not locked)
             context_menu.addAction(setup_action)
 
             if is_installed_iso:
                 reinstall_action = QAction(load_icon("installer"), "Reinstall", self)
                 reinstall_action.triggered.connect(self._on_reinstall_game)
+                reinstall_action.setEnabled(not locked)
                 context_menu.addAction(reinstall_action)
 
                 uninstall_action = QAction(load_icon("uninstall"), "Uninstall", self)
                 uninstall_action.triggered.connect(self._on_uninstall_game)
+                uninstall_action.setEnabled(not locked)
                 context_menu.addAction(uninstall_action)
 
             delete_action = QAction(load_icon("delete"), "Delete Game", self)
             delete_action.triggered.connect(self._on_delete_selected_game)
+            delete_action.setEnabled(not locked)
             context_menu.addAction(delete_action)
 
         context_menu.exec(self._current_view().viewport().mapToGlobal(pos))
 
     def _on_delete_selected_game(self):
         game_id, version_id, game_name = self.selected_game
+
+        if self._is_game_running():
+            self.status.showMessage("Stop the running game before deleting.", 4000)
+            return
 
         reply = QMessageBox.question(
             self,
@@ -1026,6 +1081,10 @@ class MainWindow(QMainWindow):
     def _on_uninstall_game(self):
         _, version_id, game_name = self.selected_game
 
+        if self._is_game_running():
+            self.status.showMessage("Stop the running game before uninstalling.", 4000)
+            return
+
         reply = QMessageBox.question(
             self,
             "Confirm Uninstall",
@@ -1109,6 +1168,7 @@ class MainWindow(QMainWindow):
         modified_files = dict(launcher.modified_files)
         self._play_timer.stop()
         self._launcher = None
+        self._set_library_locked(False)
         self.status.showMessage(f"{self._play_title} finished.", 3000)
         if new_files or modified_files:
             config_files = {**new_files, **modified_files}
@@ -1133,6 +1193,9 @@ class MainWindow(QMainWindow):
         )
 
     def _on_submit_local_config(self):
+        if self._is_game_running():
+            self.status.showMessage("Stop the running game before uploading a config.", 3000)
+            return
         local_versions = self._gamedb.get_locally_modified_game_versions()
         if not local_versions:
             QMessageBox.information(
