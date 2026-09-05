@@ -1,101 +1,119 @@
-# Turbo Stage
+# TurboStage
 
 [![Unit Tests](https://github.com/jberclaz/turbostage/actions/workflows/unit_tests.yml/badge.svg)](https://github.com/jberclaz/turbostage/actions/workflows/unit_tests.yml)
 ![Release](https://img.shields.io/github/v/release/jberclaz/turbostage)
 
-**Turbo Stage** is a user-friendly frontend for [DOSBox
-Staging](https://github.com/dosbox-staging/dosbox-staging), designed
-to simplify launching and managing DOS games. With Turbo Stage, you
-can easily organize your game library, configure emulator settings,
-and enjoy classic games with minimal setup.  The project was inspired
-by [fs-uae-launcher](https://github.com/FrodeSolheim/fs-uae-launcher).
+**Relive the golden age of PC gaming — without the hassle.**
+
+**TurboStage** is a friendly frontend for [DOSBox Staging](https://github.com/dosbox-staging/dosbox-staging) that turns your pile of DOS games into a beautiful, ready-to-play library. Drop in your `.zip` or `.iso` files, and TurboStage handles detection, setup, sound configuration, and launching. No command line, no config-file wrestling.
+
+Built for Windows, macOS, and Linux. Inspired by [fs-uae-launcher](https://github.com/FrodeSolheim/fs-uae-launcher).
 
 ![screenshot](doc/screenshot.png)
 
-## Features
-- Intuitive interface to manage and launch DOS games.
-- Automatic detection and configuration of supported games.
-- Built-in support for downloading DOSBox Staging and MT-32 ROMs.
-- Customizable emulator settings for each game.
-- Support for game-specific setup programs to configure sound, input, and more.
-- One-click download of supported games directly from the library.
+👉 **Download the latest release:** [GitHub Releases](https://github.com/jberclaz/turbostage/releases)
+
+## Why you'll love it
+
+- 🎮 **Your games, beautifully organized** — a cover-art grid library with search, just like a modern game launcher. Prefer lists? One click switches back.
+- 🖼️ **Rich game pages** — automatic cover art, screenshots, story summary, release date, genre, publisher, developer, and community rating.
+- ⚡ **Play in seconds** — double-click to launch. Smart scanning auto-detects your games, even if files are organized differently inside the archive.
+- 🎵 **Authentic retro music** — one-click setup for Roland MT-32 and Roland Sound Canvas (SC-55) with per-game MIDI selection. Hear Doom, Monkey Island, and Sierra classics exactly as they were meant to sound.
+- 💿 **CD-ROM classics work too** — full support for ISO games, including guided hard-drive installation for games that need it.
+- 🔧 **No tinkering required (but you can)** — sensible defaults out of the box, with simple per-game controls for CPU speed (from 8088 to Pentium II), setup utilities, and advanced DOSBox options when you want them.
+- 📥 **One-click everything** — downloads DOSBox Staging, MT-32 ROMs, SoundCanvas ROMs, supported games, and community configs directly from the app.
+- ✨ **Feels at home** — retro-styled icons, light/dark theme support, fullscreen play, and optional floppy/hard-disk noise for maximum nostalgia.
+
+## New & noteworthy
+
+- **Cover-art grid view** — your library now looks like a real game collection. Downloadable games fade out so you instantly see what's ready to play.
+- **Roland Sound Canvas support** — alongside MT-32, with one-click ROM download and a simple per-game `None / MT-32 / Sound Canvas` switch.
+- **Revamped Setup tab** — clear Game / Performance / Advanced sections, game vs. setup executable picker, CPU presets, and Reset/Save controls.
+- **Smarter game adding** — the Add Game wizard now guesses the title from the filename and searches the game database for you.
+- **Better CD-ROM handling** — more reliable detection of ISO games and a smoother install flow.
+- **Latest DOSBox Staging (0.83.0)** — better compatibility, better sound, better performance.
+- **Community-powered** — share your working configs with one click via **File > Upload local config**, and benefit from others via **File > Update game database**.
+
+## Getting started
+
+You can be playing in about 2 minutes:
+
+1. **Download and launch TurboStage** from [Releases](https://github.com/jberclaz/turbostage/releases).
+2. Go to **File > Settings** and click **Download** for:
+   - **Emulator Path** (DOSBox Staging — required)
+   - **MT-32 / SoundCanvas ROMs** (optional, for the best music)
+   - Set your **Games Path** — the folder where your games live.
+3. Go to **File > Update Game Database**, then **File > Scan Local Games**.
+
+That's it. Double-click any game to play.
+
+> Tip: want a cleaner library? Uncheck **Show downloadable games in library** or **Display games as a grid of cover images** in Settings.
+
+## Adding your games
+
+1. Drop your DOS games (`.zip` or `.iso`) into your **Games Path** folder.
+2. **File > Scan Local Games** — TurboStage detects and configures recognized games automatically.
+3. Anything unrecognized? **File > Add New Game** walks you through it, with automatic title search and cover art.
+
+### CD-ROM (ISO) games
+
+Many CD games need to be installed to a hard drive first. TurboStage guides you:
+
+1. **File > Add New Game**, pick your `.iso`, and check **Requires hard drive installation**.
+2. Pick the installer (usually `setup.exe` or `install.exe`).
+3. Select the grayed-out game and click **Install Game** — install to `C:` inside DOSBox, close it, then pick the game executable.
+4. Play! Right-click anytime for **Reinstall** or **Uninstall**.
+
+## Sound like it's 1992 again 🎵
+
+TurboStage makes classic MIDI music painless:
+
+1. In **Settings**, click **Download** next to **MT-32 ROMs** and/or **SoundCanvas ROMs**.
+2. Select a game, open the **Setup** tab, and set **MIDI Device** to **MT-32** or **Sound Canvas**.
+3. If a game sounds wrong, right-click it and choose **Run Game Setup** to select the matching music card inside the game's own setup program.
+
+No ROMs? The setting safely falls back to default sound — nothing breaks.
+
+Plus: enable **disk noise emulation** in Settings for authentic floppy/hard-drive clicks, and **fullscreen** for full immersion.
+
+## Fine-tuning a game
+
+- Select a game and open the **Setup** tab:
+  - **Game executable / Config executable** — pick what to run and what configures sound/input.
+  - **CPU** — leave on **Auto**, or dial in anything from an 8088 (4.77 MHz) to a Pentium II 300 for speed-sensitive classics.
+  - **MIDI Device** — None, MT-32, or Sound Canvas, per game.
+  - **Advanced** — raw DOSBox config for power users.
+- Right-click any game for **Run Game Setup**, **Download**, **Reinstall/Uninstall**, and more.
+- Use the search box above the library to instantly find a title.
+
+## Free games, one click
+
+1. **File > Update Game Database** to get the latest supported list.
+2. Grayed-out entries are ready to download — right-click and choose **Download**, or select and click **Download Game**.
+3. They land in your Games Path, ready to play.
+
+If a downloaded game has no sound or won't start, right-click → **Run Game Setup** once to configure it.
 
 ## Prerequisites
-- A modern operating system (Windows, macOS or Linux).
-- [DOSBox Staging](https://github.com/dosbox-staging/dosbox-staging) (can be downloaded via Turbo Stage).
-- Optional: MT-32 ROM files for enhanced music in supported games (can be downloaded via Turbo Stage).
-- A collection of DOS games in `.zip` or `.iso` format.
+
+- Windows, macOS, or Linux.
+- A copy of your DOS games as `.zip` or `.iso` (or grab the free downloadable ones above).
+- That's really it — DOSBox Staging and ROMs can be auto-downloaded from Settings.
 
 ## macOS Notes
 
-The app is not signed with an Apple Developer certificate, so Gatekeeper may block it on first launch. To bypass, open Terminal and run:
+The app isn't signed with an Apple Developer certificate, so Gatekeeper may block the first launch. In Terminal, run:
 
 ```bash
 xattr -d com.apple.quarantine /path/to/TurboStage.app
 ```
 
-Or go to **System Settings → Privacy & Security** — look for a message about TurboStage being blocked and click **Open Anyway**.
+Or go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
-After the first launch, the app will open normally in the future.
+After the first launch, it opens normally.
 
-## Getting started
+## Help the collection grow 🌱
 
-1. Launch **Turbo Stage** and navigate to **File > Settings**.
-2. Configure the following:
-   - **DOSBox Staging Path**: Select the path to your DOSBox Staging installation or click **Download** to install it automatically.
-   - **Games Path**: Choose the folder where your DOS games are stored.
-   - **MT-32 ROMs** (optional): Select the location of MT-32 ROM files for enhanced music or click **Download** to fetch them.
-3. Go to **File > Update Game Database** to download default settings for supported games. (Note: The database is limited but will expand in future updates.)
+Found perfect settings for a game? **File > Upload local config** shares them with the community. **File > Update game database** safely merges new entries without touching your local games.
 
-## Adding Games
-1. Place your DOS games (in `.zip` or `.iso` format) in the **Games Path** folder specified in Settings.
-2. Go to **File > Scan Local Games** to automatically detect and configure recognized games.
-3. For unrecognized games, select **File > Add New Game** and follow the prompts to manually configure them.
-
-### ISO Games
-Some games were distributed on CD-ROM and need to be installed to a hard drive before playing. When adding an ISO game:
-
-1. Select **File > Add New Game** and pick your `.iso` file.
-2. In the wizard, check **Requires hard drive installation** if the game needs to be installed.
-3. Choose the installation program from the CD (usually `setup.exe` or `install.exe`).
-4. The game will appear grayed out with an **Install Game** button.
-
-## Running a Game
-- **Double-click** a game in the left panel to launch it.
-- Alternatively, select a game and click the **Launch Game** button at the bottom of the window.
-
-### Installing ISO Games
-1. Select a game that needs installation (grayed out) and click **Install Game**.
-2. DOSBox will start with the CD mounted as `D:` and the install directory as `C:`.
-3. Run the installation program inside DOSBox to install the game to `C:`.
-4. Close DOSBox when done — a dialog will open showing the installed files.
-5. Select the game executable (e.g., `MEGARACE/GAME.EXE`) from the install directory.
-6. The game is now ready to play. Right-click it for **Reinstall** or **Uninstall** options.
-
-## Configuring a Game
-1. **Right-click** a game in the left panel and select **Run Game Setup**.
-2. Choose the game's setup executable and click **Setup** to enter the game's setup menu. The settings you choose will be saved for future sessions.
-   - Common setup executable names include `setup.exe`, `soundset.exe`, or `config.exe`.
-   - Note: Not all games have a setup program, but most allow configuration of sound cards and input methods.
-3. Save your settings to apply them for future game sessions.
-
-
-## Downloadable Games
-
-Turbo Stage can download a few supported games.
-
-1. Go to **File > Update Game Database** to fetch the latest supported game list.
-2. Games available for download appear **grayed out** in your library.
-3. **Right-click** a grayed-out game and select **Download**, or select it and click **Download Game**.
-4. The archive is saved to your **Games Path** and the game is immediately ready to play.
-
-Some games need to be configured before they work properly (sound, input, etc.). If a game doesn't start or has garbled audio, **right-click** it and select **Run Game Setup** to configure it first. See [Configuring a Game](#configuring-a-game) for details.
-
-If you already own a downloaded game, **Update Game Database** safely merges new entries without overwriting existing local games.
-
-## Adjusting Emulator Options
-1. Select a game and navigate to the **Setup** tab in the right panel.
-2. Customize options such as:
-   - **Game Executable**: Choose the main executable (for installed ISO games, this lists files from the install directory).
-   - **Emulator Speed**: Choose **Auto** for optimal performance or adjust manually.
-   - **Additional DOSBox Options**: Pass custom commands to DOSBox Staging for advanced configuration.
+Enjoy — and happy retro gaming!
