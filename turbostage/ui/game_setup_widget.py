@@ -231,8 +231,14 @@ class GameSetupWidget(QWidget):
         versions = db.get_all_game_versions(game_id, detailed=True)
 
         if not versions:
-            raise RuntimeError(f"Unable to get game details for '{game_id}'")
+            # The library entry is stale (e.g. a scan removed its local row
+            # while the view still shows it). Degrade gracefully instead of
+            # raising out of a UI slot.
+            self.empty_label.setText("Game data is not available. Try File > Scan Local Games.")
+            self.set_game(None, db)
+            return
 
+        self.empty_label.setText("Select a game to configure it.")
         self._versions = versions
         self._populate_version_combo()
         self._load_version(versions[0])

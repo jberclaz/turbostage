@@ -315,6 +315,12 @@ class MainWindow(QMainWindow):
             self._on_download_game()
             return
 
+        # The library entry may be stale (e.g. a scan dropped it while the
+        # view still shows it). Bail out gracefully instead of crashing.
+        if self._gamedb.get_version_by_version_id(version_id) is None:
+            self.status.showMessage("Game data is no longer available. Try File > Scan Local Games.", 5000)
+            return
+
         # For CD-ROM games that don't require installation, make sure an
         # executable from the disc is selected before launching.
         if not needs_install and not self._ensure_cdrom_executable(version_id):
@@ -613,18 +619,47 @@ class MainWindow(QMainWindow):
         self.scan_worker = ScanningThread(local_game_archives, self.db_path, games_path)
         self.scan_worker.progress.connect(self.update_scan_progress)
         self.scan_worker.load_games.connect(self.load_games)
+        self.scan_worker.scan_finished.connect(self._on_scan_finished)
+        self.scan_worker.scan_error.connect(self._on_scan_error)
+        self.scan_worker.finished.connect(self._on_scan_worker_done)
         self.scan_worker.start()
 
         # Handle cancellation
         self.scan_progress_dialog.canceled.connect(self._on_cancel_scan)
 
     def update_scan_progress(self, value):
-        self.scan_progress_dialog.setValue(value)
+        if self.scan_progress_dialog is not None:
+            self.scan_progress_dialog.setValue(value)
 
     def _on_cancel_scan(self):
+        # Cooperative cancel: the worker checks for interruption between
+        # files, so the database is left untouched. The dialog closes when
+        # the worker actually stops (see _on_scan_worker_done).
         if self.scan_worker.isRunning():
-            self.scan_worker.terminate()  # Forcefully stop the worker thread
-        self.scan_progress_dialog.close()
+            self.scan_worker.requestInterruption()
+            self.scan_progress_dialog.setLabelText("Cancelling scan...")
+
+    def _on_scan_worker_done(self):
+        cancelled = self.scan_worker.isInterruptionRequested()
+        if self.scan_progress_dialog is not None:
+            self.scan_progress_dialog.close()
+            self.scan_progress_dialog = None
+        if cancelled:
+            self.status.showMessage("Scan cancelled — library unchanged.", 5000)
+
+    def _on_scan_error(self, message: str):
+        self.status.showMessage(f"Scan failed: {message}", 8000)
+
+    def _on_scan_finished(self, matched: int, unmatched: list):
+        if unmatched:
+            preview = ", ".join(unmatched[:3])
+            suffix = "..." if len(unmatched) > 3 else ""
+            self.status.showMessage(
+                f"Scan complete: {matched} game(s) found, {len(unmatched)} file(s) not recognized ({preview}{suffix}).",
+                8000,
+            )
+        else:
+            self.status.showMessage(f"Scan complete: {matched} game(s) found.", 5000)
 
     def _on_add_new_game(self):
         games_path = self.games_path
