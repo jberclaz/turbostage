@@ -6,11 +6,14 @@ from datetime import datetime, timezone
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool
-from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QKeySequence
+from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QComboBox,
     QDialog,
     QFileDialog,
+    QHBoxLayout,
+    QLabel,
     QLineEdit,
     QMainWindow,
     QMenu,
@@ -23,6 +26,7 @@ from PySide6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
+    QTextEdit,
     QVBoxLayout,
     QWidget,
 )
@@ -49,9 +53,19 @@ from turbostage.ui.settings_dialog import SettingsDialog
 from turbostage.ui.submit_config_dialog import SubmitLocalConfigDialog
 
 
+def sort_games(games: list, sort_by: str = "title") -> list:
+    """Sort game entries for the library views. Release date is newest-first."""
+    if sort_by == "release_date":
+        return sorted(games, key=lambda g: g.release_date or 0, reverse=True)
+    if sort_by == "genre":
+        return sorted(games, key=lambda g: (g.genre or "").lower())
+    return sorted(games, key=lambda g: g.title.lower())
+
+
 class MainWindow(QMainWindow):
     DB_FILE = "turbostage.db"
     ONLINE_DB_URL = "https://github.com/jberclaz/turbostage_data/raw/refs/heads/master/archive/database.json.gz"
+    SORT_OPTIONS = {"Title": "title", "Release date": "release_date", "Genre": "genre"}
 
     def __init__(self):
         QMainWindow.__init__(self)
@@ -135,6 +149,21 @@ class MainWindow(QMainWindow):
         self.search_box.addAction(load_icon("search"), QLineEdit.LeadingPosition)
         self.search_box.textChanged.connect(self.filter_games)
 
+        self.sort_combo = QComboBox(self)
+        self.sort_combo.addItems(list(self.SORT_OPTIONS))
+        saved_sort = str(QSettings("jberclaz", "TurboStage").value("app/sort_by", "title"))
+        for label, key in self.SORT_OPTIONS.items():
+            if key == saved_sort:
+                self.sort_combo.setCurrentText(label)
+                break
+        self.sort_combo.setToolTip("Sort games")
+        self.sort_combo.currentIndexChanged.connect(self._on_sort_changed)
+
+        search_row = QHBoxLayout()
+        search_row.addWidget(self.search_box, 1)
+        search_row.addWidget(QLabel("Sort:"))
+        search_row.addWidget(self.sort_combo)
+
         self.splitter = QSplitter(Qt.Horizontal)
 
         self.left_panel = QWidget()
@@ -164,10 +193,21 @@ class MainWindow(QMainWindow):
         self.game_view_stack.addWidget(self.game_grid)
         self.game_view_stack.addWidget(self.game_table)
 
-        self.left_layout.addWidget(self.search_box)
+        self.left_layout.addLayout(search_row)
         self.left_layout.addWidget(self.game_view_stack)
         self.left_panel.setLayout(self.left_layout)
         self.splitter.addWidget(self.left_panel)
+
+        # Keyboard shortcuts: Enter launches the selected game (only when a
+        # game view has focus), "/" jumps to the search box.
+        for view in (self.game_table, self.game_grid):
+            for key in (Qt.Key_Return, Qt.Key_Enter):
+                launch_shortcut = QShortcut(QKeySequence(key), view)
+                launch_shortcut.setContext(Qt.ShortcutContext.WidgetShortcut)
+                launch_shortcut.activated.connect(self.launch_game)
+        search_shortcut = QShortcut(QKeySequence("/"), self)
+        search_shortcut.setContext(Qt.ShortcutContext.WindowShortcut)
+        search_shortcut.activated.connect(self._focus_search)
 
         # Right panel: Game info display
         self.right_panel = QTabWidget()
@@ -234,6 +274,18 @@ class MainWindow(QMainWindow):
             needs_install = False
             is_downloadable = False
         return igdb_id, version_id, needs_install, is_downloadable, title
+
+    def _on_sort_changed(self, index: int):
+        label = self.sort_combo.itemText(index)
+        QSettings("jberclaz", "TurboStage").setValue("app/sort_by", self.SORT_OPTIONS.get(label, "title"))
+        self.load_games()
+
+    def _focus_search(self):
+        focused = self.focusWidget()
+        if isinstance(focused, (QLineEdit, QTextEdit)):
+            return
+        self.search_box.setFocus()
+        self.search_box.selectAll()
 
     def filter_games(self, query: str):
         query = query.lower()
@@ -480,6 +532,9 @@ class MainWindow(QMainWindow):
         else:
             all_games = local_games
 
+        sort_by = str(QSettings("jberclaz", "TurboStage").value("app/sort_by", "title"))
+        all_games = sort_games(all_games, sort_by)
+
         grid_entries = []
         self.game_table.setSortingEnabled(False)
         self.game_table.setRowCount(len(all_games))
@@ -532,6 +587,7 @@ class MainWindow(QMainWindow):
         self.game_table.resizeColumnsToContents()
         self.game_table.setSortingEnabled(True)
         self.game_grid.set_games(grid_entries)
+        self.filter_games(self.search_box.text())
 
     def scan_local_games(self):
         games_path = self.games_path
