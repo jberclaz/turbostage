@@ -153,9 +153,10 @@ class TestScanningThread(TestCase):
                 def slow_hash(path, n=4):
                     if path.endswith("b.zip"):
                         release.wait(timeout=10)
-                    return [("G.EXE", 10, "hash1")]
+                    return ("zip", [("G.EXE", 10, "hash1")])
 
-                mock_utils.compute_hash_for_largest_files_in_zip.side_effect = slow_hash
+                mock_utils.hash_archive_top.side_effect = slow_hash
+                mock_utils.hash_archive_executables.return_value = []
                 mock_db.find_game_by_hashes.return_value = 7
                 mock_db.resolve_local_executables.return_value = ("G.EXE", None)
                 mock_db.get_version_requires_install.return_value = False
@@ -187,15 +188,15 @@ class TestScanningThread(TestCase):
         try:
             with (
                 patch("turbostage.scanning_thread.GameDatabase") as mock_db_cls,
-                patch("turbostage.scanning_thread.iso_utils") as mock_iso,
                 patch("turbostage.scanning_thread.utils") as mock_utils,
             ):
                 mock_db = MagicMock()
                 mock_db_cls.return_value = mock_db
-                mock_iso.is_iso_file.side_effect = lambda p: p.endswith(".iso")
-                mock_utils.compute_hash_for_largest_files_in_zip.return_value = [("G.EXE", 10, "hash1")]
-                mock_iso.compute_hash_for_largest_files_in_iso.return_value = [("X.EXE", 10, "hash2")]
-                mock_db.find_game_by_hashes.side_effect = lambda hs: 7 if "hash1" in hs else None
+                mock_utils.hash_archive_top.side_effect = lambda p, n=4: (
+                    ("iso", [("X.EXE", 10, "hash2")]) if p.endswith(".iso") else ("zip", [("G.EXE", 10, "hash1")])
+                )
+                mock_utils.hash_archive_executables.return_value = []
+                mock_db.find_game_by_hashes.side_effect = lambda hs: (7 if "hash1" in hs else None)
                 mock_db.resolve_local_executables.return_value = ("G.EXE", None)
                 mock_db.get_version_requires_install.return_value = False
 
@@ -217,7 +218,11 @@ class TestScanningThread(TestCase):
             ):
                 mock_db = MagicMock()
                 mock_db_cls.return_value = mock_db
-                mock_utils.compute_hash_for_largest_files_in_zip.return_value = [("G.EXE", 10, "hash1")]
+                mock_utils.hash_archive_top.return_value = (
+                    "zip",
+                    [("G.EXE", 10, "hash1")],
+                )
+                mock_utils.hash_archive_executables.return_value = []
                 mock_db.find_game_by_hashes.return_value = 7
                 mock_db.resolve_local_executables.return_value = ("G.EXE", None)
                 mock_db.get_version_requires_install.return_value = False

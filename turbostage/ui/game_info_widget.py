@@ -246,9 +246,7 @@ class GameInfoWidget(QWidget):
 
             # Retrieve metadata from the request
             try:
-                local_path, callback_slot, generation = reply.request().attribute(
-                    QNetworkRequest.Attribute.User
-                )
+                local_path, callback_slot, generation = reply.request().attribute(QNetworkRequest.Attribute.User)
             except (TypeError, ValueError):
                 logger.warning("Image reply missing request metadata; ignoring")
                 return

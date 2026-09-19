@@ -3,7 +3,7 @@ import os
 
 from PySide6.QtCore import QThread, Signal
 
-from turbostage import iso_utils, utils
+from turbostage import utils
 from turbostage.db.game_database import GameDatabase
 
 logger = logging.getLogger(__name__)
@@ -67,15 +67,9 @@ class ScanningThread(QThread):
         """Scan a single archive; returns match tuple or None if unrecognized."""
         archive_path = os.path.join(self._game_path, game_archive)
 
-        # Determine archive type and compute hashes accordingly.
         # Hash helpers raise on missing/corrupt archives; the caller isolates
         # those per-file failures so one bad file never aborts the whole scan.
-        if iso_utils.is_iso_file(archive_path):
-            archive_type = "iso"
-            hashes = iso_utils.compute_hash_for_largest_files_in_iso(archive_path, 4)
-        else:
-            archive_type = "zip"
-            hashes = utils.compute_hash_for_largest_files_in_zip(archive_path, 4)
+        archive_type, hashes = utils.hash_archive_top(archive_path, 4)
 
         # Extract just the hash values from the tuples
         hash_values = [h[2] for h in hashes]
@@ -85,10 +79,7 @@ class ScanningThread(QThread):
             return None
         if self.isInterruptionRequested():
             raise InterruptedError("Scan cancelled")
-        if archive_type == "iso":
-            hashes.extend(iso_utils.compute_hashes_for_executables_in_iso(archive_path))
-        else:
-            hashes.extend(utils.compute_hashes_for_executables_in_zip(archive_path))
+        hashes.extend(utils.hash_archive_executables(archive_path))
         local_executable, local_config_executable = db.resolve_local_executables(version_id, hashes)
         requires_install = db.get_version_requires_install(version_id)
         return (

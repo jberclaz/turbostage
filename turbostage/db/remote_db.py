@@ -1,9 +1,11 @@
-import os
+import logging
 from datetime import datetime
 
 from PySide6.QtWidgets import QMessageBox
 
 from turbostage.db.game_database import GameDatabase
+
+logger = logging.getLogger(__name__)
 
 
 class RemoteDB:
@@ -14,9 +16,16 @@ class RemoteDB:
         export = {"generated_at": datetime.now().isoformat(), "games": {}}
         data = self._db.get_all_local_version_for_export()
         for row in data:
-            version_id, game_id, version, executable, config_executable, config, cycles, requires_install = (
-                row[0], row[1], row[2], row[3], row[4], row[5], row[6], bool(row[7])
-            )
+            (
+                version_id,
+                game_id,
+                version,
+                executable,
+                config_executable,
+                config,
+                cycles,
+                requires_install,
+            ) = (row[0], row[1], row[2], row[3], row[4], row[5], row[6], bool(row[7]))
             if version_id not in version_ids:
                 continue
             if game_id not in export["games"]:
@@ -30,7 +39,10 @@ class RemoteDB:
                 "config": config,
                 "cycles": cycles,
                 "requires_install": requires_install,
-                "hashes": {os.path.basename(h[0]): h[1] for h in hashes},
+                # Key by full in-archive path: basenames collide when
+                # different folders contain same-named files, and the
+                # resolver matches on the full executable path.
+                "hashes": {h[0]: h[1] for h in hashes},
             }
         return export
 
@@ -45,5 +57,7 @@ class RemoteDB:
 
         # Copy to clipboard
         QMessageBox.information(
-            parent_ui, "Ready!", "GitHub issue opened with configuration upload.\n" "Just press 'Create'."
+            parent_ui,
+            "Ready!",
+            "GitHub issue opened with configuration upload.\n" "Just press 'Create'.",
         )

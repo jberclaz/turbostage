@@ -43,9 +43,7 @@ class LockedFileDialog(QFileDialog):
                 # Resolve symlinks; the target must stay inside the lock dir.
                 real = os.path.realpath(f)
                 parent = os.path.realpath(os.path.dirname(f) or ".")
-                if parent != self.initial_path and not real.startswith(
-                    self.initial_path + os.sep
-                ):
+                if parent != self.initial_path and not real.startswith(self.initial_path + os.sep):
                     self.setDirectory(self.initial_path)
                     return
         super().accept()

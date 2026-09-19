@@ -7,11 +7,57 @@ including computing MD5 hashes, listing files, and extracting metadata.
 import hashlib
 import logging
 import os
+from contextlib import contextmanager
 
 import pycdlib
 from pycdlib import pycdlibexception
 
 logger = logging.getLogger(__name__)
+
+EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
+_ISO_PATH_TYPES = ("iso_path", "joliet_path", "rr_path")
+
+
+@contextmanager
+def _open_iso(iso_path: str):
+    """Open an ISO, guaranteeing close (replaces 5 duplicated open/finally blocks)."""
+    iso = pycdlib.PyCdlib()
+    iso.open(iso_path)
+    try:
+        yield iso
+    finally:
+        iso.close()
+
+
+def _iter_iso_files(iso) -> list[tuple[str, str]]:
+    """Yield (normalized_path, raw_entry_id) for every file in an open ISO."""
+    for dir_path, _dir_entries, file_entries in iso.walk(iso_path="/"):
+        for file_entry in file_entries:
+            if isinstance(file_entry, str):
+                if file_entry in (".", ".."):
+                    continue
+                file_id = file_entry
+            else:
+                if file_entry.file_identifier() in (b".", b".."):
+                    continue
+                file_id = file_entry.file_identifier().decode("utf-8", errors="ignore")
+            normalized_id = file_id.split(";")[0]
+            full_path = dir_path + normalized_id if dir_path.endswith("/") else dir_path + "/" + normalized_id
+            yield full_path, file_id
+
+
+def _read_iso_entry(iso, file_path: str):
+    """Open a file inside an ISO, trying path types and ;1 suffix variants."""
+    paths_to_try = [file_path] if ";" in file_path else [file_path, file_path + ";1"]
+    last_error = None
+    for path in paths_to_try:
+        for path_type in _ISO_PATH_TYPES:
+            try:
+                return iso.open_file_from_iso(**{path_type: path})
+            except Exception as e:  # noqa: BLE001 - probe next spelling on any miss
+                last_error = e
+                continue
+    raise pycdlibexception.PyCdlibInvalidInput(f"Could not find path: {file_path}") from last_error
 
 
 def is_iso_file(file_path: str) -> bool:
@@ -55,55 +101,18 @@ def compute_md5_from_iso(iso, file_path: str) -> str:
     Returns:
         MD5 hash as a hex string
     """
-    import pycdlib
-
     hash_md5 = hashlib.md5()
 
-    # Try different path types
-    path_types = ["iso_path", "joliet_path", "rr_path"]
-    # Also try with ISO 9660 version number suffix (e.g., ;1)
-    paths_to_try = [file_path]
-    if ";" not in file_path:
-        paths_to_try.append(file_path + ";1")
-    opened = False
+    def _hash_open(iso_obj) -> None:
+        with _read_iso_entry(iso_obj, file_path) as f:
+            for chunk in iter(lambda: f.read(4096), b""):
+                hash_md5.update(chunk)
 
     if isinstance(iso, str):
-        # iso is a path, open it
-        iso_obj = pycdlib.PyCdlib()
-        iso_obj.open(iso)
-        try:
-            for path in paths_to_try:
-                for path_type in path_types:
-                    try:
-                        with iso_obj.open_file_from_iso(**{path_type: path}) as f:
-                            for chunk in iter(lambda: f.read(4096), b""):
-                                hash_md5.update(chunk)
-                            opened = True
-                            break
-                    except Exception:
-                        continue
-                if opened:
-                    break
-            if not opened:
-                raise pycdlibexception.PyCdlibInvalidInput(f"Could not find path: {file_path}")
-        finally:
-            iso_obj.close()
+        with _open_iso(iso) as iso_obj:
+            _hash_open(iso_obj)
     else:
-        # iso is already an opened object
-        for path in paths_to_try:
-            for path_type in path_types:
-                try:
-                    with iso.open_file_from_iso(**{path_type: path}) as f:
-                        for chunk in iter(lambda: f.read(4096), b""):
-                            hash_md5.update(chunk)
-                        opened = True
-                        break
-                except Exception:
-                    continue
-            if opened:
-                break
-        if not opened:
-            raise pycdlibexception.PyCdlibInvalidInput(f"Could not find path: {file_path}")
+        _hash_open(iso)
 
     return hash_md5.hexdigest()
 
@@ -118,33 +127,24 @@ def compute_hash_for_largest_files_in_iso(iso_path: str, n: int = 5) -> list[tup
     Returns:
         List of tuples (file_path, file_size, md5_hash)
     """
-    import pycdlib
-
-    iso = pycdlib.PyCdlib()
-    iso.open(iso_path)
-
-    try:
+    with _open_iso(iso_path) as iso:
         file_sizes = []
 
-        # Walk through all files in the ISO
-        for dir_path, dir_entries, file_entries in iso.walk(iso_path="/"):
+        for dir_path, _dir_entries, file_entries in iso.walk(iso_path="/"):
             for file_entry in file_entries:
-                if file_entry in (".", ".."):
+                raw_id = (
+                    file_entry
+                    if isinstance(file_entry, str)
+                    else file_entry.file_identifier().decode("utf-8", errors="ignore")
+                )
+                if raw_id in (".", ".."):
                     continue
-
-                # Strip ISO 9660 version number (e.g., ";1") for consistent path matching
-                normalized_id = file_entry.split(";")[0]
-
-                # Ensure proper path joining with separator
-                if dir_path.endswith("/"):
-                    full_path = dir_path + normalized_id
-                else:
-                    full_path = dir_path + "/" + normalized_id
-
-                # Get actual file size from the DirectoryRecord
+                normalized_id = raw_id.split(";")[0]
+                full_path = dir_path + normalized_id if dir_path.endswith("/") else dir_path + "/" + normalized_id
+                # Get actual file size from the DirectoryRecord (advisory:
+                # only ranks largest-N, so a miss degrades to 0).
                 try:
-                    iso_record_path = dir_path.rstrip("/") + "/" + file_entry
-                    rec = iso.get_record(iso_path=iso_record_path)
+                    rec = iso.get_record(iso_path=dir_path.rstrip("/") + "/" + raw_id)
                     file_size = rec.data_length
                 except Exception:
                     file_size = 0
@@ -154,15 +154,7 @@ def compute_hash_for_largest_files_in_iso(iso_path: str, n: int = 5) -> list[tup
         largest_files = sorted(file_sizes, key=lambda x: x[1], reverse=True)[:n]
 
         # Compute MD5 hashes for the largest files
-        file_hashes = []
-        for file_path, file_size in largest_files:
-            file_hash = compute_md5_from_iso(iso, file_path)
-            file_hashes.append((file_path, file_size, file_hash))
-
-        return file_hashes
-
-    finally:
-        iso.close()
+        return [(file_path, file_size, compute_md5_from_iso(iso, file_path)) for file_path, file_size in largest_files]
 
 
 def list_files_in_iso(iso_path: str) -> list[str]:
@@ -174,37 +166,8 @@ def list_files_in_iso(iso_path: str) -> list[str]:
     Returns:
         List of file paths within the ISO
     """
-    import pycdlib
-
-    iso = pycdlib.PyCdlib()
-    iso.open(iso_path)
-
-    try:
-        files = []
-        for dir_path, dir_entries, file_entries in iso.walk(iso_path="/"):
-            for file_entry in file_entries:
-                # Handle both string entries and file entry objects
-                if isinstance(file_entry, str):
-                    if file_entry in (".", ".."):
-                        continue
-                    file_id = file_entry
-                else:
-                    if file_entry.file_identifier() in (b".", b".."):
-                        continue
-                    file_id = file_entry.file_identifier().decode("utf-8")
-
-                # Strip ISO 9660 version number (e.g., ";1") for consistent path matching
-                normalized_id = file_id.split(";")[0]
-
-                # Ensure proper path joining with separator
-                if dir_path.endswith("/"):
-                    full_path = dir_path + normalized_id
-                else:
-                    full_path = dir_path + "/" + normalized_id
-                files.append(full_path)
-        return files
-    finally:
-        iso.close()
+    with _open_iso(iso_path) as iso:
+        return [full_path for full_path, _raw in _iter_iso_files(iso)]
 
 
 def list_executables_in_iso(iso_path: str) -> list[str]:
@@ -216,26 +179,14 @@ def list_executables_in_iso(iso_path: str) -> list[str]:
     Returns:
         List of executable file paths within the ISO
     """
-    EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
-    all_files = list_files_in_iso(iso_path)
-    executables = []
-    for f in all_files:
-        if os.path.splitext(f)[1].lower() in EXECUTABLE_EXTENSIONS:
-            executables.append(f)
-    return executables
+    return [f for f in list_files_in_iso(iso_path) if os.path.splitext(f)[1].lower() in EXECUTABLE_EXTENSIONS]
 
 
 def compute_hashes_for_executables_in_iso(iso_path: str) -> list[tuple[str, int, str]]:
     """Compute MD5 hashes for all executable files (.exe, .bat, .com) in an ISO archive."""
-    import pycdlib
-
     executables = list_executables_in_iso(iso_path)
-    iso = pycdlib.PyCdlib()
-    iso.open(iso_path)
-    try:
+    with _open_iso(iso_path) as iso:
         return [(path, 0, compute_md5_from_iso(iso, path)) for path in executables]
-    finally:
-        iso.close()
 
 
 def get_iso_volume_label(iso_path: str) -> str | None:
@@ -247,22 +198,16 @@ def get_iso_volume_label(iso_path: str) -> str | None:
     Returns:
         Volume label string, or None if not available
     """
-    import pycdlib
-
-    iso = pycdlib.PyCdlib()
-    iso.open(iso_path)
-
     try:
-        pvd = iso.pvd
-        if pvd:
-            vol_id = pvd.volume_identifier.decode("ascii", errors="ignore").strip()
-            if not vol_id:
-                logger.warning("Empty volume identifier in ISO: %s", iso_path)
-            return vol_id if vol_id else None
-        logger.warning("No primary volume descriptor found in ISO: %s", iso_path)
-        return None
+        with _open_iso(iso_path) as iso:
+            pvd = iso.pvd
+            if pvd:
+                vol_id = pvd.volume_identifier.decode("ascii", errors="ignore").strip()
+                if not vol_id:
+                    logger.warning("Empty volume identifier in ISO: %s", iso_path)
+                return vol_id if vol_id else None
+            logger.warning("No primary volume descriptor found in ISO: %s", iso_path)
+            return None
     except Exception as e:
         logger.warning("Failed to read volume label from ISO %s: %s", iso_path, e)
         return None
-    finally:
-        iso.close()

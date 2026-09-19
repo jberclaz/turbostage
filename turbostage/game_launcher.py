@@ -6,7 +6,14 @@ import tempfile
 import time
 import zipfile
 
-from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QSettings, QTimer, Signal
+from PySide6.QtCore import (
+    QObject,
+    QProcess,
+    QProcessEnvironment,
+    QSettings,
+    QTimer,
+    Signal,
+)
 from PySide6.QtGui import QGuiApplication, Qt
 from PySide6.QtWidgets import QMessageBox
 
@@ -169,9 +176,7 @@ class GameLauncher(QObject):
             self._process.terminate()
             generation = self._launch_generation
             process = self._process
-            QTimer.singleShot(
-                STOP_KILL_DELAY_MS, lambda: self._kill_if_running(process, generation)
-            )
+            QTimer.singleShot(STOP_KILL_DELAY_MS, lambda: self._kill_if_running(process, generation))
 
     def _kill_if_running(self, process: QProcess | None = None, generation: int | None = None):
         # The single-shot timer may fire after a normal exit or after a new
@@ -333,13 +338,10 @@ class GameLauncher(QObject):
         """Extract a ZIP game and build its DOSBox command."""
         if not executable:
             raise OSError("No game executable selected for this game.")
+        from turbostage.provisioning import safe_extract_zip
+
         with zipfile.ZipFile(archive_path, "r") as zip_ref:
-            # Validate members before extraction (zip-slip guard).
-            for info in zip_ref.infolist():
-                name = info.filename.replace("\\", "/").strip()
-                if not name or os.path.isabs(name) or ".." in name.split("/"):
-                    raise OSError(f"Unsafe path in archive: '{info.filename}'")
-            zip_ref.extractall(temp_dir)
+            safe_extract_zip(zip_ref, temp_dir)
 
         if config_files:
             GameLauncher._write_game_extra_files(self._version_id, temp_dir, db, constants.FileType.CONFIG)
@@ -351,7 +353,12 @@ class GameLauncher(QObject):
             self._original_files = utils.list_files_with_md5(temp_dir)
 
         self._conf_path = self._write_extra_conf(
-            config, mt32_roms_path, soundcanvas_roms_path, disk_noise, cpu_cycles, midi_device
+            config,
+            mt32_roms_path,
+            soundcanvas_roms_path,
+            disk_noise,
+            cpu_cycles,
+            midi_device,
         )
         command = build_dosbox_command(dosbox_exec, main_config, full_screen, self._conf_path)
         command.append(_safe_join(temp_dir, executable))
@@ -387,8 +394,7 @@ class GameLauncher(QObject):
             c_drive_path = install_path
             if not c_drive_path or not os.path.isdir(c_drive_path):
                 raise OSError(
-                    "Installation folder is missing. Re-add the game or reinstall it "
-                    "before running the installer."
+                    "Installation folder is missing. Re-add the game or reinstall it " "before running the installer."
                 )
         elif not is_installed:
             # Not installed and not in install mode: use temp directory
@@ -397,9 +403,7 @@ class GameLauncher(QObject):
             # Normal mode: C: is the installation directory
             c_drive_path = install_path
             if not c_drive_path or not os.path.isdir(c_drive_path):
-                raise OSError(
-                    "Installation folder is missing. Reinstall the game before launching it."
-                )
+                raise OSError("Installation folder is missing. Reinstall the game before launching it.")
 
         if config_files:
             GameLauncher._write_game_extra_files(self._version_id, c_drive_path, db, constants.FileType.CONFIG)
@@ -409,7 +413,12 @@ class GameLauncher(QObject):
         autoexec_commands = build_iso_autoexec(c_drive_path, archive_path, executable, bool(is_installed))
 
         extra_conf = self._write_extra_conf(
-            config, mt32_roms_path, soundcanvas_roms_path, disk_noise, cpu_cycles, midi_device
+            config,
+            mt32_roms_path,
+            soundcanvas_roms_path,
+            disk_noise,
+            cpu_cycles,
+            midi_device,
         )
         try:
             with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
@@ -428,7 +437,13 @@ class GameLauncher(QObject):
         return build_dosbox_command(dosbox_exec, main_config, full_screen, self._conf_path)
 
     def _write_extra_conf(
-        self, config, mt32_roms_path, soundcanvas_roms_path, disk_noise, cpu_cycles, midi_device
+        self,
+        config,
+        mt32_roms_path,
+        soundcanvas_roms_path,
+        disk_noise,
+        cpu_cycles,
+        midi_device,
     ) -> str | None:
         if not (config or mt32_roms_path or soundcanvas_roms_path or disk_noise or cpu_cycles > 0 or midi_device > 0):
             return None

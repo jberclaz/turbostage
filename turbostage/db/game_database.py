@@ -119,7 +119,16 @@ class ConnectionPool:
             connection: The SQLite connection to return to the pool
         """
         # Reset connection state before returning to pool
-        connection.rollback()  # Ensure no transactions are pending
+        try:
+            connection.rollback()  # Ensure no transactions are pending
+        except sqlite3.ProgrammingError:
+            pass
+        try:
+            # A read-only checkout sets query_only=ON; clear it so the next
+            # writer reusing this pooled connection doesn't fail.
+            connection.execute("PRAGMA query_only = OFF")
+        except sqlite3.DatabaseError:
+            pass
 
         try:
             self._pool.put_nowait(connection)
@@ -212,9 +221,7 @@ class GameDatabase:
                     if cur.fetchone():
                         continue
                     # Insert version
-                    cur.execute("PRAGMA table_info(versions)")
-                    version_columns = {row[1] for row in cur.fetchall()}
-                    has_download_url = "download_url" in version_columns
+                    has_download_url = GameDatabase._has_column(cur, "versions", "download_url")
 
                     columns = [
                         "game_id",
@@ -239,7 +246,7 @@ class GameDatabase:
                         values.append(version_data.get("download_url"))
 
                     requires_install = version_data.get("requires_install")
-                    if requires_install is not None and "requires_install" in version_columns:
+                    if requires_install is not None and GameDatabase._has_column(cur, "versions", "requires_install"):
                         columns.append("requires_install")
                         values.append(1 if requires_install else 0)
 
@@ -501,8 +508,6 @@ class GameDatabase:
         """Insert a game version with all details and return its ID."""
         with self.transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(versions)")
-            columns = {row[1] for row in cursor.fetchall()}
 
             col_names = [
                 "game_id",
@@ -514,11 +519,11 @@ class GameDatabase:
             ]
             values = [game_id, version, executable, config_executable, config, cycles]
 
-            if "midi_device" in columns:
+            if GameDatabase._has_column(cursor, "versions", "midi_device"):
                 col_names.append("midi_device")
                 values.append(midi_device)
 
-            if "requires_install" in columns:
+            if GameDatabase._has_column(cursor, "versions", "requires_install"):
                 col_names.append("requires_install")
                 values.append(1 if requires_install else 0)
 
@@ -553,14 +558,10 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(local_versions)")
-            columns = {row[1] for row in cursor.fetchall()}
-            has_local_executable = "executable" in columns
-            has_local_config_executable = "config_executable" in columns
+            has_local_executable = GameDatabase._has_column(cursor, "local_versions", "executable")
+            has_local_config_executable = GameDatabase._has_column(cursor, "local_versions", "config_executable")
 
-            cursor.execute("PRAGMA table_info(versions)")
-            version_columns = {row[1] for row in cursor.fetchall()}
-            has_midi_device = "midi_device" in version_columns
+            has_midi_device = GameDatabase._has_column(cursor, "versions", "midi_device")
 
             midi_col = "v.midi_device" if has_midi_device else "0 as midi_device"
 
@@ -612,14 +613,10 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(local_versions)")
-            columns = {row[1] for row in cursor.fetchall()}
-            has_local_executable = "executable" in columns
-            has_local_config_executable = "config_executable" in columns
+            has_local_executable = GameDatabase._has_column(cursor, "local_versions", "executable")
+            has_local_config_executable = GameDatabase._has_column(cursor, "local_versions", "config_executable")
 
-            cursor.execute("PRAGMA table_info(versions)")
-            version_columns = {row[1] for row in cursor.fetchall()}
-            has_midi_device = "midi_device" in version_columns
+            has_midi_device = GameDatabase._has_column(cursor, "versions", "midi_device")
 
             midi_col = "v.midi_device" if has_midi_device else "0 as midi_device"
 
@@ -678,15 +675,13 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT DISTINCT v.id, g.title, g.release_date, g.genre, v.version, g.igdb_id, g.cover_url
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
                          JOIN local_versions lv ON v.id = lv.version_id
                 ORDER BY g.title
-                """
-            )
+                """)
             return [
                 LocalGameDetails(row[5], row[1], row[2], row[3], row[4], row[0], cover_url=row[6])
                 for row in cursor.fetchall()
@@ -700,13 +695,10 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(versions)")
-            columns = {row[1] for row in cursor.fetchall()}
-            if "download_url" not in columns:
+            if not GameDatabase._has_column(cursor, "versions", "download_url"):
                 return []
 
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT g.igdb_id, g.title, g.release_date, g.genre, v.version, v.id, v.download_url, g.cover_url
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
@@ -714,8 +706,7 @@ class GameDatabase:
                 WHERE v.download_url IS NOT NULL
                   AND lv.version_id IS NULL
                 ORDER BY g.title
-                """
-            )
+                """)
             return [
                 LocalGameDetails(
                     row[0],
@@ -741,9 +732,7 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(versions)")
-            columns = {row[1] for row in cursor.fetchall()}
-            if "download_url" not in columns:
+            if not GameDatabase._has_column(cursor, "versions", "download_url"):
                 return None
             cursor.execute(
                 "SELECT download_url FROM versions WHERE id = ?",
@@ -755,10 +744,8 @@ class GameDatabase:
     def get_all_local_version_for_export(self):
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(versions)")
-            columns = {row[1] for row in cursor.fetchall()}
 
-            if "requires_install" in columns:
+            if GameDatabase._has_column(cursor, "versions", "requires_install"):
                 query = """
                     SELECT id, game_id, version, executable, config_executable,
                            config, cycles, requires_install
@@ -889,7 +876,13 @@ class GameDatabase:
                 return 0
 
             GameDatabase._insert_local_version(
-                conn, version_id, game_archive_name, executable, config_executable, archive_type, requires_install
+                conn,
+                version_id,
+                game_archive_name,
+                executable,
+                config_executable,
+                archive_type,
+                requires_install,
             )
         return 1
 
@@ -906,24 +899,20 @@ class GameDatabase:
         """Insert one local_versions row using whatever columns the schema has."""
         cursor = conn.cursor()
 
-        # Check what columns exist in local_versions table
-        cursor.execute("PRAGMA table_info(local_versions)")
-        columns = {row[1] for row in cursor.fetchall()}
-
         # Build INSERT statement based on available columns
         col_names = ["version_id", "archive"]
         values = [version_id, game_archive_name]
 
-        if "executable" in columns:
+        if GameDatabase._has_column(cursor, "local_versions", "executable"):
             col_names.append("executable")
             values.append(executable)
-        if "config_executable" in columns:
+        if GameDatabase._has_column(cursor, "local_versions", "config_executable"):
             col_names.append("config_executable")
             values.append(config_executable)
-        if "archive_type" in columns:
+        if GameDatabase._has_column(cursor, "local_versions", "archive_type"):
             col_names.append("archive_type")
             values.append(archive_type)
-        if "requires_install" in columns:
+        if GameDatabase._has_column(cursor, "local_versions", "requires_install"):
             col_names.append("requires_install")
             values.append(1 if requires_install else 0)
 
@@ -942,27 +931,38 @@ class GameDatabase:
         with self.transaction() as conn:
             conn.execute("DELETE FROM local_versions")
             seen = set()
-            for version_id, archive, executable, config_executable, archive_type, requires_install in entries:
+            for (
+                version_id,
+                archive,
+                executable,
+                config_executable,
+                archive_type,
+                requires_install,
+            ) in entries:
                 if version_id in seen:
                     # Several archives can match the same version (e.g. a zip
                     # and an iso of the same game); keep the first, as before.
                     continue
                 seen.add(version_id)
                 GameDatabase._insert_local_version(
-                    conn, version_id, archive, executable, config_executable, archive_type, requires_install
+                    conn,
+                    version_id,
+                    archive,
+                    executable,
+                    config_executable,
+                    archive_type,
+                    requires_install,
                 )
 
     def get_locally_modified_game_versions(self):
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                """
+            cursor.execute("""
                 SELECT g.title, g.igdb_id, v.id, v.version
                 FROM games g
                          JOIN versions v ON g.igdb_id = v.game_id
                 WHERE v.source = 'local'
-                """
-            )
+                """)
             return cursor.fetchall()
 
     def clear_local_versions(self) -> None:
@@ -1241,9 +1241,7 @@ class GameDatabase:
         """
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
-            cursor.execute("PRAGMA table_info(versions)")
-            columns = {row[1] for row in cursor.fetchall()}
-            if "requires_install" not in columns:
+            if not GameDatabase._has_column(cursor, "versions", "requires_install"):
                 return False
             cursor.execute("SELECT requires_install FROM versions WHERE id = ?", (version_id,))
             row = cursor.fetchone()
@@ -1344,83 +1342,9 @@ class GameDatabase:
         return [info[1] for info in cursor.fetchall()]
 
     @staticmethod
-    def _copy_table(
-        table_name: str,
-        input_cursor: sqlite3.Cursor,
-        output_cursor: sqlite3.Cursor,
-        version_id_mapping: dict,
-        conditions: str = None,
-    ):
-        columns = GameDatabase._get_table_columns(input_cursor, table_name)
-        input_version_ids = list(version_id_mapping.keys())
-        placeholders = ",".join(["?" for _ in input_version_ids])
-        query = f"SELECT * FROM {table_name} WHERE version_id IN ({placeholders})"
-        if conditions is not None:
-            query += f" AND {conditions}"
-        input_cursor.execute(query, input_version_ids)
-        input_rows = input_cursor.fetchall()
-
-        insert_columns = [col for col in columns if col != "id"]
-        value_placeholders = ",".join(["?" for _ in insert_columns])
-        insert_query = f"INSERT INTO {table_name} ({','.join(insert_columns)}) VALUES ({value_placeholders})"
-
-        inserted_row_count = 0
-        version_id_idx = columns.index("version_id")
-
-        for row in input_rows:
-            input_version_id = row[version_id_idx]
-            if input_version_id not in version_id_mapping:
-                continue
-
-            row_data = [
-                (version_id_mapping[input_version_id] if col == "version_id" else row[columns.index(col)])
-                for col in insert_columns
-            ]
-            output_cursor.execute(insert_query, tuple(row_data))
-            inserted_row_count += 1
-
-        print(f"Processed {len(input_rows)} {table_name} rows from input database.")
-        print(f"Inserted {inserted_row_count} new {table_name} rows into output database.")
-
-    @staticmethod
-    def _copy_versions(
-        input_cursor: sqlite3.Cursor,
-        output_cursor: sqlite3.Cursor,
-        game_id_mapping: dict,
-    ) -> dict:
-        input_game_ids = list(game_id_mapping.keys())
-        placeholders = ",".join(["?" for _ in input_game_ids])
-        input_cursor.execute(f"SELECT * FROM versions WHERE game_id IN ({placeholders})", input_game_ids)
-        input_version_rows = input_cursor.fetchall()
-
-        version_columns = GameDatabase._get_table_columns(input_cursor, "versions")
-        insert_columns = [col for col in version_columns if col != "id"]
-        version_placeholders = ",".join(["?" for _ in insert_columns])
-        version_insert_query = f"INSERT INTO versions ({','.join(insert_columns)}) VALUES ({version_placeholders})"
-
-        version_id_mapping = {}
-        inserted_version_count = 0
-        game_id_idx = version_columns.index("game_id")
-        for row in input_version_rows:
-            input_game_id = row[game_id_idx]
-            input_version_id = row[version_columns.index("id")]
-            if input_game_id not in game_id_mapping:
-                raise RuntimeError(f"Game ID '{input_game_id}' not found.")
-
-            # Prepare row data, excluding 'id' and updating 'game_id'
-            row_data = [
-                (game_id_mapping[input_game_id] if col == "game_id" else row[version_columns.index(col)])
-                for col in insert_columns
-            ]
-            output_cursor.execute(version_insert_query, row_data)
-            inserted_version_count += 1
-            new_version_id = output_cursor.lastrowid
-            version_id_mapping[input_version_id] = new_version_id
-
-        print(f"Processed {len(input_version_rows)} version rows from input database.")
-        print(f"Inserted {inserted_version_count} new version rows into output database.")
-
-        return version_id_mapping
+    def _has_column(cursor, table_name: str, column: str) -> bool:
+        """Check whether a table has a column (migration-tolerant schemas)."""
+        return column in GameDatabase._get_table_columns(cursor, table_name)
 
     def close(self):
         """Close the database connection pool.
@@ -1434,41 +1358,3 @@ class GameDatabase:
     def __del__(self):
         """Destructor to ensure connection pool is closed when object is garbage collected."""
         self.close()
-
-    @staticmethod
-    def _copy_game_table(input_cursor: sqlite3.Cursor, output_cursor: sqlite3.Cursor) -> dict:
-
-        columns = GameDatabase._get_table_columns(input_cursor, "games")
-        if "igdb_id" not in columns:
-            raise ValueError("Input database 'games' table does not have an 'igdb_id' column.")
-
-        input_cursor.execute(f"SELECT * FROM games")
-        input_rows = input_cursor.fetchall()
-
-        # Get existing igdb_ids in output database
-        output_cursor.execute("SELECT igdb_id FROM games")
-        existing_igdb_ids = set(row[0] for row in output_cursor.fetchall())
-
-        # Prepare insert query
-        insert_columns = columns[: columns.index("id")] + columns[columns.index("id") + 1 :]
-        placeholders = ",".join(["?" for _ in insert_columns])
-        insert_query = f"INSERT INTO games ({','.join(insert_columns)}) VALUES ({placeholders})"
-
-        # Compare and insert new rows
-        inserted_count = 0
-        game_id_mapping = {}
-        for row in input_rows:
-            igdb_id = row[columns.index("igdb_id")]
-            if igdb_id in existing_igdb_ids:
-                continue
-            input_id = row[columns.index("id")]
-            insert_row = row[: columns.index("id")] + row[columns.index("id") + 1 :]
-            output_cursor.execute(insert_query, insert_row)
-            inserted_count += 1
-            existing_igdb_ids.add(igdb_id)  # Update set to avoid duplicates
-            output_game_id = output_cursor.lastrowid
-            game_id_mapping[input_id] = output_game_id
-
-        print(f"Processed {len(input_rows)} rows from input database.")
-        print(f"Inserted {inserted_count} new rows into output database.")
-        return game_id_mapping
