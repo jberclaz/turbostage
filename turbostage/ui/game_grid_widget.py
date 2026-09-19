@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import os
 
 from PySide6.QtCore import QSize, QStandardPaths, Qt, QUrl, Slot
@@ -6,8 +7,11 @@ from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
+from turbostage import utils
 from turbostage.db.game_database import LocalGameDetails
 from turbostage.ui.theme import muted_text_color
+
+logger = logging.getLogger(__name__)
 
 COVER_WIDTH = 120
 COVER_HEIGHT = 160
@@ -35,6 +39,7 @@ class GameGridWidget(QListWidget):
         app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
         self._covers_cache_folder = os.path.join(app_data_folder, "image_cache", "covers")
         os.makedirs(self._covers_cache_folder, exist_ok=True)
+        utils.prune_image_cache(self._covers_cache_folder)
 
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.finished.connect(self._on_image_download_finished)
@@ -61,33 +66,50 @@ class GameGridWidget(QListWidget):
         """
         self.clear()
         for game, needs_install, is_downloadable in entries:
-            item = QListWidgetItem(game.title)
+            title = game.title or "Unknown"
+            item = QListWidgetItem(title)
             item.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install, is_downloadable))
             item.setSizeHint(self.gridSize())
             if is_downloadable:
                 item.setForeground(QColor(150, 150, 150))
-                item.setToolTip(f"{game.title} — click to download")
+                item.setToolTip(f"{title} — click to download")
             elif needs_install:
-                item.setToolTip(f"{game.title} — needs installation")
+                item.setToolTip(f"{title} — needs installation")
             else:
-                item.setToolTip(game.title)
+                item.setToolTip(title)
             self.addItem(item)
 
             if game.cover_url:
-                self._load_cover(item, game.cover_url)
+                self._load_cover(game.version_id, game.cover_url)
             else:
-                self._set_item_icon(item, QPixmap(), title=game.title)
+                self._set_item_icon(item, QPixmap(), title=title)
 
-    def _load_cover(self, item: QListWidgetItem, url: str) -> None:
+    def _load_cover(self, version_id: int, url: str) -> None:
         file_name = f"{hashlib.md5(url.encode()).hexdigest()}.jpg"
         local_path = os.path.join(self._covers_cache_folder, file_name)
 
         if os.path.exists(local_path):
-            self._set_item_icon(item, QPixmap(local_path))
+            item = self._find_item(version_id)
+            if item is not None:
+                self._set_item_icon(item, QPixmap(local_path))
         else:
             request = QNetworkRequest(QUrl(url))
-            request.setAttribute(QNetworkRequest.Attribute.User, (local_path, item))
+            # Store the version key (not the QListWidgetItem pointer): the
+            # item may be deleted by clear()/set_games() before the reply
+            # arrives, which would leave a dangling C++ pointer.
+            request.setAttribute(QNetworkRequest.Attribute.User, (local_path, version_id))
             self.network_manager.get(request)
+
+    def _find_item(self, version_id: int) -> QListWidgetItem | None:
+        for index in range(self.count()):
+            item = self.item(index)
+            try:
+                data = item.data(Qt.UserRole)
+            except RuntimeError:
+                continue
+            if data and len(data) >= 2 and data[1] == version_id:
+                return item
+        return None
 
     def _set_item_icon(self, item: QListWidgetItem, pixmap: QPixmap, title: str = "") -> None:
         if pixmap.isNull():
@@ -171,14 +193,37 @@ class GameGridWidget(QListWidget):
 
     @Slot(QNetworkReply)
     def _on_image_download_finished(self, reply: QNetworkReply) -> None:
-        if reply.error() != QNetworkReply.NetworkError.NoError:
-            reply.deleteLater()
-            return
+        try:
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                logger.warning("Cover download failed: %s", reply.errorString())
+                return
 
-        local_path, item = reply.request().attribute(QNetworkRequest.Attribute.User)
-        image_data = reply.readAll()
-        pixmap = QPixmap()
-        pixmap.loadFromData(image_data)
-        pixmap.save(local_path, "JPG", 90)
-        self._set_item_icon(item, pixmap)
-        reply.deleteLater()
+            try:
+                local_path, version_id = reply.request().attribute(QNetworkRequest.Attribute.User)
+            except (TypeError, ValueError):
+                logger.warning("Cover reply missing request metadata; ignoring")
+                return
+            if not local_path or version_id is None:
+                return
+
+            image_data = reply.readAll()
+            pixmap = QPixmap()
+            if not pixmap.loadFromData(image_data) or pixmap.isNull():
+                logger.warning("Downloaded cover is not a valid image; ignoring")
+                return
+            try:
+                pixmap.save(local_path, "JPG", 90)
+            except OSError:
+                logger.exception("Failed to cache cover '%s'", local_path)
+            item = self._find_item(version_id)
+            if item is None:
+                # Library was cleared/reloaded while downloading; the file is
+                # cached for next time, there is just nothing to paint now.
+                return
+            try:
+                self._set_item_icon(item, pixmap)
+            except RuntimeError:
+                # Item was deleted between lookup and painting; ignore.
+                pass
+        finally:
+            reply.deleteLater()

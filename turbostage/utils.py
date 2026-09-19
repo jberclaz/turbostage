@@ -133,6 +133,41 @@ def get_os():
     return platform.system()
 
 
+def prune_image_cache(folder: str, max_files: int = 500, max_bytes: int = 200 * 1024 * 1024) -> None:
+    """Bound an on-disk image cache (covers/screenshots) with LRU eviction.
+
+    Deletes oldest files (by mtime) until both limits hold. Best-effort:
+    never raises — a cache must not break the library view.
+    """
+    try:
+        entries = []
+        total_bytes = 0
+        for name in os.listdir(folder):
+            path = os.path.join(folder, name)
+            try:
+                if not os.path.isfile(path):
+                    continue
+                stat = os.stat(path)
+            except OSError:
+                continue
+            entries.append((stat.st_mtime, path, stat.st_size))
+            total_bytes += stat.st_size
+        if len(entries) <= max_files and total_bytes <= max_bytes:
+            return
+        entries.sort(key=lambda e: e[0])
+        for _, path, size in entries:
+            if len(entries) <= max_files and total_bytes <= max_bytes:
+                break
+            try:
+                os.unlink(path)
+            except OSError:
+                continue
+            total_bytes -= size
+            entries.pop(0)
+    except OSError:
+        pass
+
+
 class CancellationFlag:
     def __init__(self):
         self.cancelled = False
