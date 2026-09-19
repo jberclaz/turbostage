@@ -20,6 +20,23 @@ IMMEDIATE_EXIT_SECONDS = 5.0
 # Grace period between terminate() and kill() in stop().
 STOP_KILL_DELAY_MS = 5000
 
+# Skip change-tracking for files larger than this (avoid RAM blowup).
+MAX_TRACKED_FILE_BYTES = 16 * 1024 * 1024
+
+
+def _safe_join(base: str, name: str) -> str:
+    """Join a user-controlled relative path to base, rejecting escapes."""
+    if not name:
+        raise OSError(f"Invalid game path: '{name}'")
+    # Normalize separators; reject absolute paths and parent traversal.
+    normalized = name.replace("\\", "/").strip()
+    if os.path.isabs(normalized) or normalized.startswith("/") or ".." in normalized.split("/"):
+        raise OSError(f"Invalid game path: '{name}'")
+    joined = os.path.normpath(os.path.join(base, *normalized.split("/")))
+    if joined != base and not joined.startswith(base + os.sep):
+        raise OSError(f"Invalid game path: '{name}'")
+    return joined
+
 
 def is_midi_device_available(midi_device: int, mt32_roms_path: str, soundcanvas_roms_path: str) -> bool:
     """Check if the ROMs for a given MIDI device are installed.
@@ -139,6 +156,7 @@ class GameLauncher(QObject):
         self._install_path: str | None = None
         self._stopped_by_user = False
         self._finalized = False
+        self._launch_generation = 0
 
     @property
     def is_running(self) -> bool:
@@ -149,11 +167,20 @@ class GameLauncher(QObject):
         self._stopped_by_user = True
         if self.is_running:
             self._process.terminate()
-            QTimer.singleShot(STOP_KILL_DELAY_MS, self._kill_if_running)
+            generation = self._launch_generation
+            process = self._process
+            QTimer.singleShot(
+                STOP_KILL_DELAY_MS, lambda: self._kill_if_running(process, generation)
+            )
 
-    def _kill_if_running(self):
-        if self.is_running:
-            self._process.kill()
+    def _kill_if_running(self, process: QProcess | None = None, generation: int | None = None):
+        # The single-shot timer may fire after a normal exit or after a new
+        # game was launched; only kill the exact process/generation that asked.
+        if generation is not None and generation != self._launch_generation:
+            return
+        target = process if process is not None else self._process
+        if target is not None and target.state() != QProcess.ProcessState.NotRunning:
+            target.kill()
 
     def launch_game(
         self,
@@ -210,6 +237,7 @@ class GameLauncher(QObject):
         self._install_mode = install_mode
         self._stopped_by_user = False
         self._finalized = False
+        self._launch_generation += 1
 
         # Get archive type from database
         archive_type = db.get_archive_type(version_id)
@@ -303,7 +331,14 @@ class GameLauncher(QObject):
         config_files,
     ):
         """Extract a ZIP game and build its DOSBox command."""
+        if not executable:
+            raise OSError("No game executable selected for this game.")
         with zipfile.ZipFile(archive_path, "r") as zip_ref:
+            # Validate members before extraction (zip-slip guard).
+            for info in zip_ref.infolist():
+                name = info.filename.replace("\\", "/").strip()
+                if not name or os.path.isabs(name) or ".." in name.split("/"):
+                    raise OSError(f"Unsafe path in archive: '{info.filename}'")
             zip_ref.extractall(temp_dir)
 
         if config_files:
@@ -319,7 +354,7 @@ class GameLauncher(QObject):
             config, mt32_roms_path, soundcanvas_roms_path, disk_noise, cpu_cycles, midi_device
         )
         command = build_dosbox_command(dosbox_exec, main_config, full_screen, self._conf_path)
-        command.append(os.path.join(temp_dir, executable))
+        command.append(_safe_join(temp_dir, executable))
         return command
 
     def _prepare_iso_game(
@@ -350,12 +385,21 @@ class GameLauncher(QObject):
         if self._install_mode and not is_installed:
             # Installation mode: C: is the installation directory (to persist files)
             c_drive_path = install_path
+            if not c_drive_path or not os.path.isdir(c_drive_path):
+                raise OSError(
+                    "Installation folder is missing. Re-add the game or reinstall it "
+                    "before running the installer."
+                )
         elif not is_installed:
             # Not installed and not in install mode: use temp directory
             c_drive_path = temp_dir
         else:
             # Normal mode: C: is the installation directory
             c_drive_path = install_path
+            if not c_drive_path or not os.path.isdir(c_drive_path):
+                raise OSError(
+                    "Installation folder is missing. Reinstall the game before launching it."
+                )
 
         if config_files:
             GameLauncher._write_game_extra_files(self._version_id, c_drive_path, db, constants.FileType.CONFIG)
@@ -367,13 +411,19 @@ class GameLauncher(QObject):
         extra_conf = self._write_extra_conf(
             config, mt32_roms_path, soundcanvas_roms_path, disk_noise, cpu_cycles, midi_device
         )
-        with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
-            if extra_conf:
-                with open(extra_conf) as extra:
-                    conf_file.write(extra.read())
-                os.unlink(extra_conf)
-            conf_file.write("\n[autoexec]\n" + "\n".join(autoexec_commands) + "\n")
-            self._conf_path = conf_file.name
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
+                if extra_conf:
+                    with open(extra_conf) as extra:
+                        conf_file.write(extra.read())
+                conf_file.write("\n[autoexec]\n" + "\n".join(autoexec_commands) + "\n")
+                self._conf_path = conf_file.name
+        finally:
+            if extra_conf and os.path.isfile(extra_conf):
+                try:
+                    os.unlink(extra_conf)
+                except OSError:
+                    pass
 
         return build_dosbox_command(dosbox_exec, main_config, full_screen, self._conf_path)
 
@@ -453,13 +503,27 @@ class GameLauncher(QObject):
     def _extract_changed_files(self, temp_dir: str):
         files_after_setup = utils.list_files_with_md5(temp_dir)
         for file_after_setup, file_hash in files_after_setup.items():
+            if not file_hash:
+                # Unreadable file (already logged); skip without loading.
+                continue
+            try:
+                if os.path.getsize(file_after_setup) > MAX_TRACKED_FILE_BYTES:
+                    continue
+            except OSError:
+                continue
             if file_after_setup not in self._original_files:
-                with open(file_after_setup, "rb") as f:
-                    content = f.read()
+                try:
+                    with open(file_after_setup, "rb") as f:
+                        content = f.read()
+                except OSError:
+                    continue
                 self._new_files[os.path.relpath(file_after_setup, temp_dir)] = content
             elif self._original_files[file_after_setup] != file_hash:
-                with open(file_after_setup, "rb") as f:
-                    content = f.read()
+                try:
+                    with open(file_after_setup, "rb") as f:
+                        content = f.read()
+                except OSError:
+                    continue
                 self._modified_files[os.path.relpath(file_after_setup, temp_dir)] = content
 
     @staticmethod
@@ -467,10 +531,14 @@ class GameLauncher(QObject):
         config_files = db.get_config_files_with_content(version_id, file_type)
 
         for config_file_path, content in config_files:
-            folder = os.path.join(temp_dir, os.path.dirname(config_file_path))
-            if not os.path.isdir(folder):
-                os.makedirs(folder)
-            with open(os.path.join(temp_dir, config_file_path), "wb") as f:
+            try:
+                dest = _safe_join(temp_dir, config_file_path)
+            except OSError:
+                continue
+            folder = os.path.dirname(dest)
+            if folder and not os.path.isdir(folder):
+                os.makedirs(folder, exist_ok=True)
+            with open(dest, "wb") as f:
                 f.write(content)
 
     @staticmethod

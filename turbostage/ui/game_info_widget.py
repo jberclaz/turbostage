@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 
 from PySide6.QtCore import QStandardPaths, Qt, QUrl, Slot
@@ -7,7 +8,10 @@ from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
+from turbostage import utils
 from turbostage.ui.theme import group_box_style, muted_text_color
+
+logger = logging.getLogger(__name__)
 
 COVER_WIDTH = 180
 COVER_HEIGHT = 240
@@ -23,6 +27,12 @@ class GameInfoWidget(QWidget):
         self._screenshots_cache_folder = os.path.join(self._cache_folder, "screenshots")
         os.makedirs(self._covers_cache_folder, exist_ok=True)
         os.makedirs(self._screenshots_cache_folder, exist_ok=True)
+        utils.prune_image_cache(self._covers_cache_folder)
+        utils.prune_image_cache(self._screenshots_cache_folder)
+
+        # Generation counter: each set_game_info() bumps it; stale network
+        # replies from a previously selected game are ignored.
+        self._load_generation = 0
 
         self.network_manager = QNetworkAccessManager(self)
         self.network_manager.finished.connect(self.on_image_download_finished)
@@ -146,10 +156,12 @@ class GameInfoWidget(QWidget):
         rating: int = None,
     ):
         self.clear_info()
+        self._load_generation += 1
+        generation = self._load_generation
 
         self.details_group.show()
         self.summary_group.show()
-        self.summary_label.setText(summary)
+        self.summary_label.setText(summary or "")
 
         self.release_date_label.setText(release_date or "-")
         self.genres_label.setText(genres or "-")
@@ -158,33 +170,49 @@ class GameInfoWidget(QWidget):
         if rating is None or rating == 0:
             rating_str = "N/A"
         else:
-            rating_str = f"{rating / 10:.1f} / 10"
+            try:
+                rating_str = f"{float(rating) / 10:.1f} / 10"
+            except (TypeError, ValueError):
+                rating_str = "N/A"
         self.rating_label.setText(rating_str)
 
         if cover_url:
-            self._load_image(cover_url, self._covers_cache_folder, self.on_cover_loaded)
+            self._load_image(cover_url, self._covers_cache_folder, self.on_cover_loaded, generation)
 
         if screenshot_urls is not None and screenshot_urls != "[]":
-            urls = json.loads(screenshot_urls)
-            self.screenshots_group.show()
-            for url in urls:
-                self._load_image(url, self._screenshots_cache_folder, self.on_screenshot_loaded)
+            try:
+                urls = json.loads(screenshot_urls)
+            except (json.JSONDecodeError, TypeError):
+                urls = []
+            if urls:
+                self.screenshots_group.show()
+                for url in urls:
+                    if isinstance(url, str) and url:
+                        self._load_image(url, self._screenshots_cache_folder, self.on_screenshot_loaded, generation)
+                return
+            self.screenshots_group.hide()
         else:
             self.screenshots_group.hide()
 
-    def _load_image(self, url: str, cache_folder: str, callback_slot):
+    def _load_image(self, url: str, cache_folder: str, callback_slot, generation: int):
         """Checks cache for an image and requests it if not found."""
         file_name = f"{hashlib.md5(url.encode()).hexdigest()}.jpg"
         local_path = os.path.join(cache_folder, file_name)
 
         if os.path.exists(local_path):
             pixmap = QPixmap(local_path)
-            callback_slot(pixmap)
-        else:
-            request = QNetworkRequest(QUrl(url))
-            # Store metadata in the request to retrieve it in the finished slot
-            request.setAttribute(QNetworkRequest.Attribute.User, (local_path, callback_slot))
-            self.network_manager.get(request)
+            if pixmap.isNull():
+                try:
+                    os.unlink(local_path)
+                except OSError:
+                    pass
+            else:
+                callback_slot(pixmap)
+                return
+        request = QNetworkRequest(QUrl(url))
+        # Store metadata in the request to retrieve it in the finished slot
+        request.setAttribute(QNetworkRequest.Attribute.User, (local_path, callback_slot, generation))
+        self.network_manager.get(request)
 
     @Slot(QPixmap)
     def on_cover_loaded(self, pixmap: QPixmap):
@@ -211,20 +239,38 @@ class GameInfoWidget(QWidget):
 
     @Slot(QNetworkReply)
     def on_image_download_finished(self, reply: QNetworkReply):
-        if reply.error() != QNetworkReply.NetworkError.NoError:
-            print(f"Network Error: {reply.errorString()}")
+        try:
+            if reply.error() != QNetworkReply.NetworkError.NoError:
+                logger.warning("Image download failed: %s", reply.errorString())
+                return
+
+            # Retrieve metadata from the request
+            try:
+                local_path, callback_slot, generation = reply.request().attribute(
+                    QNetworkRequest.Attribute.User
+                )
+            except (TypeError, ValueError):
+                logger.warning("Image reply missing request metadata; ignoring")
+                return
+            if generation != self._load_generation:
+                # User selected another game while this was downloading.
+                return
+
+            image_data = reply.readAll()
+            pixmap = QPixmap()
+            if not pixmap.loadFromData(image_data) or pixmap.isNull():
+                logger.warning("Downloaded image is not valid; ignoring")
+                return
+
+            # Save to cache and call the appropriate handler
+            try:
+                pixmap.save(local_path, "JPG", 90)
+            except OSError:
+                logger.exception("Failed to cache image '%s'", local_path)
+            try:
+                callback_slot(pixmap)
+            except RuntimeError:
+                # Widget torn down while downloading; ignore.
+                pass
+        finally:
             reply.deleteLater()
-            return
-
-        # Retrieve metadata from the request
-        local_path, callback_slot = reply.request().attribute(QNetworkRequest.Attribute.User)
-
-        image_data = reply.readAll()
-        pixmap = QPixmap()
-        pixmap.loadFromData(image_data)
-
-        # Save to cache and call the appropriate handler
-        pixmap.save(local_path, "JPG", 90)
-        callback_slot(pixmap)
-
-        reply.deleteLater()

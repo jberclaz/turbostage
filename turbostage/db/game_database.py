@@ -1249,6 +1249,44 @@ class GameDatabase:
             row = cursor.fetchone()
             return bool(row[0]) if row else False
 
+    def get_library_install_flags(self, version_ids: list[int]) -> dict[int, tuple[str, bool, bool]]:
+        """Batch-fetch install flags for library rendering (avoids N+1 queries).
+
+        Returns:
+            Dict mapping version_id -> (archive_type, requires_install, is_installed).
+            Missing entries default to ("zip", False, False).
+        """
+        if not version_ids:
+            return {}
+        unique_ids = list(dict.fromkeys(version_ids))
+        placeholders = ",".join(["?"] * len(unique_ids))
+        with self.read_only_transaction() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                f"""
+                SELECT version_id, archive_type, requires_install
+                FROM local_versions
+                WHERE version_id IN ({placeholders})
+                """,
+                unique_ids,
+            )
+            local_rows = {row[0]: (row[1] or "zip", bool(row[2])) for row in cursor.fetchall()}
+            cursor.execute(
+                f"""
+                SELECT version_id, installed
+                FROM installations
+                WHERE version_id IN ({placeholders})
+                """,
+                unique_ids,
+            )
+            installed_rows = {row[0]: bool(row[1]) for row in cursor.fetchall()}
+        result: dict[int, tuple[str, bool, bool]] = {}
+        for vid in unique_ids:
+            archive_type, requires_install = local_rows.get(vid, ("zip", False))
+            is_installed = installed_rows.get(vid, False)
+            result[vid] = (archive_type, requires_install, is_installed)
+        return result
+
     def resolve_local_executables(
         self, version_id: int, local_hashes: list[tuple[str, int, str]]
     ) -> tuple[str | None, str | None]:
