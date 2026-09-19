@@ -50,21 +50,24 @@ def compute_hashes_for_executables_in_zip(zip_path):
         ]
 
 
-def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails:
+def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails | None:
     details = igdb_client.get_game_info(igdb_id)
-    genres_string = ", ".join(details["genres"])
-    release_epoch = details["release_date"]
+    if not details:
+        return None
+    genres = details.get("genres") or []
+    genres_string = ", ".join(genres) if isinstance(genres, list) else str(genres)
+    release_epoch = details.get("release_date")
     return GameDetails(
         title=None,
         release_date=release_epoch,
         genre=genres_string,
-        summary=details["summary"] if "summary" in details else "",
-        publisher=details["publisher"] if "publisher" in details else "",
-        cover_url=details["cover_url"] if "cover_url" in details else "",
+        summary=details.get("summary") or "",
+        publisher=details.get("publisher") or "",
+        cover_url=details.get("cover_url") or "",
         igdb_id=igdb_id,
-        developer=details["developer"],
-        screenshot_urls=details["screenshot_urls"],
-        rating=details["rating"],
+        developer=details.get("developer") or "",
+        screenshot_urls=details.get("screenshot_urls") or "[]",
+        rating=details.get("rating"),
     )
 
 

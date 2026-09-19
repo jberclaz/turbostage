@@ -60,7 +60,7 @@ def sort_games(games: list, sort_by: str = "title") -> list:
         return sorted(games, key=lambda g: g.release_date or 0, reverse=True)
     if sort_by == "genre":
         return sorted(games, key=lambda g: (g.genre or "").lower())
-    return sorted(games, key=lambda g: g.title.lower())
+    return sorted(games, key=lambda g: (g.title or "").lower())
 
 
 class MainWindow(QMainWindow):
@@ -273,16 +273,27 @@ class MainWindow(QMainWindow):
             title = item.text()
             data = item.data(Qt.UserRole)
 
+        if data is None:
+            return None
+        try:
+            data = tuple(data)
+        except TypeError:
+            return None
         if len(data) == 4:
             igdb_id, version_id, needs_install, is_downloadable = data
         elif len(data) == 3:
             igdb_id, version_id, needs_install = data
             is_downloadable = False
-        else:
+        elif len(data) == 2:
             igdb_id, version_id = data
             needs_install = False
             is_downloadable = False
-        return igdb_id, version_id, needs_install, is_downloadable, title
+        else:
+            return None
+        try:
+            return int(igdb_id), int(version_id), bool(needs_install), bool(is_downloadable), title
+        except (TypeError, ValueError):
+            return None
 
     def _on_sort_changed(self, index: int):
         label = self.sort_combo.itemText(index)
@@ -613,6 +624,9 @@ class MainWindow(QMainWindow):
         sort_by = str(QSettings("jberclaz", "TurboStage").value("app/sort_by", "title"))
         all_games = sort_games(all_games, sort_by)
 
+        # Batch-fetch install flags once instead of 3 queries per row (N+1).
+        flags = self._gamedb.get_library_install_flags([g.version_id for g in all_games])
+
         grid_entries = []
         self.game_table.setSortingEnabled(False)
         self.game_table.setRowCount(len(all_games))
@@ -620,12 +634,10 @@ class MainWindow(QMainWindow):
             game_title = QTableWidgetItem(game.title)
 
             # Check if this game needs installation (ISO with requires_install flag and not yet installed)
-            archive_type = self._gamedb.get_archive_type(game.version_id)
-            requires_install = self._gamedb.get_requires_install(game.version_id)
-            needs_install = False
-            if archive_type == "iso" and requires_install:
-                is_installed, _ = self._gamedb.get_installation_status(game.version_id)
-                needs_install = not is_installed
+            archive_type, requires_install, is_installed = flags.get(
+                game.version_id, ("zip", False, False)
+            )
+            needs_install = archive_type == "iso" and requires_install and not is_installed
 
             is_downloadable = game.download_url is not None
 
@@ -635,13 +647,19 @@ class MainWindow(QMainWindow):
                 (game.igdb_id, game.version_id, needs_install, is_downloadable),
             )
 
-            dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
-            release_date = dt_object.strftime("%Y-%m-%d")
+            if game.release_date:
+                try:
+                    dt_object = datetime.fromtimestamp(game.release_date, timezone.utc)
+                    release_date = dt_object.strftime("%Y-%m-%d")
+                except (OSError, OverflowError, ValueError):
+                    release_date = ""
+            else:
+                release_date = ""
 
             self.game_table.setItem(row_num, 0, game_title)
             self.game_table.setItem(row_num, 1, QTableWidgetItem(release_date))
-            self.game_table.setItem(row_num, 2, QTableWidgetItem(game.genre))
-            self.game_table.setItem(row_num, 3, QTableWidgetItem(game.version))
+            self.game_table.setItem(row_num, 2, QTableWidgetItem(game.genre or ""))
+            self.game_table.setItem(row_num, 3, QTableWidgetItem(game.version or ""))
 
             # Mark games that need installation
             if needs_install:
@@ -820,6 +838,7 @@ class MainWindow(QMainWindow):
             list(MIDI_DEVICE.values())[new_game_wizard.midi_device],
         )
         add_game_worker.signals.task_finished.connect(self._on_game_added)
+        add_game_worker.signals.task_failed.connect(self._on_game_add_failed)
         self._thread_pool.start(add_game_worker)
 
         self.status.showMessage("Adding new game...", 3000)
@@ -830,6 +849,16 @@ class MainWindow(QMainWindow):
         self.on_game_change()
         QGuiApplication.restoreOverrideCursor()  # Restore normal cursor
         self.status.showMessage("New game added.", 3000)
+
+    def _on_game_add_failed(self, message: str):
+        QGuiApplication.restoreOverrideCursor()
+        self.status.showMessage(f"Failed to add game: {message}", 8000)
+        QMessageBox.critical(
+            self,
+            "Failed to add game",
+            f"Could not add the game:\n{message}",
+            QMessageBox.Ok,
+        )
 
     def _on_show_settings_dialog(self):
         dialog = SettingsDialog()

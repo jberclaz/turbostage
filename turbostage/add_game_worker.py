@@ -1,4 +1,6 @@
+import logging
 import os
+import shutil
 import zipfile
 
 from PySide6.QtCore import QObject, QRunnable, QStandardPaths, Signal
@@ -6,9 +8,12 @@ from PySide6.QtCore import QObject, QRunnable, QStandardPaths, Signal
 from turbostage import iso_utils, utils
 from turbostage.db.game_database import GameDatabase
 
+logger = logging.getLogger(__name__)
+
 
 class WorkerSignals(QObject):
     task_finished = Signal()
+    task_failed = Signal(str)
 
 
 class AddGameWorker(QRunnable):
@@ -43,8 +48,27 @@ class AddGameWorker(QRunnable):
         self._midi_device = midi_device
 
     def run(self):
-        # Create database instance
         db = GameDatabase(self._db_path)
+        try:
+            self._run(db)
+        except Exception as e:  # noqa: BLE001 - must always notify UI to avoid stuck BusyCursor
+            logger.exception("Failed to add game '%s'", self._game_archive)
+            try:
+                self.signals.task_failed.emit(str(e))
+            except RuntimeError:
+                # Signals may be torn down during app shutdown; nothing to notify.
+                pass
+        finally:
+            try:
+                db.close()
+            except Exception:  # noqa: BLE001 - close must not mask the original result
+                pass
+
+    def _run(self, db: GameDatabase):
+        from turbostage.db.game_database import GameDetails
+
+        if not self._game_archive or not os.path.isfile(self._game_archive):
+            raise FileNotFoundError(f"Game archive not found: '{self._game_archive}'")
 
         # Determine archive type
         archive_type = iso_utils.get_archive_type(self._game_archive)
@@ -56,8 +80,25 @@ class AddGameWorker(QRunnable):
         # 1. check if game exists in db
         game = db.get_game_details_by_igdb_id(self._igdb_id)
         if game is None:
-            # 2.1 query IGDB for extra info
-            details = utils.fetch_game_details_online(self._igdb_client, self._igdb_id)
+            # 2.1 query IGDB for extra info (offline-safe: fall back to minimal details)
+            details = None
+            try:
+                details = utils.fetch_game_details_online(self._igdb_client, self._igdb_id)
+            except Exception:  # noqa: BLE001 - offline or unknown game must not block adding
+                details = None
+            if details is None:
+                details = GameDetails(
+                    title=self._game_name,
+                    release_date=None,
+                    genre="",
+                    summary="",
+                    publisher="",
+                    developer="",
+                    cover_url="",
+                    rating=None,
+                    igdb_id=self._igdb_id,
+                    screenshot_urls="[]",
+                )
             # 2.2 add game entry in games table
             db.insert_game_with_details(self._game_name, details)
 
@@ -102,7 +143,7 @@ class AddGameWorker(QRunnable):
             if binary and binary not in [h[0] for h in hashes]:
                 with zipfile.ZipFile(self._game_archive, "r") as zf:
                     h = utils.compute_md5_from_zip(zf, binary)
-                    hashes.append((self._binary, 0, h))
+                    hashes.append((binary, 0, h))
 
         db.insert_multiple_hashes(version_id, hashes)
 
@@ -122,8 +163,6 @@ class AddGameWorker(QRunnable):
             install_path = os.path.join(installs_folder, str(version_id))
             # Clean old install directory if it exists (from a previous deletion)
             if os.path.isdir(install_path):
-                import shutil
-
                 shutil.rmtree(install_path)
             os.makedirs(install_path, exist_ok=True)
             db.create_installation(version_id, install_path)
