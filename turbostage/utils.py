@@ -40,6 +40,46 @@ def compute_hash_for_largest_files_in_zip(zip_path, n=5):
 EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
 
 
+def hash_archive_top(game_path: str, n: int = 4) -> tuple[str, list[tuple[str, int, str]]]:
+    """Hash the largest n files of a game archive for library matching.
+
+    Returns (archive_type, hashes). Single choke point previously
+    triplicated across the scanner, the Add dialog, and AddGameWorker.
+    """
+    from turbostage import iso_utils
+
+    if iso_utils.is_iso_file(game_path):
+        return "iso", iso_utils.compute_hash_for_largest_files_in_iso(game_path, n)
+    return "zip", compute_hash_for_largest_files_in_zip(game_path, n)
+
+
+def hash_archive_executables(game_path: str) -> list[tuple[str, int, str]]:
+    """Hash all executables in a game archive for path resolution."""
+    from turbostage import iso_utils
+
+    if iso_utils.is_iso_file(game_path):
+        return iso_utils.compute_hashes_for_executables_in_iso(game_path)
+    return compute_hashes_for_executables_in_zip(game_path)
+
+
+def hash_for_new_version(game_path: str, binary: str | None, n: int = 4) -> tuple[str, list[tuple[str, int, str]]]:
+    """Hash an archive for a brand-new version, ensuring binary is covered."""
+    import zipfile
+
+    from turbostage import iso_utils
+
+    archive_type, hashes = hash_archive_top(game_path, n)
+    names = [h[0] for h in hashes]
+    if binary and binary not in names:
+        if archive_type == "iso":
+            h = iso_utils.compute_md5_from_iso(game_path, binary)
+        else:
+            with zipfile.ZipFile(game_path, "r") as zf:
+                h = compute_md5_from_zip(zf, binary)
+        hashes.append((binary, 0, h))
+    return archive_type, hashes
+
+
 def compute_hashes_for_executables_in_zip(zip_path):
     """Compute MD5 hashes for all executable files (.exe, .bat, .com) in a ZIP archive."""
     with zipfile.ZipFile(zip_path, "r") as zf:
@@ -72,9 +112,11 @@ def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails | None:
 
 
 def get_dosbox_version(dosbox_exec: str) -> str:
+    if not dosbox_exec:
+        return ""
     try:
-        output = subprocess.check_output(f"{dosbox_exec} -V", text=True, shell=True)
-    except subprocess.CalledProcessError as e:
+        output = subprocess.check_output([dosbox_exec, "-V"], text=True, shell=False)
+    except (subprocess.CalledProcessError, OSError) as e:
         return ""
     for line in output.splitlines():
         if "version" not in line:

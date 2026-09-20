@@ -1,7 +1,7 @@
 import os
 import zipfile
 
-from PySide6.QtCore import QAbstractListModel, QItemSelectionModel, QModelIndex, QSettings, Qt, Signal
+from PySide6.QtCore import QItemSelectionModel, QSettings, Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
@@ -20,28 +20,14 @@ from PySide6.QtWidgets import (
 from turbostage import constants
 from turbostage.db.game_database import GameDatabase
 from turbostage.game_launcher import is_midi_device_available
+from turbostage.ui.binary_list_model import BinaryListModel
 from turbostage.ui.icons import load_icon
 from turbostage.ui.theme import group_box_style, muted_text_color
 
+# Re-exported for backwards compatibility (tests / wizards import it here).
+__all__ = ["BinaryListModel", "GameSetupWidget", "NO_CONFIG_LABEL"]
+
 NO_CONFIG_LABEL = "(none)"
-
-
-class BinaryListModel(QAbstractListModel):
-    def __init__(self, binaries=None):
-        super().__init__()
-        self.binaries = binaries or []
-
-    def rowCount(self, parent=QModelIndex()):
-        return len(self.binaries)
-
-    def data(self, index, role=Qt.DisplayRole):
-        if role == Qt.DisplayRole:
-            return self.binaries[index.row()]
-
-    def set_binaries(self, binaries):
-        self.beginResetModel()
-        self.binaries = binaries
-        self.endResetModel()
 
 
 class GameSetupWidget(QWidget):

@@ -1,14 +1,22 @@
+"""Development-only sample database seeder.
+
+Rebuilds a throwaway database from turbostage/content/sample_games.json
+using the GameDatabase API (so it tracks the current schema).
+"""
+
 import importlib.resources
 import json
+import logging
 import os
-import sqlite3
-import zipfile
 
 from PySide6.QtCore import QStandardPaths
 
 from turbostage import utils
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
+from turbostage.db.game_database import GameDatabase, GameDetails
+
+logger = logging.getLogger(__name__)
 
 
 def load_sample_game_data():
@@ -18,7 +26,6 @@ def load_sample_game_data():
         List of game dictionaries with title, versions, and igdb_id
     """
     try:
-        # Use importlib.resources for a more robust way to access package resources
         sample_games_path = importlib.resources.files("turbostage.content").joinpath("sample_games.json")
         with open(sample_games_path, "r") as f:
             return json.load(f)
@@ -28,70 +35,51 @@ def load_sample_game_data():
 
 
 def populate_database(db_path, games):
-    """Populate the database with sample game data.
+    """Populate the database with sample game data via the GameDatabase API.
 
     Args:
         db_path: Path to the SQLite database file
         games: List of game dictionaries with title, versions, and igdb_id
     """
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    # Ensure the database version is correct
-    cursor.execute("DELETE FROM db_version")
-    cursor.execute("INSERT INTO db_version (version) VALUES (?)", (DB_VERSION,))
-
-    # Add game data
-    for game in games:
-        cursor.execute(
-            """
-            INSERT INTO games (title, igdb_id)
-            VALUES (?, ?)
-            """,
-            (game["title"], game["igdb_id"]),
-        )
-        game_id = cursor.lastrowid
-
-        for version in game["versions"]:
-            # Convert cycles if present, otherwise use default value 0
-            cycles = version.get("cycles", 0)
-
-            cursor.execute(
-                """
-                INSERT INTO versions (game_id, version, executable, archive, config, cycles)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (game_id, version["version"], version["executable"], version["archive"], version["config"], cycles),
-            )
-            version_id = cursor.lastrowid
-
-            # Process game files and create hashes
-            game_archive = os.path.join("games", version["archive"])
-            if not os.path.isfile(game_archive):
-                print(f"Game {game['title']} not found on disk")
-                continue
-
-            hashes = utils.compute_hash_for_largest_files_in_zip(game_archive, n=4)
-
-            # Ensure the executable is included in hashes
-            if not version["executable"] in [h[0] for h in hashes]:
-                with zipfile.ZipFile(game_archive, "r") as zf:
-                    h = utils.compute_md5_from_zip(zf, version["executable"])
-                    hashes.append((version["executable"], 0, h))
-
-            # Add hashes to database
-            for h in hashes:
-                cursor.execute(
-                    """
-                    INSERT INTO hashes (version_id, file_name, hash)
-                    VALUES (?, ?, ?)
-                    """,
-                    (version_id, h[0], h[2]),
+    db = GameDatabase(db_path)
+    try:
+        for game in games:
+            title, igdb_id = game["title"], game["igdb_id"]
+            if db.get_game_details_by_igdb_id(igdb_id) is None:
+                db.insert_game_with_details(
+                    title,
+                    GameDetails(
+                        title=title,
+                        release_date=None,
+                        genre="",
+                        summary="",
+                        publisher="",
+                        developer="",
+                        cover_url="",
+                        rating=None,
+                        igdb_id=igdb_id,
+                        screenshot_urls="[]",
+                    ),
                 )
-
-    conn.commit()
-    conn.close()
-    print(f"Database populated successfully: {db_path}")
+            for version in game["versions"]:
+                version_id = db.insert_game_version(
+                    igdb_id,
+                    version["version"],
+                    version.get("executable"),
+                    None,
+                    version.get("config", ""),
+                    version.get("cycles", 0),
+                )
+                game_archive = os.path.join("games", version["archive"])
+                if not os.path.isfile(game_archive):
+                    print(f"Game {title} not found on disk")
+                    continue
+                _archive_type, hashes = utils.hash_for_new_version(game_archive, version.get("executable"))
+                db.insert_multiple_hashes(version_id, hashes)
+                db.add_local_game_version(version_id, version["archive"])
+    finally:
+        db.close()
+    print(f"Database populated successfully: {db_path} (schema {DB_VERSION})")
 
 
 if __name__ == "__main__":

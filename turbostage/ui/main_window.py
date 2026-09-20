@@ -7,15 +7,24 @@ from datetime import datetime, timezone
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer
-from PySide6.QtGui import QAction, QColor, QGuiApplication, QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import (
+    QAction,
+    QColor,
+    QGuiApplication,
+    QIcon,
+    QKeySequence,
+    QShortcut,
+)
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
     QDialog,
+    QDialogButtonBox,
     QFileDialog,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QMainWindow,
     QMenu,
     QMessageBox,
@@ -41,7 +50,9 @@ from turbostage.db.remote_db import RemoteDB
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
+from turbostage.provisioning import ensure_installation_dir
 from turbostage.scanning_thread import ScanningThread
+from turbostage.ui.binary_list_model import BinaryListModel
 from turbostage.ui.download_dialog import DownloaderDialog
 from turbostage.ui.game_grid_widget import GameGridWidget
 from turbostage.ui.game_info_widget import GameInfoWidget
@@ -52,6 +63,41 @@ from turbostage.ui.locked_file_dialog import LockedFileDialog
 from turbostage.ui.new_game_wizard import NewGameWizard
 from turbostage.ui.settings_dialog import SettingsDialog
 from turbostage.ui.submit_config_dialog import SubmitLocalConfigDialog
+
+
+def pick_executable(parent, executables: list[str], location: str) -> str | None:
+    """Single-choice dialog shared by the CD-ROM and post-install flows."""
+    dialog = QDialog(parent)
+    dialog.setWindowTitle("Select Game Executable")
+    layout = QVBoxLayout(dialog)
+    layout.addWidget(QLabel("Select the game executable:"))
+    layout.addWidget(QLabel(f"<small>Files found in: {location}</small>"))
+    list_view = QListView(dialog)
+    model = BinaryListModel()
+    model.set_binaries(executables)
+    list_view.setModel(model)
+    list_view.setSelectionMode(QAbstractItemView.SingleSelection)
+    layout.addWidget(list_view)
+    buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
+    layout.addWidget(buttons)
+    buttons.accepted.connect(dialog.accept)
+    buttons.rejected.connect(dialog.reject)
+    if dialog.exec() != QDialog.Accepted:
+        return None
+    selected = list_view.selectedIndexes()
+    if not selected:
+        return None
+    return model.binaries[selected[0].row()]
+
+
+def find_executables(folder: str) -> list[str]:
+    """List DOS executables under folder as paths relative to it."""
+    found = []
+    for root, _dirs, files in os.walk(folder):
+        for f in files:
+            if f.lower().endswith((".exe", ".bat", ".com")):
+                found.append(os.path.relpath(os.path.join(root, f), folder))
+    return sorted(found)
 
 
 def sort_games(games: list, sort_by: str = "title") -> list:
@@ -291,7 +337,13 @@ class MainWindow(QMainWindow):
         else:
             return None
         try:
-            return int(igdb_id), int(version_id), bool(needs_install), bool(is_downloadable), title
+            return (
+                int(igdb_id),
+                int(version_id),
+                bool(needs_install),
+                bool(is_downloadable),
+                title,
+            )
         except (TypeError, ValueError):
             return None
 
@@ -440,10 +492,7 @@ class MainWindow(QMainWindow):
         games_path = str(settings.value("app/games_path", ""))
         archive_path = os.path.join(games_path, game_info.archive)
 
-        from PySide6.QtWidgets import QAbstractItemView, QDialog, QDialogButtonBox, QLabel, QListView, QVBoxLayout
-
         from turbostage import iso_utils
-        from turbostage.ui.game_setup_widget import BinaryListModel
 
         executables = iso_utils.list_executables_in_iso(archive_path)
         if not executables:
@@ -455,46 +504,15 @@ class MainWindow(QMainWindow):
             )
             return False
 
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Select Game Executable")
-        layout = QVBoxLayout(dialog)
-        layout.addWidget(QLabel("Select the game executable:"))
-        layout.addWidget(QLabel(f"<small>Files found in: {game_info.archive}</small>"))
-        list_view = QListView(dialog)
-        model = BinaryListModel()
-        model.set_binaries(executables)
-        list_view.setModel(model)
-        list_view.setSelectionMode(QAbstractItemView.SingleSelection)
-        layout.addWidget(list_view)
-        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog)
-        layout.addWidget(buttons)
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-
-        if dialog.exec() != QDialog.Accepted:
+        executable = pick_executable(self, executables, game_info.archive)
+        if not executable:
             return False
-
-        selected = list_view.selectedIndexes()
-        if not selected:
-            return False
-        executable = model.binaries[selected[0].row()]
         self._gamedb.set_local_executables(version_id, executable=executable)
         return True
 
     def _prompt_for_game_binary(self, version_id: int, install_path: str):
         """Prompt user to select game binary from installed files using a custom dialog."""
-        from PySide6.QtWidgets import QAbstractItemView, QDialog, QDialogButtonBox, QLabel, QListView, QVBoxLayout
-
-        from turbostage.ui.game_setup_widget import BinaryListModel
-
-        # Get list of executables from install directory
-        executables = []
-        for root, dirs, files in os.walk(install_path):
-            for f in files:
-                if f.lower().endswith((".exe", ".bat", ".com")):
-                    full_path = os.path.join(root, f)
-                    rel_path = os.path.relpath(full_path, install_path)
-                    executables.append(rel_path)
+        executables = find_executables(install_path)
 
         if not executables:
             QMessageBox.warning(
@@ -505,30 +523,9 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # First dialog: select game executable
-        dialog1 = QDialog(self)
-        dialog1.setWindowTitle("Select Game Executable")
-        layout1 = QVBoxLayout(dialog1)
-        layout1.addWidget(QLabel("Select the game executable:"))
-        layout1.addWidget(QLabel(f"<small>Files found in: {install_path}</small>"))
-        list_view1 = QListView(dialog1)
-        model1 = BinaryListModel()
-        model1.set_binaries(executables)
-        list_view1.setModel(model1)
-        list_view1.setSelectionMode(QAbstractItemView.SingleSelection)
-        layout1.addWidget(list_view1)
-        buttons1 = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog1)
-        layout1.addWidget(buttons1)
-        buttons1.accepted.connect(dialog1.accept)
-        buttons1.rejected.connect(dialog1.reject)
-
-        if dialog1.exec() != QDialog.Accepted:
+        game_exe = pick_executable(self, executables, install_path)
+        if not game_exe:
             return
-
-        selected = list_view1.selectedIndexes()
-        if not selected:
-            return
-        game_exe = model1.binaries[selected[0].row()]
 
         # Second dialog: optional config executable
         reply = QMessageBox.question(
@@ -540,25 +537,7 @@ class MainWindow(QMainWindow):
 
         config_exe = ""
         if reply == QMessageBox.Yes:
-            dialog2 = QDialog(self)
-            dialog2.setWindowTitle("Select Config Executable")
-            layout2 = QVBoxLayout(dialog2)
-            layout2.addWidget(QLabel("Select the configuration executable (optional):"))
-            list_view2 = QListView(dialog2)
-            model2 = BinaryListModel()
-            model2.set_binaries(executables)
-            list_view2.setModel(model2)
-            list_view2.setSelectionMode(QAbstractItemView.SingleSelection)
-            layout2.addWidget(list_view2)
-            buttons2 = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, dialog2)
-            layout2.addWidget(buttons2)
-            buttons2.accepted.connect(dialog2.accept)
-            buttons2.rejected.connect(dialog2.reject)
-
-            if dialog2.exec() == QDialog.Accepted:
-                selected2 = list_view2.selectedIndexes()
-                if selected2:
-                    config_exe = model2.binaries[selected2[0].row()]
+            config_exe = pick_executable(self, executables, install_path) or ""
 
         # Store installed executables in local_versions (not versions table, to preserve original defaults)
         self._gamedb.set_local_executables(version_id, executable=game_exe, config_executable=config_exe)
@@ -634,9 +613,7 @@ class MainWindow(QMainWindow):
             game_title = QTableWidgetItem(game.title)
 
             # Check if this game needs installation (ISO with requires_install flag and not yet installed)
-            archive_type, requires_install, is_installed = flags.get(
-                game.version_id, ("zip", False, False)
-            )
+            archive_type, requires_install, is_installed = flags.get(game.version_id, ("zip", False, False))
             needs_install = archive_type == "iso" and requires_install and not is_installed
 
             is_downloadable = game.download_url is not None
@@ -766,25 +743,14 @@ class MainWindow(QMainWindow):
         game_path = dialog.selectedFiles()[0]
 
         # Compute hashes based on archive type
-        from turbostage import iso_utils
-
-        if iso_utils.is_iso_file(game_path):
-            hashes = iso_utils.compute_hash_for_largest_files_in_iso(game_path, 4)
-            archive_type = "iso"
-        else:
-            hashes = utils.compute_hash_for_largest_files_in_zip(game_path, 4)
-            archive_type = "zip"
+        archive_type, hashes = utils.hash_archive_top(game_path, 4)
 
         version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
         if version_id is not None:
             requires_install = archive_type == "iso"
             # Hash all executables in the archive so resolve_local_executables
             # can match by content hash regardless of internal path structure
-            if archive_type == "iso":
-                executable_hashes = iso_utils.compute_hashes_for_executables_in_iso(game_path)
-            else:
-                executable_hashes = utils.compute_hashes_for_executables_in_zip(game_path)
-            hashes.extend(executable_hashes)
+            hashes.extend(utils.hash_archive_executables(game_path))
             local_executable, local_config_executable = self._gamedb.resolve_local_executables(version_id, hashes)
             added = self._gamedb.add_local_game_version(
                 version_id,
@@ -802,16 +768,7 @@ class MainWindow(QMainWindow):
                 )
                 return
             if requires_install:
-                app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-                installs_folder = os.path.join(app_data_folder, "installs")
-                os.makedirs(installs_folder, exist_ok=True)
-                install_path = os.path.join(installs_folder, str(version_id))
-                if os.path.isdir(install_path):
-                    import shutil
-
-                    shutil.rmtree(install_path)
-                os.makedirs(install_path, exist_ok=True)
-                self._gamedb.create_installation(version_id, install_path)
+                ensure_installation_dir(self._gamedb, version_id)
             QMessageBox.information(
                 self,
                 "New game added",
@@ -868,7 +825,11 @@ class MainWindow(QMainWindow):
 
     def maybe_show_setup_wizard(self, force: bool = False):
         """Show the first-run setup wizard on fresh installs (or on demand)."""
-        from turbostage.ui.setup_wizard import SETUP_COMPLETED_KEY, SetupWizard, is_setup_completed
+        from turbostage.ui.setup_wizard import (
+            SETUP_COMPLETED_KEY,
+            SetupWizard,
+            is_setup_completed,
+        )
 
         settings = QSettings("jberclaz", "TurboStage")
         if not force and is_setup_completed(settings):
@@ -908,7 +869,10 @@ class MainWindow(QMainWindow):
         if self._is_game_running():
             self.status.showMessage("Stop the running game before updating the database.", 3000)
             return
-        from turbostage.ui.update_database_dialog import UpdateDatabaseDialog, UpdateDatabaseWorker
+        from turbostage.ui.update_database_dialog import (
+            UpdateDatabaseDialog,
+            UpdateDatabaseWorker,
+        )
 
         dialog = UpdateDatabaseDialog(self)
         updated = {"value": False}

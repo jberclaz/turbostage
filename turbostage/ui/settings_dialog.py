@@ -1,13 +1,6 @@
-import glob
-import lzma
 import os
-import plistlib
-import subprocess
-import tarfile
-import tempfile
-from zipfile import ZipFile
 
-from PySide6.QtCore import QSettings, QStandardPaths
+from PySide6.QtCore import QSettings
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
@@ -24,6 +17,13 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import constants, utils
+from turbostage.provisioning import (
+    app_subdir,
+    dosbox_download_url,
+    extract_dosbox_archive,
+    extract_mt32_roms,
+    extract_soundcanvas_roms,
+)
 from turbostage.ui.download_dialog import DownloaderDialog
 from turbostage.ui.icons import load_icon
 from turbostage.ui.theme import group_box_style
@@ -211,17 +211,18 @@ class SettingsDialog(QDialog):
         ):
             return
 
-        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-        mt32_roms_path = os.path.join(app_data_folder, "mt32_roms")
-        os.makedirs(mt32_roms_path, exist_ok=True)
+        mt32_roms_path = app_subdir("mt32_roms")
 
         download_dialog = DownloaderDialog(self, "Download MT-32 roms")
         download_dialog.start_download(constants.MT32_ROMS_DOWNLOAD_URL)
         if not download_dialog.exec():
             return
 
-        with ZipFile(download_dialog.data_buffer, "r") as zip_ref:
-            zip_ref.extractall(mt32_roms_path)
+        try:
+            extract_mt32_roms(download_dialog.data_buffer, mt32_roms_path)
+        except OSError as e:
+            QMessageBox.critical(self, "Download failed", f"Could not install MT-32 ROMs:\n{e}")
+            return
 
         self.mt32_path_input.setText(mt32_roms_path)
 
@@ -232,32 +233,18 @@ class SettingsDialog(QDialog):
         ):
             return
 
-        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-        soundcanvas_roms_path = os.path.join(app_data_folder, "soundcanvas_roms")
-        os.makedirs(soundcanvas_roms_path, exist_ok=True)
+        soundcanvas_roms_path = app_subdir("soundcanvas_roms")
 
         download_dialog = DownloaderDialog(self, "Download SoundCanvas roms")
         download_dialog.start_download(constants.SOUNDCANVAS_ROMS_DOWNLOAD_URL)
         if not download_dialog.exec():
             return
 
-        import shutil
-
-        with tempfile.TemporaryDirectory() as tmp_dir:
-            with ZipFile(download_dialog.data_buffer, "r") as zip_ref:
-                zip_ref.extractall(tmp_dir)
-            # The ZIP extracts to Nuked-SC55-CLAP-ROM-files/Nuked-SC55-Resources/ROMs/
-            # DOSBox expects SC-55-v1.xx/ folders directly in the roms directory
-            roms_src = os.path.join(tmp_dir, "Nuked-SC55-CLAP-ROM-files", "Nuked-SC55-Resources", "ROMs")
-            for item in os.listdir(roms_src):
-                src = os.path.join(roms_src, item)
-                dst = os.path.join(soundcanvas_roms_path, item)
-                if os.path.isdir(src):
-                    if os.path.exists(dst):
-                        shutil.rmtree(dst)
-                    shutil.copytree(src, dst)
-                else:
-                    shutil.copy2(src, dst)
+        try:
+            extract_soundcanvas_roms(download_dialog.data_buffer, soundcanvas_roms_path)
+        except OSError as e:
+            QMessageBox.critical(self, "Download failed", f"Could not install SoundCanvas ROMs:\n{e}")
+            return
 
         self.soundcanvas_path_input.setText(soundcanvas_roms_path)
 
@@ -268,81 +255,22 @@ class SettingsDialog(QDialog):
         ):
             return
 
-        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-        emulator_path = os.path.join(app_data_folder, "dosbox")
-        os.makedirs(emulator_path, exist_ok=True)
+        emulator_path = app_subdir("dosbox")
 
         download_dialog = DownloaderDialog(self, "Download DosBox")
         os_name = utils.get_os()
-        if os_name == "Linux":
-            dosbox_url = constants.DOSBOX_STAGING_LINUX
-        elif os_name == "Windows":
-            dosbox_url = constants.DOSBOX_STAGING_WINDOWS
-        elif os_name == "Darwin":
-            dosbox_url = constants.DOSBOX_STAGING_MACOS
+        try:
+            dosbox_url = dosbox_download_url(os_name)
+        except OSError as e:
+            QMessageBox.warning(self, "Unsupported OS", str(e))
+            return
         download_dialog.start_download(dosbox_url)
         if not download_dialog.exec():
             return
 
-        if os_name == "Linux":
-            with lzma.open(download_dialog.data_buffer, "rb") as f:
-                with tarfile.open(fileobj=f, mode="r|") as tar:  # Open the tar within lzma
-                    tar.extractall(path=emulator_path)
-                    for filename in tar.getnames():
-                        if filename.endswith("/dosbox"):
-                            executable = filename
-                            break
-        elif os_name == "Windows":
-            with ZipFile(download_dialog.data_buffer, "r") as zip_ref:
-                zip_ref.extractall(emulator_path)
-                for filename in zip_ref.namelist():
-                    if filename.endswith("/dosbox.exe"):
-                        executable = filename
-                        break
-        elif os_name == "Darwin":
-            with tempfile.NamedTemporaryFile(suffix=".dmg", delete=False) as tmp_dmg:
-                tmp_dmg.write(download_dialog.data_buffer.getvalue())
-                dmg_path = tmp_dmg.name
-            try:
-                result = subprocess.run(
-                    [
-                        "hdiutil",
-                        "attach",
-                        "-plist",
-                        "-nobrowse",
-                        "-mountrandom",
-                        "/tmp",
-                        dmg_path,
-                    ],
-                    capture_output=True,
-                    text=True,
-                    check=True,
-                )
-                plist = plistlib.loads(result.stdout.encode())
-                mount_point = None
-                for entity in plist.get("system-entities", []):
-                    if "mount-point" in entity:
-                        mount_point = entity["mount-point"]
-                        break
-                if mount_point:
-                    app_bundles = glob.glob(os.path.join(mount_point, "*.app"))
-                    if app_bundles:
-                        app_bundle = app_bundles[0]
-                        target_app = os.path.join(emulator_path, os.path.basename(app_bundle))
-                        subprocess.run(["cp", "-R", app_bundle, target_app], check=True)
-                        macos_dir = os.path.join(target_app, "Contents", "MacOS")
-                        executables = os.listdir(macos_dir)
-                        executable = (
-                            os.path.join(
-                                os.path.basename(app_bundle),
-                                "Contents",
-                                "MacOS",
-                                executables[0],
-                            )
-                            if executables
-                            else ""
-                        )
-                    subprocess.run(["hdiutil", "detach", mount_point], check=True)
-            finally:
-                os.unlink(dmg_path)
+        try:
+            executable = extract_dosbox_archive(download_dialog.data_buffer, emulator_path, os_name)
+        except OSError as e:
+            QMessageBox.critical(self, "Download failed", f"Could not install DOSBox:\n{e}")
+            return
         self.emulator_path_input.setText(os.path.join(emulator_path, executable))

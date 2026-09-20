@@ -1,6 +1,7 @@
 from PySide6 import QtWidgets
 
-from turbostage.ui.game_setup_widget import BinaryListModel, GameSetupWidget
+from turbostage.ui.binary_list_model import BinaryListModel
+from turbostage.ui.game_setup_widget import GameSetupWidget
 
 
 class GameSetupDialog(QtWidgets.QDialog):

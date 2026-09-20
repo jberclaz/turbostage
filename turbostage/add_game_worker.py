@@ -1,12 +1,11 @@
 import logging
 import os
-import shutil
-import zipfile
 
-from PySide6.QtCore import QObject, QRunnable, QStandardPaths, Signal
+from PySide6.QtCore import QObject, QRunnable, Signal
 
 from turbostage import iso_utils, utils
 from turbostage.db.game_database import GameDatabase
+from turbostage.provisioning import ensure_installation_dir
 
 logger = logging.getLogger(__name__)
 
@@ -132,18 +131,7 @@ class AddGameWorker(QRunnable):
         )
 
         # 4. add hashes based on archive type
-        if archive_type == "iso":
-            hashes = iso_utils.compute_hash_for_largest_files_in_iso(self._game_archive, n=4)
-            # Only compute hash for binary if it's selected (not None/empty)
-            if binary and binary not in [h[0] for h in hashes]:
-                h = iso_utils.compute_md5_from_iso(self._game_archive, binary)
-                hashes.append((binary, 0, h))
-        else:
-            hashes = utils.compute_hash_for_largest_files_in_zip(self._game_archive, n=4)
-            if binary and binary not in [h[0] for h in hashes]:
-                with zipfile.ZipFile(self._game_archive, "r") as zf:
-                    h = utils.compute_md5_from_zip(zf, binary)
-                    hashes.append((binary, 0, h))
+        archive_type, hashes = utils.hash_for_new_version(self._game_archive, binary)
 
         db.insert_multiple_hashes(version_id, hashes)
 
@@ -157,14 +145,6 @@ class AddGameWorker(QRunnable):
 
         # 6. For ISO games that require installation, create installation record
         if archive_type == "iso" and self._requires_install:
-            app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-            installs_folder = os.path.join(app_data_folder, "installs")
-            os.makedirs(installs_folder, exist_ok=True)
-            install_path = os.path.join(installs_folder, str(version_id))
-            # Clean old install directory if it exists (from a previous deletion)
-            if os.path.isdir(install_path):
-                shutil.rmtree(install_path)
-            os.makedirs(install_path, exist_ok=True)
-            db.create_installation(version_id, install_path)
+            ensure_installation_dir(db, version_id)
 
         self.signals.task_finished.emit()

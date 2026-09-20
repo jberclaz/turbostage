@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import constants, iso_utils
-from turbostage.ui.game_setup_widget import BinaryListModel
+from turbostage.ui.binary_list_model import BinaryListModel
 from turbostage.ui.icons import icon_widget, load_icon
 
 EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}

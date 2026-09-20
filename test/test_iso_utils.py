@@ -12,9 +12,11 @@ def _create_test_iso(tmpdir: str) -> str:
     """
     import pycdlib
 
-    for name, content in [("GAME.EXE", b"GAME.EXE content here"),
-                          ("README.TXT", b"README.TXT content"),
-                          ("SETUP.EXE", b"SETUP.EXE content here")]:
+    for name, content in [
+        ("GAME.EXE", b"GAME.EXE content here"),
+        ("README.TXT", b"README.TXT content"),
+        ("SETUP.EXE", b"SETUP.EXE content here"),
+    ]:
         path = os.path.join(tmpdir, name)
         with open(path, "wb") as f:
             f.write(content)
@@ -39,6 +41,7 @@ class TestIsoUtils(TestCase):
     @classmethod
     def tearDownClass(cls):
         import shutil
+
         shutil.rmtree(cls._tmpdir)
 
     def test_is_iso_file(self):

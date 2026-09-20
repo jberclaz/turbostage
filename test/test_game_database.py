@@ -274,11 +274,14 @@ class TestGameDatabase(unittest.TestCase):
         db.add_local_game_version(version_id, "test_archive.zip")
 
         # Store hashes for the known version's files (canonical paths)
-        db.insert_multiple_hashes(version_id, [
-            ("GAME.EXE", 1000, "hash_game"),
-            ("SETUP.EXE", 500, "hash_setup"),
-            ("DATA.DAT", 5000, "hash_data"),
-        ])
+        db.insert_multiple_hashes(
+            version_id,
+            [
+                ("GAME.EXE", 1000, "hash_game"),
+                ("SETUP.EXE", 500, "hash_setup"),
+                ("DATA.DAT", 5000, "hash_data"),
+            ],
+        )
 
         # Simulate local hashes from a user's archive — same content (same hash)
         # but the game executable is at a different relative path
@@ -313,11 +316,14 @@ class TestGameDatabase(unittest.TestCase):
         game_id = db.insert_game_with_details("Test Game", self.test_game_details)
         version_id = db.insert_game_version(game_id, "1.0", "GAME.EXE", "SETUP.EXE", "", 0)
         db.add_local_game_version(version_id, "test_archive.zip")
-        db.insert_multiple_hashes(version_id, [
-            ("GAME.EXE", 1000, "hash_game"),
-            ("SETUP.EXE", 500, "hash_setup"),
-            ("DATA.DAT", 5000, "hash_data"),
-        ])
+        db.insert_multiple_hashes(
+            version_id,
+            [
+                ("GAME.EXE", 1000, "hash_game"),
+                ("SETUP.EXE", 500, "hash_setup"),
+                ("DATA.DAT", 5000, "hash_data"),
+            ],
+        )
 
         local_hashes = [
             ("GAMES/GAME.EXE", 1000, "hash_game"),
