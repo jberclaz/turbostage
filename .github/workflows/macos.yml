@@ -41,6 +41,12 @@ jobs:
           iconutil -c icns icon.iconset -o icon.icns
           sips -s format png turbostage/content/splash.jpg --out splash.png
 
+      - name: Write IGDB credentials
+        env:
+          IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+          IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+        run: python scripts/write_igdb_credentials.py
+
       - name: Run package build
         run: |
           poetry-dynamic-versioning
