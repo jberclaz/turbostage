@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 from datetime import datetime, timezone
+from urllib.parse import unquote, urlsplit
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer
@@ -1033,14 +1034,8 @@ class MainWindow(QMainWindow):
             )
             return
 
-        dialog = DownloaderDialog(self, f"Downloading {game_name}")
-        dialog.start_download(download_url)
-        if dialog.exec() != QDialog.Accepted or dialog.data_buffer is None:
-            return
-
-        # Save the downloaded file to the games folder
         games_path = self.games_path
-        if not games_path:
+        if not games_path or not os.path.isdir(games_path):
             QMessageBox.critical(
                 self,
                 "Games folder not set",
@@ -1049,19 +1044,32 @@ class MainWindow(QMainWindow):
             )
             return
 
-        filename = os.path.basename(download_url.split("?")[0])
-        filepath = os.path.join(games_path, filename)
-
-        try:
-            with open(filepath, "wb") as f:
-                f.write(dialog.data_buffer.getvalue())
-        except OSError as e:
+        filename = os.path.basename(unquote(urlsplit(download_url).path))
+        if filename in ("", ".", ".."):
             QMessageBox.critical(
                 self,
-                "Save Error",
-                f"Failed to save downloaded file: {e}",
+                "Download Error",
+                f"Cannot determine a file name for '{game_name}' from its download URL.",
                 QMessageBox.Ok,
             )
+            return
+        filepath = os.path.join(games_path, filename)
+        if os.path.exists(filepath):
+            reply = QMessageBox.question(
+                self,
+                "File already exists",
+                f"'{filename}' already exists in the games folder. Replace it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        # Stream to disk: game archives can be far larger than is reasonable
+        # to hold in memory.
+        dialog = DownloaderDialog(self, f"Downloading {game_name}")
+        dialog.start_download(download_url, filepath)
+        if dialog.exec() != QDialog.Accepted or dialog.downloaded_path is None:
             return
 
         # Add to local versions
