@@ -675,7 +675,30 @@ class MainWindow(QMainWindow):
                 QMessageBox.Ok,
             )
             return
-        local_game_archives = [file for file in os.listdir(games_path) if file.endswith((".zip", ".iso"))]
+        try:
+            local_game_archives = [file for file in os.listdir(games_path) if file.endswith((".zip", ".iso"))]
+        except OSError as e:
+            QMessageBox.critical(
+                self,
+                "Games folder not accessible",
+                f"Cannot scan local games, because the games folder '{games_path}' cannot be read:\n{e}",
+                QMessageBox.Ok,
+            )
+            return
+        if not local_game_archives and self._gamedb.get_games_with_local_versions():
+            # An empty folder usually means an unmounted drive, not a deliberate
+            # wipe: scanning it would remove every game from the library.
+            reply = QMessageBox.warning(
+                self,
+                "No game archives found",
+                f"The games folder '{games_path}' contains no game archives. Scanning it will remove "
+                "all games from your library.\n\nIf the folder is on an external or network drive, "
+                "make sure it is connected first.\n\nRemove all games from the library?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
 
         self.scan_progress_dialog = QProgressDialog(
             "Scanning local games...", "Cancel", 0, len(local_game_archives), self

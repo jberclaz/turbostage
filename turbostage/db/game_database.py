@@ -927,8 +927,14 @@ class GameDatabase:
         Each entry is (version_id, archive, executable, config_executable,
         archive_type, requires_install). The swap happens in a single
         transaction so an interrupted scan never leaves a half-empty library.
+
+        Versions already in the library keep their stored executables and
+        requires_install flag when the archive is unchanged or the game is
+        installed: those may be user choices (e.g. the executable picked after
+        installing a CD-ROM game) that hash matching cannot rediscover.
         """
         with self.transaction() as conn:
+            previous = self._get_preserved_local_versions(conn)
             conn.execute("DELETE FROM local_versions")
             seen = set()
             for (
@@ -944,6 +950,11 @@ class GameDatabase:
                     # and an iso of the same game); keep the first, as before.
                     continue
                 seen.add(version_id)
+                kept = previous.get(version_id)
+                if kept is not None and (kept["archive"] == archive or kept["installed"]):
+                    executable = kept["executable"] or executable
+                    config_executable = kept["config_executable"] or config_executable
+                    requires_install = kept["requires_install"]
                 GameDatabase._insert_local_version(
                     conn,
                     version_id,
@@ -953,6 +964,29 @@ class GameDatabase:
                     archive_type,
                     requires_install,
                 )
+
+    @staticmethod
+    def _get_preserved_local_versions(conn) -> dict[int, dict]:
+        """Snapshot the local_versions fields that a rescan must not lose."""
+        cursor = conn.cursor()
+        columns = GameDatabase._get_table_columns(cursor, "local_versions")
+        optional = ["executable", "config_executable", "requires_install"]
+        select = ", ".join(f"lv.{c}" if c in columns else f"NULL AS {c}" for c in optional)
+        cursor.execute(f"""
+            SELECT lv.version_id, lv.archive, {select}, COALESCE(i.installed, 0)
+            FROM local_versions lv
+                     LEFT JOIN installations i ON i.version_id = lv.version_id
+            """)
+        return {
+            row[0]: {
+                "archive": row[1],
+                "executable": row[2],
+                "config_executable": row[3],
+                "requires_install": bool(row[4]),
+                "installed": bool(row[5]),
+            }
+            for row in cursor.fetchall()
+        }
 
     def get_locally_modified_game_versions(self):
         with self.read_only_transaction() as conn:
