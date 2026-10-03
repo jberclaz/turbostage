@@ -16,7 +16,7 @@ include = [
 
 [tool.poetry.dependencies]
 python = "^3.11"
-pyside6 = "==6.8.1"
+pyside6 = "==6.11.1"
 requests = "==2.32.3"
 pycdlib = "==1.14.0"
 

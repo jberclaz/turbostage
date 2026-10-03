@@ -89,7 +89,7 @@ This project uses:
 Configuration is in `.pre-commit-config.yaml` and `pyproject.toml`.
 
 ## Key Dependencies
-- `pyside6==6.8.1` - Qt GUI framework
+- `pyside6==6.11.1` - Qt GUI framework
 - `requests==2.32.3` - HTTP requests
 - `pycdlib==1.14.0` - ISO 9660 image reading
 
