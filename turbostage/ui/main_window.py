@@ -281,6 +281,9 @@ class MainWindow(QMainWindow):
         self._play_timer = QTimer(self)
         self._play_timer.setInterval(1000)
         self._play_timer.timeout.connect(self._update_play_status)
+        # Set when the user quits while a game runs: the window closes once
+        # the game has exited and its save files have been stored.
+        self._quit_after_game = False
 
         layout = QVBoxLayout()
         layout.addWidget(self.splitter)
@@ -472,6 +475,7 @@ class MainWindow(QMainWindow):
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.SAVEGAME)
         # Refresh the button state (restores "Launch Game" after "Stop Game")
         self.on_game_change()
+        self._maybe_quit_after_game()
 
     def _ensure_cdrom_executable(self, version_id: int) -> bool:
         """Ensure a non-install CD-ROM game has an executable selected.
@@ -1190,6 +1194,7 @@ class MainWindow(QMainWindow):
             config_files = {**new_files, **modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
         self.on_game_change()
+        self._maybe_quit_after_game()
 
     def _on_game_settings_saved(self):
         version_id = self.right_setup_tab.version_id
@@ -1232,13 +1237,32 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         launcher = self._launcher
         if launcher is not None and launcher.is_running:
-            # Don't touch widgets from the finished handler during teardown.
-            try:
-                launcher.finished.disconnect()
-            except (TypeError, RuntimeError):
-                pass
+            # Quitting now would kill DOSBox before the game's changed files
+            # (save games, setup results) are collected: stop the game first
+            # and close from the finished handler instead.
+            event.ignore()
+            if self._quit_after_game:
+                return  # Already stopping.
+            reply = QMessageBox.question(
+                self,
+                "Game still running",
+                f"{self._play_title} is still running.\n\n"
+                "Stop it and quit TurboStage? Games you saved in it will be kept.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self._quit_after_game = True
+            self.status.showMessage("Stopping game before quitting...")
             launcher.stop()
+            return
         super().closeEvent(event)
+
+    def _maybe_quit_after_game(self):
+        if self._quit_after_game:
+            # Deferred so the launcher's finished signal completes first.
+            QTimer.singleShot(0, self.close)
 
     @property
     def db_path(self):
