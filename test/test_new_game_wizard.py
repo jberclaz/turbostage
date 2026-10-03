@@ -1,4 +1,11 @@
+import os
+import threading
 from unittest import TestCase
+from unittest.mock import MagicMock
+
+import requests
+from PySide6.QtCore import QThreadPool
+from PySide6.QtWidgets import QApplication
 
 from turbostage.ui.new_game_wizard import GameTitlePage
 
@@ -38,3 +45,79 @@ class TestSanitizeSearchQueries(TestCase):
 
     def test_keeps_meaningful_allcaps_token(self):
         self.assertEqual(self._first("Arkanoid-Revenge-of-DOH_DOS_EN"), "Arkanoid Revenge of DOH")
+
+
+class TestGameTitlePageSearch(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if QApplication.instance() is None:
+            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+            cls._app = QApplication([])
+
+    def _wait_for_search(self):
+        QThreadPool.globalInstance().waitForDone()
+        QApplication.processEvents()  # deliver the queued result signal
+
+    def test_search_runs_off_the_ui_thread(self):
+        threads = []
+        client = MagicMock()
+        client.search_games.side_effect = lambda q: threads.append(threading.current_thread()) or []
+        page = GameTitlePage(client, "doom.zip")
+        try:
+            self._wait_for_search()
+            self.assertTrue(threads)
+            self.assertNotIn(threading.main_thread(), threads)
+        finally:
+            page.deleteLater()
+
+    def test_auto_search_tries_variants_until_one_matches(self):
+        client = MagicMock()
+        client.search_games.side_effect = lambda q: (
+            [{"name": "Wing Commander III", "id": 7}] if q == "WingCommanderIII" else []
+        )
+        page = GameTitlePage(client, "WingCommanderIII-CD1of4.zip")
+        try:
+            self._wait_for_search()
+            self.assertEqual(client.search_games.call_count, 2)
+            self.assertEqual(page.game_list_model.games, [("Wing Commander III", 7)])
+            self.assertFalse(page.search_status_label.isVisibleTo(page))
+        finally:
+            page.deleteLater()
+
+    def test_offline_search_shows_error_and_retry_works(self):
+        client = MagicMock()
+        client.search_games.side_effect = requests.exceptions.ConnectionError("offline")
+        page = GameTitlePage(client, "WingCommanderIII-CD1of4.zip")
+        try:
+            self._wait_for_search()
+            # Auto-search stops at the first network failure.
+            client.search_games.assert_called_once()
+            self.assertTrue(page.search_status_label.isVisibleTo(page))
+            self.assertIn("Could not reach", page.search_status_label.text())
+            self.assertEqual(page.game_list_model.rowCount(), 0)
+
+            client.search_games.side_effect = None
+            client.search_games.return_value = [{"name": "Doom", "id": 1}]
+            page.game_name_search_query.setText("Doom")
+            page._search_games_slot()
+            self._wait_for_search()
+            self.assertFalse(page.search_status_label.isVisibleTo(page))
+            self.assertEqual(page.game_list_model.rowCount(), 1)
+        finally:
+            page.deleteLater()
+
+    def test_results_of_superseded_search_are_ignored(self):
+        client = MagicMock()
+        client.search_games.return_value = [{"name": "Doom", "id": 1}]
+        page = GameTitlePage(client, "doom.zip")
+        try:
+            self._wait_for_search()
+            stale_generation = page._search_generation
+            page.game_name_search_query.setText("Quake")
+            client.search_games.return_value = [{"name": "Quake", "id": 2}]
+            page._search_games_slot()
+            page._on_search_finished(stale_generation, [("Doom", 1)])
+            self._wait_for_search()
+            self.assertEqual(page.game_list_model.games, [("Quake", 2)])
+        finally:
+            page.deleteLater()

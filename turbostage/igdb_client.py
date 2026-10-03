@@ -1,19 +1,43 @@
 import json
+import threading
 import time
 from typing import Any
 
 import requests
-from igdb.wrapper import IGDBWrapper
 
 from turbostage.constants import IGDB_CLIENT_ID, IGDB_CLIENT_SECRET, IGDB_DOS_PLATFORM_ID
 
 # API documentation: https://api-docs.igdb.com/#authentication
 
+IGDB_API_URL = "https://api.igdb.com/v4/"
+AUTH_TIMEOUT_S = 10
+REQUEST_TIMEOUT_S = 15
+
 
 class IgdbClient:
     def __init__(self):
-        self._auth_token = self._get_auth()
-        self._wrapper = IGDBWrapper(IGDB_CLIENT_ID, self._auth_token)
+        # Authentication is deferred to the first request: the client is built
+        # at startup, which must work offline. Worker threads share the client,
+        # hence the lock.
+        self._auth_token: str | None = None
+        self._auth_lock = threading.Lock()
+
+    def _get_token(self) -> str:
+        with self._auth_lock:
+            if self._auth_token is None:
+                self._auth_token = self._get_auth()
+            return self._auth_token
+
+    def _api_request(self, endpoint: str, query: str) -> bytes:
+        """POST an Apicalypse query to an IGDB endpoint; return the raw response body."""
+        response = requests.post(
+            IGDB_API_URL + endpoint,
+            headers={"Client-ID": IGDB_CLIENT_ID, "Authorization": f"Bearer {self._get_token()}"},
+            data=query,
+            timeout=REQUEST_TIMEOUT_S,
+        )
+        response.raise_for_status()
+        return response.content
 
     @staticmethod
     def _get_auth() -> str:
@@ -21,7 +45,7 @@ class IgdbClient:
             f"https://id.twitch.tv/oauth2/token?client_id={IGDB_CLIENT_ID}"
             f"&client_secret={IGDB_CLIENT_SECRET}&grant_type=client_credentials"
         )
-        response = requests.post(request_url)
+        response = requests.post(request_url, timeout=AUTH_TIMEOUT_S)
         response.raise_for_status()  # A better way to handle HTTP errors
         return response.json()["access_token"]
 
@@ -37,7 +61,7 @@ class IgdbClient:
         where platforms = ({IGDB_DOS_PLATFORM_ID});
         limit 20;
         """
-        byte_array = self._wrapper.api_request("games", query)
+        byte_array = self._api_request("games", query)
         return json.loads(byte_array)
 
     def get_game_info(self, igdb_id: int) -> dict[str, Any] | None:
@@ -62,7 +86,7 @@ class IgdbClient:
         """
         while True:
             try:
-                byte_array = self._wrapper.api_request("games", query)
+                byte_array = self._api_request("games", query)
                 break
             except requests.exceptions.HTTPError as err:
                 if err.response.status_code == 429:
