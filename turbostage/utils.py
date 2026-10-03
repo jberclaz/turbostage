@@ -27,7 +27,7 @@ def compute_hash_for_largest_files_in_zip(zip_path, n=5):
     """Find the largest n files in a ZIP archive."""
     with zipfile.ZipFile(zip_path, "r") as zf:
         # Get file info with sizes
-        file_sizes = [(info.filename, info.file_size) for info in zf.infolist()]
+        file_sizes = [(info.filename, info.file_size) for info in zf.infolist() if not info.is_dir()]
 
         # Sort by size and take the largest n files
         largest_files = sorted(file_sizes, key=lambda x: x[1], reverse=True)[:n]

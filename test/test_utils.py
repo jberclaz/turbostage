@@ -72,6 +72,15 @@ class TestUtils(TestCase):
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0][0], "file1.txt")
 
+    def test_compute_hash_for_largest_files_in_zip_skips_directories(self):
+        with tempfile.NamedTemporaryFile(suffix=".zip") as temp_file:
+            with zipfile.ZipFile(temp_file.name, "w") as zf:
+                zf.writestr("GAME/", "")
+                zf.writestr("GAME/GAME.EXE", "A" * 10)
+
+            result = utils.compute_hash_for_largest_files_in_zip(temp_file.name, n=4)
+            self.assertEqual([r[0] for r in result], ["GAME/GAME.EXE"])
+
     def test_compute_hashes_for_executables_in_zip(self):
         contents = {
             "GAME.EXE": b"GAME.EXE content",

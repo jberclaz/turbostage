@@ -322,6 +322,43 @@ class TestGameDatabase(unittest.TestCase):
         igdb_client.get_game_info.assert_not_called()
         self.assertIn("+0 games, +0 versions", result)
 
+    def _version_with_hashes(self, db, igdb_id, hashes):
+        details = GameDetails(f"Game {igdb_id}", 0, "", "", "", "", "", 0, igdb_id, [])
+        game_id = db.insert_game_with_details(f"Game {igdb_id}", details)
+        version_id = db.insert_game_version(game_id, "v", "GAME.EXE", None, "", 0)
+        db.insert_multiple_hashes(version_id, [(f"F{i}", 0, h) for i, h in enumerate(hashes)])
+        return version_id
+
+    def test_single_shared_file_does_not_identify_a_game(self):
+        db = GameDatabase(self.temp_db.name)
+        self._version_with_hashes(db, 1, ["dos4gw", "doom_wad", "doom_exe", "doom_snd"])
+        # Another game's archive shares only the DOS extender.
+        self.assertIsNone(db.find_game_by_hashes(["dos4gw", "heretic_wad", "heretic_exe", "heretic_snd"]))
+
+    def test_two_matching_files_identify_a_game(self):
+        db = GameDatabase(self.temp_db.name)
+        version_id = self._version_with_hashes(db, 1, ["dos4gw", "doom_wad", "doom_exe", "doom_snd"])
+        # E.g. a repackaged archive whose largest files differ in part.
+        self.assertEqual(db.find_game_by_hashes(["doom_wad", "doom_exe", "manual_pdf", "readme"]), version_id)
+
+    def test_empty_file_hash_is_ignored(self):
+        db = GameDatabase(self.temp_db.name)
+        empty = "d41d8cd98f00b204e9800998ecf8427e"
+        self._version_with_hashes(db, 1, [empty, "doom_wad"])
+        self.assertIsNone(db.find_game_by_hashes([empty, "a", "b", "c"]))
+        self.assertIsNone(db.find_game_by_hashes([empty]))
+
+    def test_version_with_single_stored_hash_still_matches(self):
+        db = GameDatabase(self.temp_db.name)
+        version_id = self._version_with_hashes(db, 1, ["only_file"])
+        self.assertEqual(db.find_game_by_hashes(["only_file", "x", "y", "z"]), version_id)
+
+    def test_tie_goes_to_version_with_larger_share_matched(self):
+        db = GameDatabase(self.temp_db.name)
+        self._version_with_hashes(db, 1, ["a", "b", "c1", "c2", "c3", "c4"])
+        exact = self._version_with_hashes(db, 2, ["a", "b"])
+        self.assertEqual(db.find_game_by_hashes(["a", "b", "x", "y"]), exact)
+
     def test_resolve_local_executables_by_hash(self):
         """Test that executables can be resolved by matching hashes, even when
         local file paths differ from the stored canonical paths."""

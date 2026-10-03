@@ -55,6 +55,11 @@ class GameVersionInfo:
 
 # Indexes are now created during schema initialization and migration
 
+# Matching files needed to identify a game version from archive hashes.
+MIN_MATCHING_HASHES = 2
+# MD5 of zero bytes: empty files (and ZIP directory entries) match everything.
+EMPTY_FILE_MD5 = "d41d8cd98f00b204e9800998ecf8427e"
+
 
 class ConnectionPool:
     """A connection pool for SQLite database connections.
@@ -1259,31 +1264,45 @@ class GameDatabase:
     def find_game_by_hashes(self, hashes: list[str]) -> Optional[int]:
         """Find a game version by matching multiple file hashes.
 
+        A single shared file (a DOS extender, a sound driver, an empty file)
+        must not identify a game, so a version needs MIN_MATCHING_HASHES
+        matching files, unless every given hash matched or the version only
+        has one hash stored. Ties go to the version with the larger share of
+        its hashes matched.
+
         Args:
             hashes: A list of MD5 hash strings to check against the database
 
         Returns:
             The version_id if a match is found, None otherwise
         """
-        if not hashes:
+        unique_hashes = list(dict.fromkeys(h for h in hashes if h and h != EMPTY_FILE_MD5))
+        if not unique_hashes:
             return None
 
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
 
             # Use parameter substitution to prevent SQL injection
-            placeholders = ",".join(["?"] * len(hashes))
+            placeholders = ",".join(["?"] * len(unique_hashes))
             query = f"""
-                SELECT version_id, COUNT(*) as match_count
-                FROM hashes
-                WHERE hash IN ({placeholders})
-                GROUP BY version_id
-                ORDER BY match_count DESC
-                LIMIT 1
+                SELECT h.version_id,
+                       COUNT(DISTINCT h.hash) AS match_count,
+                       (SELECT COUNT(DISTINCT t.hash) FROM hashes t WHERE t.version_id = h.version_id) AS total
+                FROM hashes h
+                WHERE h.hash IN ({placeholders})
+                GROUP BY h.version_id
             """
-            cursor.execute(query, hashes)
-            result = cursor.fetchone()
-        return result[0] if result else None
+            cursor.execute(query, unique_hashes)
+            candidates = [
+                (version_id, matched, total)
+                for version_id, matched, total in cursor.fetchall()
+                if matched >= MIN_MATCHING_HASHES or matched == len(unique_hashes) or matched == total
+            ]
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda c: (c[1], c[1] / c[2], -c[0]))
+        return best[0]
 
     def get_version_hashes(self, version_id: int) -> list[tuple[str, str]]:
         with self.read_only_transaction() as conn:
