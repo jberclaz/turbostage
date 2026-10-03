@@ -12,6 +12,9 @@ from turbostage.constants import IGDB_CLIENT_ID, IGDB_CLIENT_SECRET, IGDB_DOS_PL
 IGDB_API_URL = "https://api.igdb.com/v4/"
 AUTH_TIMEOUT_S = 10
 REQUEST_TIMEOUT_S = 15
+# IGDB allows 4 requests/s; back off linearly on HTTP 429, then give up.
+RATE_LIMIT_RETRIES = 5
+RATE_LIMIT_BACKOFF_S = 1.0
 
 
 class IgdbClient:
@@ -84,15 +87,15 @@ class IgdbClient:
             release_dates.platform;
         where id = {igdb_id};
         """
-        while True:
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
             try:
                 byte_array = self._api_request("games", query)
                 break
             except requests.exceptions.HTTPError as err:
-                if err.response.status_code == 429:
-                    time.sleep(1)
-                else:
-                    raise err
+                rate_limited = err.response is not None and err.response.status_code == 429
+                if not rate_limited or attempt == RATE_LIMIT_RETRIES:
+                    raise
+                time.sleep(RATE_LIMIT_BACKOFF_S * (attempt + 1))
         results = json.loads(byte_array)
 
         if not results:

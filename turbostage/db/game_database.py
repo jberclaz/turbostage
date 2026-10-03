@@ -184,36 +184,55 @@ class GameDatabase:
             return rows[0][0] if rows else "unknown"
 
     def merge_remote_json(self, data: dict, igdb_client) -> str:
-        inserted_games = inserted_versions = 0
+        games = data.get("games") or {}
 
+        # Fetch IGDB details for unknown games before writing anything: network
+        # calls must not run inside the write transaction, and a network
+        # failure must leave the database untouched.
+        with self.read_only_transaction() as conn:
+            known_ids = {row[0] for row in conn.execute("SELECT igdb_id FROM games")}
+        new_games = {}
+        skipped_ids = set()
+        for igdb_id in games:
+            if int(igdb_id) in known_ids:
+                continue
+            game_info = igdb_client.get_game_info(igdb_id)
+            if game_info is None:
+                # Removed from IGDB or bad id: skip it (and its versions)
+                # rather than failing the whole update.
+                skipped_ids.add(igdb_id)
+            else:
+                new_games[igdb_id] = game_info
+
+        inserted_games = inserted_versions = 0
         with self.transaction() as conn:
             cur = conn.cursor()
 
             # ---- 2. Games ---------------------------------------------------------------
-            for igdb_id in data.get("games"):
-                cur.execute("SELECT 1 FROM games WHERE igdb_id = ?", (igdb_id,))
-                if not cur.fetchone():
-                    game_info = igdb_client.get_game_info(igdb_id)
-                    self.insert_game_with_details(
+            for igdb_id, game_info in new_games.items():
+                GameDatabase._insert_game(
+                    cur,
+                    game_info["name"],
+                    GameDetails(
                         game_info["name"],
-                        GameDetails(
-                            game_info["name"],
-                            game_info["release_date"],
-                            ", ".join(game_info["genres"]),
-                            game_info["summary"],
-                            game_info["publisher"],
-                            game_info["developer"],
-                            game_info["cover_url"],
-                            game_info["rating"],
-                            igdb_id,
-                            game_info["screenshot_urls"],
-                        ),
-                    )
-                    inserted_games += 1
+                        game_info["release_date"],
+                        ", ".join(game_info["genres"]),
+                        game_info["summary"],
+                        game_info["publisher"],
+                        game_info["developer"],
+                        game_info["cover_url"],
+                        game_info["rating"],
+                        igdb_id,
+                        game_info["screenshot_urls"],
+                    ),
+                )
+                inserted_games += 1
 
             # ---- 3. Versions + Hashes ---------------------------------------------------
-            for igdb_id in data.get("games"):
-                for version_name, version_data in data["games"][igdb_id].get("versions").items():
+            for igdb_id, game_data in games.items():
+                if igdb_id in skipped_ids:
+                    continue
+                for version_name, version_data in (game_data.get("versions") or {}).items():
                     cur.execute(
                         "SELECT 1 FROM versions WHERE game_id = ? AND version = ?",
                         (igdb_id, version_name),
@@ -273,7 +292,10 @@ class GameDatabase:
                         )
                     inserted_versions += 1
 
-        return f"Remote DB: +{inserted_games} games, +{inserted_versions} versions"
+        result = f"Remote DB: +{inserted_games} games, +{inserted_versions} versions"
+        if skipped_ids:
+            result += f" ({len(skipped_ids)} game(s) unknown to IGDB skipped)"
+        return result
 
     def _check_version(self):
         try:
@@ -468,27 +490,30 @@ class GameDatabase:
     def insert_game_with_details(self, game_name: str, details: GameDetails) -> int:
         """Insert a game with details from IGDB and return its ID."""
         with self.transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url, rating,
-                                   developer, screenshot_urls)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    game_name,
-                    details.summary,
-                    details.release_date,
-                    details.genre,
-                    details.publisher,
-                    details.igdb_id,
-                    details.cover_url,
-                    details.rating,
-                    details.developer,
-                    json.dumps(details.screenshot_urls),
-                ),
-            )
-            return cursor.lastrowid
+            return GameDatabase._insert_game(conn.cursor(), game_name, details)
+
+    @staticmethod
+    def _insert_game(cursor, game_name: str, details: GameDetails) -> int:
+        cursor.execute(
+            """
+            INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url, rating,
+                               developer, screenshot_urls)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                game_name,
+                details.summary,
+                details.release_date,
+                details.genre,
+                details.publisher,
+                details.igdb_id,
+                details.cover_url,
+                details.rating,
+                details.developer,
+                json.dumps(details.screenshot_urls),
+            ),
+        )
+        return cursor.lastrowid
 
     #
     # Version related methods

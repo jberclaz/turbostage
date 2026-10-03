@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock
 
+import requests
+
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase, GameDetails
@@ -261,6 +263,64 @@ class TestGameDatabase(unittest.TestCase):
         ]
         db = GameDatabase(self.temp_db.name)
         db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+
+    def _game_info(self, name):
+        return {
+            "name": name,
+            "release_date": 2,
+            "genres": ["action"],
+            "summary": "resume",
+            "publisher": "me",
+            "developer": "my brother",
+            "cover_url": "http://image.png",
+            "rating": 3,
+            "screenshot_urls": [],
+        }
+
+    def _count(self, db, table):
+        with db.read_only_transaction() as conn:
+            return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+    def test_merge_remote_skips_game_unknown_to_igdb(self):
+        igdb_client = MagicMock()
+        igdb_client.get_game_info.side_effect = lambda igdb_id: None if igdb_id == 7494 else self._game_info("Arkanoid")
+        db = GameDatabase(self.temp_db.name)
+
+        result = db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+
+        self.assertIn("+1 games, +1 versions", result)
+        self.assertIn("1 game(s) unknown to IGDB skipped", result)
+        self.assertIsNone(db.get_game_details_by_igdb_id(7494))
+        self.assertEqual(db.get_game_details_by_igdb_id(273066).title, "Arkanoid")
+        self.assertEqual(len(db.get_all_game_versions(7494)), 0)
+
+    def test_merge_remote_network_failure_writes_nothing(self):
+        igdb_client = MagicMock()
+        igdb_client.get_game_info.side_effect = [
+            self._game_info("Comanche"),
+            requests.exceptions.ConnectionError("offline"),
+        ]
+        db = GameDatabase(self.temp_db.name)
+
+        with self.assertRaises(requests.exceptions.RequestException):
+            db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+
+        self.assertEqual(self._count(db, "games"), 0)
+        self.assertEqual(self._count(db, "versions"), 0)
+
+    def test_merge_remote_does_not_refetch_known_games(self):
+        igdb_client = MagicMock()
+        igdb_client.get_game_info.side_effect = lambda igdb_id: self._game_info(f"Game {igdb_id}")
+        db = GameDatabase(self.temp_db.name)
+        db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+        igdb_client.get_game_info.reset_mock()
+
+        # JSON object keys arrive as strings from the real remote file.
+        as_json = {"games": {str(k): v for k, v in SUBMISSION_DATA["games"].items()}}
+        result = db.merge_remote_json(as_json, igdb_client)
+
+        igdb_client.get_game_info.assert_not_called()
+        self.assertIn("+0 games, +0 versions", result)
 
     def test_resolve_local_executables_by_hash(self):
         """Test that executables can be resolved by matching hashes, even when

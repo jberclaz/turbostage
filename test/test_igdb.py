@@ -79,5 +79,39 @@ class TestIgdbAuthentication(unittest.TestCase):
             self.assertEqual(client.search_games("Doom"), [])
 
 
+class TestIgdbRateLimit(unittest.TestCase):
+    def _http_error(self, status):
+        response = MagicMock()
+        response.status_code = status
+        return requests.exceptions.HTTPError(response=response)
+
+    def setUp(self):
+        patches = [
+            patch.object(IgdbClient, "_get_auth", return_value="tok"),
+            patch("turbostage.igdb_client.time.sleep"),
+        ]
+        for p in patches:
+            p.start()
+            self.addCleanup(p.stop)
+        self.client = IgdbClient()
+
+    def test_retries_rate_limit_then_succeeds(self):
+        with patch.object(IgdbClient, "_api_request", side_effect=[self._http_error(429), b"[]"]) as api:
+            self.assertIsNone(self.client.get_game_info(1))
+        self.assertEqual(api.call_count, 2)
+
+    def test_gives_up_after_bounded_retries(self):
+        with patch.object(IgdbClient, "_api_request", side_effect=self._http_error(429)) as api:
+            with self.assertRaises(requests.exceptions.HTTPError):
+                self.client.get_game_info(1)
+        self.assertEqual(api.call_count, igdb_client.RATE_LIMIT_RETRIES + 1)
+
+    def test_other_http_errors_are_not_retried(self):
+        with patch.object(IgdbClient, "_api_request", side_effect=self._http_error(500)) as api:
+            with self.assertRaises(requests.exceptions.HTTPError):
+                self.client.get_game_info(1)
+        self.assertEqual(api.call_count, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
