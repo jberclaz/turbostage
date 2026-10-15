@@ -50,7 +50,11 @@ jobs:
       - name: Run package build
         run: |
           poetry-dynamic-versioning
-          pyinstaller --onefile --windowed --icon=icon.icns \
+          # Build the .app as onedir: --onefile + --windowed is deprecated
+          # in PyInstaller 6 and unpacks the whole app to a temp dir on every
+          # launch.
+          pyinstaller --windowed --icon=icon.icns \
+            --osx-bundle-identifier com.jberclaz.turbostage \
             --add-data "turbostage/content:turbostage/content" \
             --add-data "turbostage/conf:turbostage/conf" \
             -n turbostage turbostage/main.py
