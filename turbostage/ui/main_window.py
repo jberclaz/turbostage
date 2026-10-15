@@ -1006,7 +1006,7 @@ class MainWindow(QMainWindow):
                     import shutil
 
                     shutil.rmtree(install_path)
-            self._gamedb.delete_local_game_by_igdb_id(game_id)
+            self._gamedb.delete_local_version(version_id)
             self._game_info.clear_info()
             self._game_info.set_game_name("Select a game to see details here.")
             self.right_setup_tab.set_game(None, None)

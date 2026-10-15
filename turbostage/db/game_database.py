@@ -1211,35 +1211,18 @@ class GameDatabase:
                     (config_executable, version_id),
                 )
 
-    def delete_local_game_by_igdb_id(self, igdb_id: int) -> None:
-        """Delete a local game from the database.
+    def delete_local_version(self, version_id: int) -> None:
+        """Remove one local version of a game from the library.
 
-        Instead of deleting the entire game from the database, this function
-        only removes its entry from the local_versions table, effectively making
-        it disappear from the user interface while keeping the game information
-        in the database for future use.
+        Only its local_versions row is deleted: the game and version
+        information stay in the database for future use, and the game's
+        other local versions are kept.
 
         Args:
-            :param igdb_id: IGDB ID of the game to delete
+            :param version_id: ID of the version to remove
         """
         with self.transaction() as conn:
-            cursor = conn.cursor()
-            # First get the version_id
-            cursor.execute(
-                """
-                SELECT v.id
-                FROM versions v
-                WHERE v.game_id = ?
-                """,
-                (igdb_id,),
-            )
-
-            version_ids = [row[0] for row in cursor.fetchall()]
-
-            if version_ids:
-                # Remove from local_versions
-                for version_id in version_ids:
-                    cursor.execute("DELETE FROM local_versions WHERE version_id = ?", (version_id,))
+            conn.execute("DELETE FROM local_versions WHERE version_id = ?", (version_id,))
 
     def update_version_info(
         self,

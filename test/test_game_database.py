@@ -177,6 +177,23 @@ class TestGameDatabase(unittest.TestCase):
             conn.execute("UPDATE games SET screenshot_urls = ? WHERE igdb_id = ?", ('"[]"', self.test_igdb_id))
         self.assertEqual(db.get_game_details_by_igdb_id(self.test_igdb_id).screenshot_urls, [])
 
+    def test_delete_local_version_keeps_other_versions(self):
+        db = GameDatabase(self.temp_db.name)
+        db.insert_game_with_details("Test Game", self.test_game_details)
+        v1 = db.insert_game_version(self.test_igdb_id, "1.0", "game.exe", None, "", 0)
+        v2 = db.insert_game_version(self.test_igdb_id, "2.0", "game.exe", None, "", 0)
+        db.add_local_game_version(v1, "game1.zip")
+        db.add_local_game_version(v2, "game2.zip")
+
+        db.delete_local_version(v1)
+
+        remaining = [g.version_id for g in db.get_games_with_local_versions()]
+        self.assertEqual(remaining, [v2])
+        # The version itself stays known for future use.
+        with db.read_only_transaction() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM versions WHERE game_id = ?", (self.test_igdb_id,)).fetchone()[0]
+        self.assertEqual(count, 2)
+
     def test_find_game_by_hashes(self):
         """Test finding a game by file hashes"""
         db = GameDatabase(self.temp_db.name)
