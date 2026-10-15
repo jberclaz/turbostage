@@ -43,7 +43,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import __version__, constants, utils
-from turbostage.add_game_worker import AddGameWorker
+from turbostage.add_game_worker import AddGameWorker, IdentifyArchiveWorker
 from turbostage.constants import CPU_CYCLES, MIDI_DEVICE
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase
@@ -296,6 +296,7 @@ class MainWindow(QMainWindow):
 
         self._apply_view_mode()
         self.scan_progress_dialog = None
+        self._identify_dialog = None
 
     def _current_view(self):
         """Return the currently active game list widget (grid or table)."""
@@ -681,7 +682,7 @@ class MainWindow(QMainWindow):
             )
             return
         try:
-            local_game_archives = [file for file in os.listdir(games_path) if file.endswith((".zip", ".iso"))]
+            local_game_archives = [file for file in os.listdir(games_path) if file.lower().endswith((".zip", ".iso"))]
         except OSError as e:
             QMessageBox.critical(
                 self,
@@ -764,28 +765,48 @@ class MainWindow(QMainWindow):
             self.status.showMessage("Stop the running game before adding a game.", 3000)
             return
         games_path = self.games_path
-        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip *.iso)")
+        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip *.iso *.ZIP *.ISO)")
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         if not dialog.exec():
             return
         game_path = dialog.selectedFiles()[0]
 
-        # Compute hashes based on archive type
-        archive_type, hashes = utils.hash_archive_top(game_path, 4)
+        # Hashing a large ISO takes seconds: do it off the UI thread, behind a
+        # modal busy dialog so nothing else starts meanwhile.
+        self._identify_dialog = QProgressDialog("Reading game archive...", None, 0, 0, self)
+        self._identify_dialog.setWindowTitle("Please Wait")
+        self._identify_dialog.setWindowModality(Qt.WindowModal)
+        self._identify_dialog.setMinimumDuration(0)
+        self._identify_dialog.show()
+        worker = IdentifyArchiveWorker(game_path, self.db_path)
+        worker.signals.identified.connect(self._on_archive_identified)
+        worker.signals.failed.connect(self._on_archive_identify_failed)
+        self._thread_pool.start(worker)
 
-        version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
-        if version_id is not None:
-            requires_install = archive_type == "iso"
-            # Hash all executables in the archive so resolve_local_executables
-            # can match by content hash regardless of internal path structure
-            hashes.extend(utils.hash_archive_executables(game_path))
-            local_executable, local_config_executable = self._gamedb.resolve_local_executables(version_id, hashes)
+    def _close_identify_dialog(self):
+        if self._identify_dialog is not None:
+            self._identify_dialog.close()
+            self._identify_dialog = None
+
+    def _on_archive_identify_failed(self, game_path: str, message: str):
+        self._close_identify_dialog()
+        QMessageBox.critical(
+            self,
+            "Cannot read game archive",
+            f"Could not read '{os.path.basename(game_path)}':\n{message}",
+            QMessageBox.Ok,
+        )
+
+    def _on_archive_identified(self, game_path: str, match):
+        self._close_identify_dialog()
+        if match is not None:
+            requires_install = match.archive_type == "iso"
             added = self._gamedb.add_local_game_version(
-                version_id,
+                match.version_id,
                 os.path.basename(game_path),
-                executable=local_executable,
-                config_executable=local_config_executable,
-                archive_type=archive_type,
+                executable=match.executable,
+                config_executable=match.config_executable,
+                archive_type=match.archive_type,
                 requires_install=requires_install,
             )
             if added == 0:
@@ -796,7 +817,7 @@ class MainWindow(QMainWindow):
                 )
                 return
             if requires_install:
-                ensure_installation_dir(self._gamedb, version_id)
+                ensure_installation_dir(self._gamedb, match.version_id)
             QMessageBox.information(
                 self,
                 "New game added",

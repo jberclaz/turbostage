@@ -1,5 +1,6 @@
 import logging
 import os
+from dataclasses import dataclass
 
 from PySide6.QtCore import QObject, QRunnable, Signal
 
@@ -148,3 +149,68 @@ class AddGameWorker(QRunnable):
             ensure_installation_dir(db, version_id)
 
         self.signals.task_finished.emit()
+
+
+class IdentifyArchiveSignals(QObject):
+    # (game_path, ArchiveMatch or None when the archive is not in the database)
+    identified = Signal(str, object)
+    failed = Signal(str, str)
+
+
+@dataclass
+class ArchiveMatch:
+    """A known game version matched from an archive's file hashes."""
+
+    version_id: int
+    archive_type: str
+    executable: str | None
+    config_executable: str | None
+
+
+class IdentifyArchiveWorker(QRunnable):
+    """Hash an archive and match it against the game database, off the UI thread.
+
+    Hashing a large ISO takes seconds, and a corrupt archive raises: both must
+    be reported back to the UI rather than freeze or fail silently.
+    """
+
+    def __init__(self, game_path: str, db_path: str):
+        super().__init__()
+        self.signals = IdentifyArchiveSignals()
+        self._game_path = game_path
+        self._db_path = db_path
+
+    def run(self):
+        try:
+            match = self._identify()
+        except Exception as e:  # noqa: BLE001 - must always notify the UI
+            logger.exception("Failed to read game archive '%s'", self._game_path)
+            self._emit(self.signals.failed, self._game_path, str(e) or type(e).__name__)
+            return
+        self._emit(self.signals.identified, self._game_path, match)
+
+    @staticmethod
+    def _emit(signal, *args):
+        try:
+            signal.emit(*args)
+        except RuntimeError:
+            # Signals may be torn down during app shutdown; nothing to notify.
+            pass
+
+    def _identify(self) -> ArchiveMatch | None:
+        archive_type, hashes = utils.hash_archive_top(self._game_path, 4)
+        db = GameDatabase(self._db_path)
+        try:
+            version_id = db.find_game_by_hashes([h[2] for h in hashes])
+            if version_id is None:
+                return None
+            # Hash all executables in the archive so resolve_local_executables
+            # can match by content hash regardless of internal path structure
+            hashes.extend(utils.hash_archive_executables(self._game_path))
+            executable, config_executable = db.resolve_local_executables(version_id, hashes)
+        finally:
+            try:
+                db.close()
+            except Exception:  # noqa: BLE001 - close must not mask the original result
+                pass
+        return ArchiveMatch(version_id, archive_type, executable, config_executable)
