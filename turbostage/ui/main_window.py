@@ -7,10 +7,11 @@ from datetime import datetime, timezone
 from urllib.parse import unquote, urlsplit
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QColor,
+    QDesktopServices,
     QGuiApplication,
     QIcon,
     QKeySequence,
@@ -51,6 +52,7 @@ from turbostage.db.remote_db import RemoteDB
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
+from turbostage.log_setup import log_file_path
 from turbostage.provisioning import ensure_installation_dir
 from turbostage.scanning_thread import ScanningThread
 from turbostage.ui.binary_list_model import BinaryListModel
@@ -167,6 +169,10 @@ class MainWindow(QMainWindow):
         self._setup_wizard_action = QAction(load_icon("wizard"), "Setup Wizard", self)
         self._setup_wizard_action.triggered.connect(self._on_show_setup_wizard)
 
+        # Log file, for bug reports: windowed builds have no visible stderr
+        log_file_action = QAction(load_icon("info"), "Show log file", self)
+        log_file_action.triggered.connect(self._on_show_log_file)
+
         self.file_menu.addAction(self._add_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(self._scan_action)
@@ -176,6 +182,7 @@ class MainWindow(QMainWindow):
         self.file_menu.addSeparator()
         self.file_menu.addAction(self._setup_wizard_action)
         self.file_menu.addAction(settings_action)
+        self.file_menu.addAction(log_file_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
 
@@ -865,6 +872,14 @@ class MainWindow(QMainWindow):
             f"Could not add the game:\n{message}",
             QMessageBox.Ok,
         )
+
+    def _on_show_log_file(self):
+        path = log_file_path()
+        if not os.path.isfile(path):
+            self.status.showMessage(f"No log file yet ({path}).", 5000)
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+            QMessageBox.information(self, "Log file", f"The log file is at:\n{path}", QMessageBox.Ok)
 
     def _on_show_settings_dialog(self):
         dialog = SettingsDialog()

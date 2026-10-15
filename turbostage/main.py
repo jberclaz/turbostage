@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen
 
+from turbostage.log_setup import setup_logging
 from turbostage.ui.main_window import MainWindow
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ def main():
         os.environ["QT_QPA_PLATFORMTHEME"] = "gtk3"
 
     app = QApplication(sys.argv)
+    setup_logging()
 
     splash = None
     if not args.skip_splash:
