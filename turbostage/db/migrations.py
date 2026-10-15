@@ -6,13 +6,13 @@ between different database versions without data loss or requiring users
 to delete their database files.
 """
 
-import json
 import logging
 import sqlite3
 from typing import Callable, Dict, List, Tuple
 
 import requests
 
+from turbostage.db.game_database import encode_screenshot_urls, normalize_rating
 from turbostage.igdb_client import IgdbClient
 
 logger = logging.getLogger(__name__)
@@ -191,8 +191,8 @@ def migrate_to_0_9_0(conn: sqlite3.Connection) -> None:
             "UPDATE games SET developer = ?, screenshot_urls = ?, rating = ? WHERE igdb_id = ?",
             (
                 info["developer"],
-                json.dumps(info["screenshot_urls"]),
-                info["rating"],
+                encode_screenshot_urls(info["screenshot_urls"]),
+                normalize_rating(info["rating"]),
                 igdb_id,
             ),
         )

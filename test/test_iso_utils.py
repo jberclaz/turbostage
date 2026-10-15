@@ -144,7 +144,7 @@ class TestIsoUtilsWithDatabase(TestCase):
                 publisher="Test Publisher",
                 developer="Test Developer",
                 cover_url="",
-                screenshot_urls="[]",
+                screenshot_urls=[],
                 rating=0,
                 igdb_id=12345,
             )
@@ -181,7 +181,7 @@ class TestIsoUtilsWithDatabase(TestCase):
                 publisher="Test Publisher",
                 developer="Test Developer",
                 cover_url="",
-                screenshot_urls="[]",
+                screenshot_urls=[],
                 rating=0,
                 igdb_id=12345,
             )

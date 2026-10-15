@@ -106,7 +106,7 @@ def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails | None:
         cover_url=details.get("cover_url") or "",
         igdb_id=igdb_id,
         developer=details.get("developer") or "",
-        screenshot_urls=details.get("screenshot_urls") or "[]",
+        screenshot_urls=list(details.get("screenshot_urls") or []),
         rating=details.get("rating"),
     )
 

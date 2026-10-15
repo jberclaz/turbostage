@@ -4,7 +4,7 @@ import logging
 from PySide6.QtCore import QObject, QRunnable, Signal
 
 from turbostage import utils
-from turbostage.db.game_database import GameDatabase
+from turbostage.db.game_database import GameDatabase, normalize_rating
 from turbostage.igdb_client import IgdbClient
 
 logger = logging.getLogger(__name__)
@@ -65,7 +65,7 @@ class FetchGameInfoWorker(QObject):
                 game_details.genre or "",
                 game_details.publisher or "",
                 game_details.developer or "",
-                game_details.screenshot_urls or "[]",
+                json.dumps(game_details.screenshot_urls),
                 game_details.rating or 0,
             )
             return
@@ -92,7 +92,7 @@ class FetchGameInfoWorker(QObject):
                 game_details.genre or "",
                 game_details.publisher or "",
                 game_details.developer or "",
-                game_details.screenshot_urls or "[]",
+                json.dumps(game_details.screenshot_urls),
                 game_details.rating or 0,
             )
             return
@@ -110,8 +110,9 @@ class FetchGameInfoWorker(QObject):
             details.genre or "",
             details.publisher or "",
             details.developer or "",
-            details.screenshot_urls or "[]",
-            details.rating or 0,
+            # A Signal(str) silently turns a list into "", so send JSON.
+            json.dumps(details.screenshot_urls),
+            normalize_rating(details.rating),
         )
 
 

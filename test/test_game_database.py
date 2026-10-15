@@ -142,6 +142,41 @@ class TestGameDatabase(unittest.TestCase):
         self.assertEqual(game_details.publisher, new_details.publisher)
         self.assertEqual(game_details.cover_url, new_details.cover_url)
 
+    def test_update_game_details_stores_developer_screenshots_rating(self):
+        db = GameDatabase(self.temp_db.name)
+        db.insert_game_with_details("Test Game", self.test_game_details)
+
+        new_details = GameDetails(
+            title=None,
+            summary="s",
+            release_date=978307200,
+            genre="Strategy",
+            publisher="p",
+            cover_url="",
+            developer="New Developer",
+            rating=56.7,  # IGDB ratings are floats
+            screenshot_urls=["https://x/1.jpg", "https://x/2.jpg"],
+        )
+        db.update_game_details(self.test_igdb_id, new_details)
+
+        stored = db.get_game_details_by_igdb_id(self.test_igdb_id)
+        self.assertEqual(stored.developer, "New Developer")
+        self.assertEqual(stored.screenshot_urls, ["https://x/1.jpg", "https://x/2.jpg"])
+        self.assertEqual(stored.rating, 57)
+
+    def test_screenshot_urls_round_trip_as_list(self):
+        db = GameDatabase(self.temp_db.name)
+        db.insert_game_with_details("Test Game", self.test_game_details)
+        self.assertEqual(db.get_game_details_by_igdb_id(self.test_igdb_id).screenshot_urls, [])
+
+    def test_double_encoded_screenshot_urls_read_as_empty_list(self):
+        # Older versions stored the fallback "[]" string JSON-encoded again.
+        db = GameDatabase(self.temp_db.name)
+        db.insert_game_with_details("Test Game", self.test_game_details)
+        with db.transaction() as conn:
+            conn.execute("UPDATE games SET screenshot_urls = ? WHERE igdb_id = ?", ('"[]"', self.test_igdb_id))
+        self.assertEqual(db.get_game_details_by_igdb_id(self.test_igdb_id).screenshot_urls, [])
+
     def test_find_game_by_hashes(self):
         """Test finding a game by file hashes"""
         db = GameDatabase(self.temp_db.name)

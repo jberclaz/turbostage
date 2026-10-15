@@ -58,7 +58,7 @@ def populate_database(db_path, games):
                         cover_url="",
                         rating=None,
                         igdb_id=igdb_id,
-                        screenshot_urls="[]",
+                        screenshot_urls=[],
                     ),
                 )
             for version in game["versions"]:

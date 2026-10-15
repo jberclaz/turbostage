@@ -3,7 +3,7 @@ import os
 import queue
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from turbostage.db.constants import DB_VERSION
@@ -35,7 +35,41 @@ class GameDetails:
     cover_url: Optional[str]
     rating: Optional[int]
     igdb_id: Optional[int] = None
-    screenshot_urls: Optional[str] = None
+    screenshot_urls: list[str] = field(default_factory=list)
+
+
+def encode_screenshot_urls(urls) -> str:
+    """Serialize screenshot URLs for the games.screenshot_urls column."""
+    if isinstance(urls, str):
+        urls = decode_screenshot_urls(urls)
+    return json.dumps([u for u in (urls or []) if isinstance(u, str) and u])
+
+
+def decode_screenshot_urls(raw) -> list[str]:
+    """Read the games.screenshot_urls column back into a list.
+
+    Tolerates NULL, malformed JSON and the double-encoded '"[]"' that older
+    versions stored.
+    """
+    value = raw
+    for _ in range(2):
+        if not isinstance(value, str):
+            break
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(value, list):
+        return []
+    return [u for u in value if isinstance(u, str) and u]
+
+
+def normalize_rating(rating) -> int:
+    """IGDB ratings are floats on a 0-100 scale; the column stores an int."""
+    try:
+        return int(round(float(rating)))
+    except (TypeError, ValueError):
+        return 0
 
 
 @dataclass
@@ -458,7 +492,7 @@ class GameDatabase:
                     publisher=row[3],
                     cover_url=row[4],
                     developer=row[6],
-                    screenshot_urls=row[7],
+                    screenshot_urls=decode_screenshot_urls(row[7]),
                     rating=row[8],
                 )
         return None
@@ -475,11 +509,14 @@ class GameDatabase:
             cursor.execute(
                 """
                 UPDATE games
-                SET summary      = ?,
-                    release_date = ?,
-                    genre        = ?,
-                    publisher    = ?,
-                    cover_url    = ?
+                SET summary         = ?,
+                    release_date    = ?,
+                    genre           = ?,
+                    publisher       = ?,
+                    cover_url       = ?,
+                    developer       = ?,
+                    screenshot_urls = ?,
+                    rating          = ?
                 WHERE igdb_id = ?
                 """,
                 (
@@ -488,6 +525,9 @@ class GameDatabase:
                     details.genre,
                     details.publisher,
                     details.cover_url,
+                    details.developer,
+                    encode_screenshot_urls(details.screenshot_urls),
+                    normalize_rating(details.rating),
                     igdb_id,
                 ),
             )
@@ -513,9 +553,9 @@ class GameDatabase:
                 details.publisher,
                 details.igdb_id,
                 details.cover_url,
-                details.rating,
+                normalize_rating(details.rating),
                 details.developer,
-                json.dumps(details.screenshot_urls),
+                encode_screenshot_urls(details.screenshot_urls),
             ),
         )
         return cursor.lastrowid

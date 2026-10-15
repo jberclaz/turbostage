@@ -96,7 +96,7 @@ class AddGameWorker(QRunnable):
                     cover_url="",
                     rating=None,
                     igdb_id=self._igdb_id,
-                    screenshot_urls="[]",
+                    screenshot_urls=[],
                 )
             # 2.2 add game entry in games table
             db.insert_game_with_details(self._game_name, details)
