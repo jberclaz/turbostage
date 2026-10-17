@@ -3,6 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock
 
+import requests
+
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase, GameDetails
@@ -140,6 +142,58 @@ class TestGameDatabase(unittest.TestCase):
         self.assertEqual(game_details.publisher, new_details.publisher)
         self.assertEqual(game_details.cover_url, new_details.cover_url)
 
+    def test_update_game_details_stores_developer_screenshots_rating(self):
+        db = GameDatabase(self.temp_db.name)
+        db.insert_game_with_details("Test Game", self.test_game_details)
+
+        new_details = GameDetails(
+            title=None,
+            summary="s",
+            release_date=978307200,
+            genre="Strategy",
+            publisher="p",
+            cover_url="",
+            developer="New Developer",
+            rating=56.7,  # IGDB ratings are floats
+            screenshot_urls=["https://x/1.jpg", "https://x/2.jpg"],
+        )
+        db.update_game_details(self.test_igdb_id, new_details)
+
+        stored = db.get_game_details_by_igdb_id(self.test_igdb_id)
+        self.assertEqual(stored.developer, "New Developer")
+        self.assertEqual(stored.screenshot_urls, ["https://x/1.jpg", "https://x/2.jpg"])
+        self.assertEqual(stored.rating, 57)
+
+    def test_screenshot_urls_round_trip_as_list(self):
+        db = GameDatabase(self.temp_db.name)
+        db.insert_game_with_details("Test Game", self.test_game_details)
+        self.assertEqual(db.get_game_details_by_igdb_id(self.test_igdb_id).screenshot_urls, [])
+
+    def test_double_encoded_screenshot_urls_read_as_empty_list(self):
+        # Older versions stored the fallback "[]" string JSON-encoded again.
+        db = GameDatabase(self.temp_db.name)
+        db.insert_game_with_details("Test Game", self.test_game_details)
+        with db.transaction() as conn:
+            conn.execute("UPDATE games SET screenshot_urls = ? WHERE igdb_id = ?", ('"[]"', self.test_igdb_id))
+        self.assertEqual(db.get_game_details_by_igdb_id(self.test_igdb_id).screenshot_urls, [])
+
+    def test_delete_local_version_keeps_other_versions(self):
+        db = GameDatabase(self.temp_db.name)
+        db.insert_game_with_details("Test Game", self.test_game_details)
+        v1 = db.insert_game_version(self.test_igdb_id, "1.0", "game.exe", None, "", 0)
+        v2 = db.insert_game_version(self.test_igdb_id, "2.0", "game.exe", None, "", 0)
+        db.add_local_game_version(v1, "game1.zip")
+        db.add_local_game_version(v2, "game2.zip")
+
+        db.delete_local_version(v1)
+
+        remaining = [g.version_id for g in db.get_games_with_local_versions()]
+        self.assertEqual(remaining, [v2])
+        # The version itself stays known for future use.
+        with db.read_only_transaction() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM versions WHERE game_id = ?", (self.test_igdb_id,)).fetchone()[0]
+        self.assertEqual(count, 2)
+
     def test_find_game_by_hashes(self):
         """Test finding a game by file hashes"""
         db = GameDatabase(self.temp_db.name)
@@ -261,6 +315,101 @@ class TestGameDatabase(unittest.TestCase):
         ]
         db = GameDatabase(self.temp_db.name)
         db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+
+    def _game_info(self, name):
+        return {
+            "name": name,
+            "release_date": 2,
+            "genres": ["action"],
+            "summary": "resume",
+            "publisher": "me",
+            "developer": "my brother",
+            "cover_url": "http://image.png",
+            "rating": 3,
+            "screenshot_urls": [],
+        }
+
+    def _count(self, db, table):
+        with db.read_only_transaction() as conn:
+            return conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+
+    def test_merge_remote_skips_game_unknown_to_igdb(self):
+        igdb_client = MagicMock()
+        igdb_client.get_game_info.side_effect = lambda igdb_id: None if igdb_id == 7494 else self._game_info("Arkanoid")
+        db = GameDatabase(self.temp_db.name)
+
+        result = db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+
+        self.assertIn("+1 games, +1 versions", result)
+        self.assertIn("1 game(s) unknown to IGDB skipped", result)
+        self.assertIsNone(db.get_game_details_by_igdb_id(7494))
+        self.assertEqual(db.get_game_details_by_igdb_id(273066).title, "Arkanoid")
+        self.assertEqual(len(db.get_all_game_versions(7494)), 0)
+
+    def test_merge_remote_network_failure_writes_nothing(self):
+        igdb_client = MagicMock()
+        igdb_client.get_game_info.side_effect = [
+            self._game_info("Comanche"),
+            requests.exceptions.ConnectionError("offline"),
+        ]
+        db = GameDatabase(self.temp_db.name)
+
+        with self.assertRaises(requests.exceptions.RequestException):
+            db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+
+        self.assertEqual(self._count(db, "games"), 0)
+        self.assertEqual(self._count(db, "versions"), 0)
+
+    def test_merge_remote_does_not_refetch_known_games(self):
+        igdb_client = MagicMock()
+        igdb_client.get_game_info.side_effect = lambda igdb_id: self._game_info(f"Game {igdb_id}")
+        db = GameDatabase(self.temp_db.name)
+        db.merge_remote_json(SUBMISSION_DATA, igdb_client)
+        igdb_client.get_game_info.reset_mock()
+
+        # JSON object keys arrive as strings from the real remote file.
+        as_json = {"games": {str(k): v for k, v in SUBMISSION_DATA["games"].items()}}
+        result = db.merge_remote_json(as_json, igdb_client)
+
+        igdb_client.get_game_info.assert_not_called()
+        self.assertIn("+0 games, +0 versions", result)
+
+    def _version_with_hashes(self, db, igdb_id, hashes):
+        details = GameDetails(f"Game {igdb_id}", 0, "", "", "", "", "", 0, igdb_id, [])
+        game_id = db.insert_game_with_details(f"Game {igdb_id}", details)
+        version_id = db.insert_game_version(game_id, "v", "GAME.EXE", None, "", 0)
+        db.insert_multiple_hashes(version_id, [(f"F{i}", 0, h) for i, h in enumerate(hashes)])
+        return version_id
+
+    def test_single_shared_file_does_not_identify_a_game(self):
+        db = GameDatabase(self.temp_db.name)
+        self._version_with_hashes(db, 1, ["dos4gw", "doom_wad", "doom_exe", "doom_snd"])
+        # Another game's archive shares only the DOS extender.
+        self.assertIsNone(db.find_game_by_hashes(["dos4gw", "heretic_wad", "heretic_exe", "heretic_snd"]))
+
+    def test_two_matching_files_identify_a_game(self):
+        db = GameDatabase(self.temp_db.name)
+        version_id = self._version_with_hashes(db, 1, ["dos4gw", "doom_wad", "doom_exe", "doom_snd"])
+        # E.g. a repackaged archive whose largest files differ in part.
+        self.assertEqual(db.find_game_by_hashes(["doom_wad", "doom_exe", "manual_pdf", "readme"]), version_id)
+
+    def test_empty_file_hash_is_ignored(self):
+        db = GameDatabase(self.temp_db.name)
+        empty = "d41d8cd98f00b204e9800998ecf8427e"
+        self._version_with_hashes(db, 1, [empty, "doom_wad"])
+        self.assertIsNone(db.find_game_by_hashes([empty, "a", "b", "c"]))
+        self.assertIsNone(db.find_game_by_hashes([empty]))
+
+    def test_version_with_single_stored_hash_still_matches(self):
+        db = GameDatabase(self.temp_db.name)
+        version_id = self._version_with_hashes(db, 1, ["only_file"])
+        self.assertEqual(db.find_game_by_hashes(["only_file", "x", "y", "z"]), version_id)
+
+    def test_tie_goes_to_version_with_larger_share_matched(self):
+        db = GameDatabase(self.temp_db.name)
+        self._version_with_hashes(db, 1, ["a", "b", "c1", "c2", "c3", "c4"])
+        exact = self._version_with_hashes(db, 2, ["a", "b"])
+        self.assertEqual(db.find_game_by_hashes(["a", "b", "x", "y"]), exact)
 
     def test_resolve_local_executables_by_hash(self):
         """Test that executables can be resolved by matching hashes, even when

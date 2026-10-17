@@ -30,6 +30,8 @@ package: dist/turbostage
 	zip -j turbostage-linux-v$${version}.zip dist/turbostage
 
 dist/turbostage: venv turbostage/*.py pyproject.toml turbostage.spec
+	@test -f turbostage/_igdb_credentials.py || \
+		echo "WARNING: turbostage/_igdb_credentials.py missing, building without IGDB access (see scripts/write_igdb_credentials.py)"
 	( \
 	. venv/bin/activate; \
 	poetry-dynamic-versioning; \

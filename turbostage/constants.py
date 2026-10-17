@@ -37,7 +37,6 @@ MIDI_DEVICE = {
     "Sound Canvas": 2,
 }
 
-# IGDB API constants
-IGDB_CLIENT_ID = "finu9rpxtjmau9p7gv6tmt5rejv3qz"
-IGDB_CLIENT_SECRET = "mxp3b0ihmkza3lxihsu6vpm9otrq5v"
+# IGDB API constants. The client credentials are not in the source: see
+# igdb_client.load_credentials().
 IGDB_DOS_PLATFORM_ID = 13

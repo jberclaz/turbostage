@@ -1,3 +1,4 @@
+import os
 from io import BytesIO
 
 import requests
@@ -8,17 +9,27 @@ USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Ge
 
 
 class DownloadWorker(QThread):
+    """Download a URL into memory, or straight to dest_path when given.
+
+    finished_signal carries the BytesIO buffer, or dest_path in file mode.
+    """
+
     progress_update = Signal(int)
-    finished_signal = Signal(BytesIO)
+    finished_signal = Signal(object)
     error_signal = Signal(str)
 
-    def __init__(self, url):
+    def __init__(self, url, dest_path: str | None = None):
         super().__init__()
         self.url = url
         self.cancelled = False
         self.buffer = BytesIO()
+        self._dest_path = dest_path
 
     def run(self):
+        # In file mode, download to a side file and rename it into place only
+        # once complete, so a cancelled or failed download never leaves a
+        # truncated archive (or clobbers an existing one).
+        part_path = self._dest_path + ".part" if self._dest_path else None
         try:
             response = requests.get(self.url, stream=True, headers={"User-Agent": USER_AGENT}, timeout=60)
             response.raise_for_status()
@@ -26,23 +37,39 @@ class DownloadWorker(QThread):
             total_size = int(response.headers.get("content-length", 0))
             bytes_downloaded = 0
 
-            for chunk in response.iter_content(chunk_size=8192):
-                if self.cancelled:
-                    self.buffer = None
-                    return
+            out = open(part_path, "wb") if part_path else self.buffer
+            try:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if self.cancelled:
+                        self.buffer = None
+                        return
 
-                self.buffer.write(chunk)
-                bytes_downloaded += len(chunk)
-                progress = int((bytes_downloaded / total_size) * 100) if total_size else 0
-                self.progress_update.emit(progress)
+                    out.write(chunk)
+                    bytes_downloaded += len(chunk)
+                    progress = int((bytes_downloaded / total_size) * 100) if total_size else 0
+                    self.progress_update.emit(progress)
+            finally:
+                if part_path:
+                    out.close()
 
-            self.buffer.seek(0)
-            self.finished_signal.emit(self.buffer)
+            if part_path:
+                os.replace(part_path, self._dest_path)
+                part_path = None
+                self.finished_signal.emit(self._dest_path)
+            else:
+                self.buffer.seek(0)
+                self.finished_signal.emit(self.buffer)
 
         except requests.exceptions.RequestException as e:
             self.error_signal.emit(str(e))
         except Exception as e:
             self.error_signal.emit(str(e))
+        finally:
+            if part_path and os.path.exists(part_path):
+                try:
+                    os.unlink(part_path)
+                except OSError:
+                    pass
 
     def cancel(self):
         self.cancelled = True
@@ -72,11 +99,13 @@ class DownloaderDialog(QDialog):
 
         self._download_worker = None
         self.data_buffer = None
+        self.downloaded_path = None
         self.error = False
 
-    def start_download(self, url):
+    def start_download(self, url, dest_path: str | None = None):
+        """Start downloading url, into data_buffer or (if given) to dest_path."""
         self.error = False
-        self._download_worker = DownloadWorker(url)
+        self._download_worker = DownloadWorker(url, dest_path)
 
         self._download_worker.progress_update.connect(self.progress_bar.setValue)
         self._download_worker.finished_signal.connect(self.download_finished)
@@ -85,18 +114,23 @@ class DownloaderDialog(QDialog):
         self.cancel_button.setEnabled(True)
 
     def cancel_download(self):
-        if self.error:
-            self.reject()
-            return
-        if self._download_worker:
+        self.reject()
+
+    def reject(self):
+        # Esc and the window close button land here too, not only the Cancel
+        # button: never leave a download running behind a closed dialog.
+        if self._download_worker is not None and self._download_worker.isRunning():
             self._download_worker.cancel()
             self.status_label.setText("Cancelling download")
             self.cancel_button.setEnabled(False)
             self._download_worker.wait()
-        self.reject()
+        super().reject()
 
     def download_finished(self, data):
-        self.data_buffer = data
+        if isinstance(data, str):
+            self.downloaded_path = data
+        else:
+            self.data_buffer = data
         self.accept()
 
     def download_error(self, error_message):

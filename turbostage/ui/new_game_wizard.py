@@ -2,7 +2,8 @@ import importlib
 import os
 import re
 
-from PySide6.QtCore import QAbstractListModel, QModelIndex, Qt
+import requests
+from PySide6.QtCore import QAbstractListModel, QModelIndex, QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -136,6 +137,34 @@ class NewGameWizard(QWizard):
                 ]
 
 
+class _SearchSignals(QObject):
+    finished = Signal(int, object)  # generation, [(name, igdb_id), ...]
+    failed = Signal(int, str)  # generation, error message
+
+
+class _SearchTask(QRunnable):
+    """Run IGDB searches off the UI thread, trying queries in order until one has results."""
+
+    def __init__(self, igdb_client, queries: list[str], generation: int):
+        super().__init__()
+        self.signals = _SearchSignals()
+        self._igdb_client = igdb_client
+        self._queries = queries
+        self._generation = generation
+
+    def run(self):
+        results = []
+        try:
+            for query in self._queries:
+                results = [(row["name"], row["id"]) for row in self._igdb_client.search_games(query)]
+                if results:
+                    break
+        except requests.exceptions.RequestException as e:
+            self.signals.failed.emit(self._generation, str(e))
+            return
+        self.signals.finished.emit(self._generation, results)
+
+
 class GameTitlePage(QWizardPage):
     def __init__(self, igdb_client, file_name, parent=None):
         super().__init__(parent)
@@ -156,7 +185,14 @@ class GameTitlePage(QWizardPage):
         self.game_list_view.selectionModel().selectionChanged.connect(self._selection_changed)
         self.game_list_view.setSelectionMode(QListView.SingleSelection)
         layout.addWidget(self.game_list_view)
+        self.search_status_label = QLabel(self)
+        self.search_status_label.setWordWrap(True)
+        self.search_status_label.hide()
+        layout.addWidget(self.search_status_label)
         self.setLayout(layout)
+
+        # Bumped on every search so results of a superseded one are dropped.
+        self._search_generation = 0
 
         base_name, _ = os.path.splitext(file_name)
         self._auto_search(base_name)
@@ -260,21 +296,47 @@ class GameTitlePage(QWizardPage):
         return ""
 
     def _search_games_slot(self):
-        self._search_games(self.game_name_search_query.text())
+        query = self.game_name_search_query.text().strip()
+        if query:
+            self._start_search([query])
 
     def _auto_search(self, base_name: str):
         """Search using the archive name, trying cleaned variants until one matches."""
-        for query in self._sanitize_search_queries(base_name):
-            if self._search_games(query):
-                return
+        self._start_search(self._sanitize_search_queries(base_name))
 
-    def _search_games(self, search_query: str) -> bool:
-        """Populate the list from an IGDB search. Returns True if results were found."""
-        response = self._igdb_client.search_games(search_query)
-        game_names = [(row["name"], row["id"]) for row in response]
+    def _start_search(self, queries: list[str]):
+        """Search IGDB in the background; the network must never block the UI."""
+        self._search_generation += 1
+        self.game_list_model.set_games([])
+        self.completeChanged.emit()
+        self.search_status_label.setText("Searching the IGDB game database...")
+        self.search_status_label.show()
+        task = _SearchTask(self._igdb_client, queries, self._search_generation)
+        task.signals.finished.connect(self._on_search_finished)
+        task.signals.failed.connect(self._on_search_failed)
+        # The global pool, not a page-owned one: closing the wizard must not
+        # wait for an in-flight request to time out.
+        QThreadPool.globalInstance().start(task)
+
+    def _on_search_finished(self, generation: int, game_names: list):
+        if generation != self._search_generation:
+            return
         self.game_list_model.set_games(game_names)
         self.game_list_view.clearSelection()
-        return bool(game_names)
+        self.completeChanged.emit()
+        if game_names:
+            self.search_status_label.hide()
+        else:
+            self.search_status_label.setText("No matching game found. Try another search.")
+
+    def _on_search_failed(self, generation: int, message: str):
+        if generation != self._search_generation:
+            return
+        self.search_status_label.setText(
+            f"Could not reach the IGDB game database ({message}). "
+            "Check your internet connection, then press Enter in the search box to retry."
+        )
+        self.search_status_label.show()
 
     def _selection_changed(self):
         self.setField("game.title", self.selected_title)

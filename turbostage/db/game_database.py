@@ -3,7 +3,7 @@ import os
 import queue
 import sqlite3
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 
 from turbostage.db.constants import DB_VERSION
@@ -35,7 +35,41 @@ class GameDetails:
     cover_url: Optional[str]
     rating: Optional[int]
     igdb_id: Optional[int] = None
-    screenshot_urls: Optional[str] = None
+    screenshot_urls: list[str] = field(default_factory=list)
+
+
+def encode_screenshot_urls(urls) -> str:
+    """Serialize screenshot URLs for the games.screenshot_urls column."""
+    if isinstance(urls, str):
+        urls = decode_screenshot_urls(urls)
+    return json.dumps([u for u in (urls or []) if isinstance(u, str) and u])
+
+
+def decode_screenshot_urls(raw) -> list[str]:
+    """Read the games.screenshot_urls column back into a list.
+
+    Tolerates NULL, malformed JSON and the double-encoded '"[]"' that older
+    versions stored.
+    """
+    value = raw
+    for _ in range(2):
+        if not isinstance(value, str):
+            break
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            return []
+    if not isinstance(value, list):
+        return []
+    return [u for u in value if isinstance(u, str) and u]
+
+
+def normalize_rating(rating) -> int:
+    """IGDB ratings are floats on a 0-100 scale; the column stores an int."""
+    try:
+        return int(round(float(rating)))
+    except (TypeError, ValueError):
+        return 0
 
 
 @dataclass
@@ -54,6 +88,11 @@ class GameVersionInfo:
 
 
 # Indexes are now created during schema initialization and migration
+
+# Matching files needed to identify a game version from archive hashes.
+MIN_MATCHING_HASHES = 2
+# MD5 of zero bytes: empty files (and ZIP directory entries) match everything.
+EMPTY_FILE_MD5 = "d41d8cd98f00b204e9800998ecf8427e"
 
 
 class ConnectionPool:
@@ -184,36 +223,55 @@ class GameDatabase:
             return rows[0][0] if rows else "unknown"
 
     def merge_remote_json(self, data: dict, igdb_client) -> str:
-        inserted_games = inserted_versions = 0
+        games = data.get("games") or {}
 
+        # Fetch IGDB details for unknown games before writing anything: network
+        # calls must not run inside the write transaction, and a network
+        # failure must leave the database untouched.
+        with self.read_only_transaction() as conn:
+            known_ids = {row[0] for row in conn.execute("SELECT igdb_id FROM games")}
+        new_games = {}
+        skipped_ids = set()
+        for igdb_id in games:
+            if int(igdb_id) in known_ids:
+                continue
+            game_info = igdb_client.get_game_info(igdb_id)
+            if game_info is None:
+                # Removed from IGDB or bad id: skip it (and its versions)
+                # rather than failing the whole update.
+                skipped_ids.add(igdb_id)
+            else:
+                new_games[igdb_id] = game_info
+
+        inserted_games = inserted_versions = 0
         with self.transaction() as conn:
             cur = conn.cursor()
 
             # ---- 2. Games ---------------------------------------------------------------
-            for igdb_id in data.get("games"):
-                cur.execute("SELECT 1 FROM games WHERE igdb_id = ?", (igdb_id,))
-                if not cur.fetchone():
-                    game_info = igdb_client.get_game_info(igdb_id)
-                    self.insert_game_with_details(
+            for igdb_id, game_info in new_games.items():
+                GameDatabase._insert_game(
+                    cur,
+                    game_info["name"],
+                    GameDetails(
                         game_info["name"],
-                        GameDetails(
-                            game_info["name"],
-                            game_info["release_date"],
-                            ", ".join(game_info["genres"]),
-                            game_info["summary"],
-                            game_info["publisher"],
-                            game_info["developer"],
-                            game_info["cover_url"],
-                            game_info["rating"],
-                            igdb_id,
-                            game_info["screenshot_urls"],
-                        ),
-                    )
-                    inserted_games += 1
+                        game_info["release_date"],
+                        ", ".join(game_info["genres"]),
+                        game_info["summary"],
+                        game_info["publisher"],
+                        game_info["developer"],
+                        game_info["cover_url"],
+                        game_info["rating"],
+                        igdb_id,
+                        game_info["screenshot_urls"],
+                    ),
+                )
+                inserted_games += 1
 
             # ---- 3. Versions + Hashes ---------------------------------------------------
-            for igdb_id in data.get("games"):
-                for version_name, version_data in data["games"][igdb_id].get("versions").items():
+            for igdb_id, game_data in games.items():
+                if igdb_id in skipped_ids:
+                    continue
+                for version_name, version_data in (game_data.get("versions") or {}).items():
                     cur.execute(
                         "SELECT 1 FROM versions WHERE game_id = ? AND version = ?",
                         (igdb_id, version_name),
@@ -273,7 +331,10 @@ class GameDatabase:
                         )
                     inserted_versions += 1
 
-        return f"Remote DB: +{inserted_games} games, +{inserted_versions} versions"
+        result = f"Remote DB: +{inserted_games} games, +{inserted_versions} versions"
+        if skipped_ids:
+            result += f" ({len(skipped_ids)} game(s) unknown to IGDB skipped)"
+        return result
 
     def _check_version(self):
         try:
@@ -431,7 +492,7 @@ class GameDatabase:
                     publisher=row[3],
                     cover_url=row[4],
                     developer=row[6],
-                    screenshot_urls=row[7],
+                    screenshot_urls=decode_screenshot_urls(row[7]),
                     rating=row[8],
                 )
         return None
@@ -448,11 +509,14 @@ class GameDatabase:
             cursor.execute(
                 """
                 UPDATE games
-                SET summary      = ?,
-                    release_date = ?,
-                    genre        = ?,
-                    publisher    = ?,
-                    cover_url    = ?
+                SET summary         = ?,
+                    release_date    = ?,
+                    genre           = ?,
+                    publisher       = ?,
+                    cover_url       = ?,
+                    developer       = ?,
+                    screenshot_urls = ?,
+                    rating          = ?
                 WHERE igdb_id = ?
                 """,
                 (
@@ -461,6 +525,9 @@ class GameDatabase:
                     details.genre,
                     details.publisher,
                     details.cover_url,
+                    details.developer,
+                    encode_screenshot_urls(details.screenshot_urls),
+                    normalize_rating(details.rating),
                     igdb_id,
                 ),
             )
@@ -468,27 +535,30 @@ class GameDatabase:
     def insert_game_with_details(self, game_name: str, details: GameDetails) -> int:
         """Insert a game with details from IGDB and return its ID."""
         with self.transaction() as conn:
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url, rating,
-                                   developer, screenshot_urls)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    game_name,
-                    details.summary,
-                    details.release_date,
-                    details.genre,
-                    details.publisher,
-                    details.igdb_id,
-                    details.cover_url,
-                    details.rating,
-                    details.developer,
-                    json.dumps(details.screenshot_urls),
-                ),
-            )
-            return cursor.lastrowid
+            return GameDatabase._insert_game(conn.cursor(), game_name, details)
+
+    @staticmethod
+    def _insert_game(cursor, game_name: str, details: GameDetails) -> int:
+        cursor.execute(
+            """
+            INSERT INTO games (title, summary, release_date, genre, publisher, igdb_id, cover_url, rating,
+                               developer, screenshot_urls)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                game_name,
+                details.summary,
+                details.release_date,
+                details.genre,
+                details.publisher,
+                details.igdb_id,
+                details.cover_url,
+                normalize_rating(details.rating),
+                details.developer,
+                encode_screenshot_urls(details.screenshot_urls),
+            ),
+        )
+        return cursor.lastrowid
 
     #
     # Version related methods
@@ -927,8 +997,14 @@ class GameDatabase:
         Each entry is (version_id, archive, executable, config_executable,
         archive_type, requires_install). The swap happens in a single
         transaction so an interrupted scan never leaves a half-empty library.
+
+        Versions already in the library keep their stored executables and
+        requires_install flag when the archive is unchanged or the game is
+        installed: those may be user choices (e.g. the executable picked after
+        installing a CD-ROM game) that hash matching cannot rediscover.
         """
         with self.transaction() as conn:
+            previous = self._get_preserved_local_versions(conn)
             conn.execute("DELETE FROM local_versions")
             seen = set()
             for (
@@ -944,6 +1020,11 @@ class GameDatabase:
                     # and an iso of the same game); keep the first, as before.
                     continue
                 seen.add(version_id)
+                kept = previous.get(version_id)
+                if kept is not None and (kept["archive"] == archive or kept["installed"]):
+                    executable = kept["executable"] or executable
+                    config_executable = kept["config_executable"] or config_executable
+                    requires_install = kept["requires_install"]
                 GameDatabase._insert_local_version(
                     conn,
                     version_id,
@@ -953,6 +1034,29 @@ class GameDatabase:
                     archive_type,
                     requires_install,
                 )
+
+    @staticmethod
+    def _get_preserved_local_versions(conn) -> dict[int, dict]:
+        """Snapshot the local_versions fields that a rescan must not lose."""
+        cursor = conn.cursor()
+        columns = GameDatabase._get_table_columns(cursor, "local_versions")
+        optional = ["executable", "config_executable", "requires_install"]
+        select = ", ".join(f"lv.{c}" if c in columns else f"NULL AS {c}" for c in optional)
+        cursor.execute(f"""
+            SELECT lv.version_id, lv.archive, {select}, COALESCE(i.installed, 0)
+            FROM local_versions lv
+                     LEFT JOIN installations i ON i.version_id = lv.version_id
+            """)
+        return {
+            row[0]: {
+                "archive": row[1],
+                "executable": row[2],
+                "config_executable": row[3],
+                "requires_install": bool(row[4]),
+                "installed": bool(row[5]),
+            }
+            for row in cursor.fetchall()
+        }
 
     def get_locally_modified_game_versions(self):
         with self.read_only_transaction() as conn:
@@ -1107,35 +1211,18 @@ class GameDatabase:
                     (config_executable, version_id),
                 )
 
-    def delete_local_game_by_igdb_id(self, igdb_id: int) -> None:
-        """Delete a local game from the database.
+    def delete_local_version(self, version_id: int) -> None:
+        """Remove one local version of a game from the library.
 
-        Instead of deleting the entire game from the database, this function
-        only removes its entry from the local_versions table, effectively making
-        it disappear from the user interface while keeping the game information
-        in the database for future use.
+        Only its local_versions row is deleted: the game and version
+        information stay in the database for future use, and the game's
+        other local versions are kept.
 
         Args:
-            :param igdb_id: IGDB ID of the game to delete
+            :param version_id: ID of the version to remove
         """
         with self.transaction() as conn:
-            cursor = conn.cursor()
-            # First get the version_id
-            cursor.execute(
-                """
-                SELECT v.id
-                FROM versions v
-                WHERE v.game_id = ?
-                """,
-                (igdb_id,),
-            )
-
-            version_ids = [row[0] for row in cursor.fetchall()]
-
-            if version_ids:
-                # Remove from local_versions
-                for version_id in version_ids:
-                    cursor.execute("DELETE FROM local_versions WHERE version_id = ?", (version_id,))
+            conn.execute("DELETE FROM local_versions WHERE version_id = ?", (version_id,))
 
     def update_version_info(
         self,
@@ -1200,31 +1287,45 @@ class GameDatabase:
     def find_game_by_hashes(self, hashes: list[str]) -> Optional[int]:
         """Find a game version by matching multiple file hashes.
 
+        A single shared file (a DOS extender, a sound driver, an empty file)
+        must not identify a game, so a version needs MIN_MATCHING_HASHES
+        matching files, unless every given hash matched or the version only
+        has one hash stored. Ties go to the version with the larger share of
+        its hashes matched.
+
         Args:
             hashes: A list of MD5 hash strings to check against the database
 
         Returns:
             The version_id if a match is found, None otherwise
         """
-        if not hashes:
+        unique_hashes = list(dict.fromkeys(h for h in hashes if h and h != EMPTY_FILE_MD5))
+        if not unique_hashes:
             return None
 
         with self.read_only_transaction() as conn:
             cursor = conn.cursor()
 
             # Use parameter substitution to prevent SQL injection
-            placeholders = ",".join(["?"] * len(hashes))
+            placeholders = ",".join(["?"] * len(unique_hashes))
             query = f"""
-                SELECT version_id, COUNT(*) as match_count
-                FROM hashes
-                WHERE hash IN ({placeholders})
-                GROUP BY version_id
-                ORDER BY match_count DESC
-                LIMIT 1
+                SELECT h.version_id,
+                       COUNT(DISTINCT h.hash) AS match_count,
+                       (SELECT COUNT(DISTINCT t.hash) FROM hashes t WHERE t.version_id = h.version_id) AS total
+                FROM hashes h
+                WHERE h.hash IN ({placeholders})
+                GROUP BY h.version_id
             """
-            cursor.execute(query, hashes)
-            result = cursor.fetchone()
-        return result[0] if result else None
+            cursor.execute(query, unique_hashes)
+            candidates = [
+                (version_id, matched, total)
+                for version_id, matched, total in cursor.fetchall()
+                if matched >= MIN_MATCHING_HASHES or matched == len(unique_hashes) or matched == total
+            ]
+        if not candidates:
+            return None
+        best = max(candidates, key=lambda c: (c[1], c[1] / c[2], -c[0]))
+        return best[0]
 
     def get_version_hashes(self, version_id: int) -> list[tuple[str, str]]:
         with self.read_only_transaction() as conn:

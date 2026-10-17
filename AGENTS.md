@@ -46,6 +46,15 @@ uv pip install -r requirements-dev.txt
 pre-commit install
 ```
 
+### IGDB Credentials
+The IGDB (Twitch) app credentials are not in the repository. Without them the
+app runs normally but treats IGDB as unreachable (no game search/metadata).
+- **Development**: export `IGDB_CLIENT_ID` and `IGDB_CLIENT_SECRET`.
+- **Release builds**: CI runs `scripts/write_igdb_credentials.py` with the
+  `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` GitHub Actions secrets, generating the
+  gitignored `turbostage/_igdb_credentials.py` that PyInstaller bundles. For a
+  local `make package`, run that script first.
+
 ## Common Commands
 
 ### Run Application
@@ -89,9 +98,9 @@ This project uses:
 Configuration is in `.pre-commit-config.yaml` and `pyproject.toml`.
 
 ## Key Dependencies
-- `pyside6==6.8.1` - Qt GUI framework
+- `pyside6==6.11.1` - Qt GUI framework
 - `requests==2.32.3` - HTTP requests
-- `igdb-api-v4==0.3.3` - IGDB game database API
+- `pycdlib==1.14.0` - ISO 9660 image reading
 
 ## CI/CD
 GitHub Actions workflows:

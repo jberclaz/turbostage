@@ -122,6 +122,60 @@ class TestReplaceLocalVersions(TestCase):
             finally:
                 os.unlink(tmp.name)
 
+    def test_rescan_keeps_executable_picked_after_install(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp.close()
+            try:
+                db = _make_db(tmp.name)
+                _, v1 = _add_game(db, 111, "Game One")
+                db.add_local_game_version(v1, "one.iso", archive_type="iso", requires_install=True)
+                db.create_installation(v1, "/installs/1")
+                db.mark_installed(v1)
+                db.set_local_executables(v1, executable="GAME\\PLAY.EXE", config_executable="GAME\\SETUP.EXE")
+
+                # The scan resolves nothing and reads requires_install=False
+                # from the versions table; the user's choices must survive.
+                db.replace_local_versions([(v1, "one.iso", None, None, "iso", False)])
+
+                info = db.get_version_by_version_id(v1)
+                self.assertEqual(info.executable, "GAME\\PLAY.EXE")
+                self.assertEqual(info.config_executable, "GAME\\SETUP.EXE")
+                self.assertEqual(db.get_library_install_flags([v1])[v1], ("iso", True, True))
+            finally:
+                os.unlink(tmp.name)
+
+    def test_rescan_keeps_installed_game_data_when_archive_renamed(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp.close()
+            try:
+                db = _make_db(tmp.name)
+                _, v1 = _add_game(db, 111, "Game One")
+                db.add_local_game_version(v1, "one.iso", archive_type="iso", requires_install=True)
+                db.create_installation(v1, "/installs/1")
+                db.mark_installed(v1)
+                db.set_local_executables(v1, executable="GAME\\PLAY.EXE")
+
+                db.replace_local_versions([(v1, "renamed.iso", None, None, "iso", False)])
+
+                self.assertEqual(db.get_version_by_version_id(v1).executable, "GAME\\PLAY.EXE")
+            finally:
+                os.unlink(tmp.name)
+
+    def test_rescan_uses_scan_result_for_replaced_archive(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp.close()
+            try:
+                db = _make_db(tmp.name)
+                _, v1 = _add_game(db, 111, "Game One")
+                db.add_local_game_version(v1, "one.zip", executable="OLD\\GAME.EXE")
+
+                # A different, not-installed archive has its own layout.
+                db.replace_local_versions([(v1, "other.zip", "NEW\\GAME.EXE", None, "zip", False)])
+
+                self.assertEqual(db.get_version_by_version_id(v1).executable, "NEW\\GAME.EXE")
+            finally:
+                os.unlink(tmp.name)
+
 
 class TestScanningThread(TestCase):
     @classmethod

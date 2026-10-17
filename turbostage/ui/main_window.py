@@ -4,12 +4,14 @@ import os
 import tempfile
 import time
 from datetime import datetime, timezone
+from urllib.parse import unquote, urlsplit
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer
+from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
 from PySide6.QtGui import (
     QAction,
     QColor,
+    QDesktopServices,
     QGuiApplication,
     QIcon,
     QKeySequence,
@@ -42,7 +44,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import __version__, constants, utils
-from turbostage.add_game_worker import AddGameWorker
+from turbostage.add_game_worker import AddGameWorker, IdentifyArchiveWorker
 from turbostage.constants import CPU_CYCLES, MIDI_DEVICE
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase
@@ -50,6 +52,7 @@ from turbostage.db.remote_db import RemoteDB
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_launcher import GameLauncher
 from turbostage.igdb_client import IgdbClient
+from turbostage.log_setup import log_file_path
 from turbostage.provisioning import ensure_installation_dir
 from turbostage.scanning_thread import ScanningThread
 from turbostage.ui.binary_list_model import BinaryListModel
@@ -166,6 +169,10 @@ class MainWindow(QMainWindow):
         self._setup_wizard_action = QAction(load_icon("wizard"), "Setup Wizard", self)
         self._setup_wizard_action.triggered.connect(self._on_show_setup_wizard)
 
+        # Log file, for bug reports: windowed builds have no visible stderr
+        log_file_action = QAction(load_icon("info"), "Show log file", self)
+        log_file_action.triggered.connect(self._on_show_log_file)
+
         self.file_menu.addAction(self._add_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(self._scan_action)
@@ -175,6 +182,7 @@ class MainWindow(QMainWindow):
         self.file_menu.addSeparator()
         self.file_menu.addAction(self._setup_wizard_action)
         self.file_menu.addAction(settings_action)
+        self.file_menu.addAction(log_file_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
 
@@ -281,6 +289,9 @@ class MainWindow(QMainWindow):
         self._play_timer = QTimer(self)
         self._play_timer.setInterval(1000)
         self._play_timer.timeout.connect(self._update_play_status)
+        # Set when the user quits while a game runs: the window closes once
+        # the game has exited and its save files have been stored.
+        self._quit_after_game = False
 
         layout = QVBoxLayout()
         layout.addWidget(self.splitter)
@@ -292,6 +303,7 @@ class MainWindow(QMainWindow):
 
         self._apply_view_mode()
         self.scan_progress_dialog = None
+        self._identify_dialog = None
 
     def _current_view(self):
         """Return the currently active game list widget (grid or table)."""
@@ -472,6 +484,7 @@ class MainWindow(QMainWindow):
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.SAVEGAME)
         # Refresh the button state (restores "Launch Game" after "Stop Game")
         self.on_game_change()
+        self._maybe_quit_after_game()
 
     def _ensure_cdrom_executable(self, version_id: int) -> bool:
         """Ensure a non-install CD-ROM game has an executable selected.
@@ -675,7 +688,30 @@ class MainWindow(QMainWindow):
                 QMessageBox.Ok,
             )
             return
-        local_game_archives = [file for file in os.listdir(games_path) if file.endswith((".zip", ".iso"))]
+        try:
+            local_game_archives = [file for file in os.listdir(games_path) if file.lower().endswith((".zip", ".iso"))]
+        except OSError as e:
+            QMessageBox.critical(
+                self,
+                "Games folder not accessible",
+                f"Cannot scan local games, because the games folder '{games_path}' cannot be read:\n{e}",
+                QMessageBox.Ok,
+            )
+            return
+        if not local_game_archives and self._gamedb.get_games_with_local_versions():
+            # An empty folder usually means an unmounted drive, not a deliberate
+            # wipe: scanning it would remove every game from the library.
+            reply = QMessageBox.warning(
+                self,
+                "No game archives found",
+                f"The games folder '{games_path}' contains no game archives. Scanning it will remove "
+                "all games from your library.\n\nIf the folder is on an external or network drive, "
+                "make sure it is connected first.\n\nRemove all games from the library?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
 
         self.scan_progress_dialog = QProgressDialog(
             "Scanning local games...", "Cancel", 0, len(local_game_archives), self
@@ -736,28 +772,48 @@ class MainWindow(QMainWindow):
             self.status.showMessage("Stop the running game before adding a game.", 3000)
             return
         games_path = self.games_path
-        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip *.iso)")
+        dialog = LockedFileDialog(self, "Select game archive", games_path, "Game archives (*.zip *.iso *.ZIP *.ISO)")
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         if not dialog.exec():
             return
         game_path = dialog.selectedFiles()[0]
 
-        # Compute hashes based on archive type
-        archive_type, hashes = utils.hash_archive_top(game_path, 4)
+        # Hashing a large ISO takes seconds: do it off the UI thread, behind a
+        # modal busy dialog so nothing else starts meanwhile.
+        self._identify_dialog = QProgressDialog("Reading game archive...", None, 0, 0, self)
+        self._identify_dialog.setWindowTitle("Please Wait")
+        self._identify_dialog.setWindowModality(Qt.WindowModal)
+        self._identify_dialog.setMinimumDuration(0)
+        self._identify_dialog.show()
+        worker = IdentifyArchiveWorker(game_path, self.db_path)
+        worker.signals.identified.connect(self._on_archive_identified)
+        worker.signals.failed.connect(self._on_archive_identify_failed)
+        self._thread_pool.start(worker)
 
-        version_id = self._gamedb.find_game_by_hashes([h[2] for h in hashes])
-        if version_id is not None:
-            requires_install = archive_type == "iso"
-            # Hash all executables in the archive so resolve_local_executables
-            # can match by content hash regardless of internal path structure
-            hashes.extend(utils.hash_archive_executables(game_path))
-            local_executable, local_config_executable = self._gamedb.resolve_local_executables(version_id, hashes)
+    def _close_identify_dialog(self):
+        if self._identify_dialog is not None:
+            self._identify_dialog.close()
+            self._identify_dialog = None
+
+    def _on_archive_identify_failed(self, game_path: str, message: str):
+        self._close_identify_dialog()
+        QMessageBox.critical(
+            self,
+            "Cannot read game archive",
+            f"Could not read '{os.path.basename(game_path)}':\n{message}",
+            QMessageBox.Ok,
+        )
+
+    def _on_archive_identified(self, game_path: str, match):
+        self._close_identify_dialog()
+        if match is not None:
+            requires_install = match.archive_type == "iso"
             added = self._gamedb.add_local_game_version(
-                version_id,
+                match.version_id,
                 os.path.basename(game_path),
-                executable=local_executable,
-                config_executable=local_config_executable,
-                archive_type=archive_type,
+                executable=match.executable,
+                config_executable=match.config_executable,
+                archive_type=match.archive_type,
                 requires_install=requires_install,
             )
             if added == 0:
@@ -768,7 +824,7 @@ class MainWindow(QMainWindow):
                 )
                 return
             if requires_install:
-                ensure_installation_dir(self._gamedb, version_id)
+                ensure_installation_dir(self._gamedb, match.version_id)
             QMessageBox.information(
                 self,
                 "New game added",
@@ -816,6 +872,14 @@ class MainWindow(QMainWindow):
             f"Could not add the game:\n{message}",
             QMessageBox.Ok,
         )
+
+    def _on_show_log_file(self):
+        path = log_file_path()
+        if not os.path.isfile(path):
+            self.status.showMessage(f"No log file yet ({path}).", 5000)
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+            QMessageBox.information(self, "Log file", f"The log file is at:\n{path}", QMessageBox.Ok)
 
     def _on_show_settings_dialog(self):
         dialog = SettingsDialog()
@@ -978,7 +1042,7 @@ class MainWindow(QMainWindow):
                     import shutil
 
                     shutil.rmtree(install_path)
-            self._gamedb.delete_local_game_by_igdb_id(game_id)
+            self._gamedb.delete_local_version(version_id)
             self._game_info.clear_info()
             self._game_info.set_game_name("Select a game to see details here.")
             self.right_setup_tab.set_game(None, None)
@@ -1006,14 +1070,8 @@ class MainWindow(QMainWindow):
             )
             return
 
-        dialog = DownloaderDialog(self, f"Downloading {game_name}")
-        dialog.start_download(download_url)
-        if dialog.exec() != QDialog.Accepted or dialog.data_buffer is None:
-            return
-
-        # Save the downloaded file to the games folder
         games_path = self.games_path
-        if not games_path:
+        if not games_path or not os.path.isdir(games_path):
             QMessageBox.critical(
                 self,
                 "Games folder not set",
@@ -1022,19 +1080,32 @@ class MainWindow(QMainWindow):
             )
             return
 
-        filename = os.path.basename(download_url.split("?")[0])
-        filepath = os.path.join(games_path, filename)
-
-        try:
-            with open(filepath, "wb") as f:
-                f.write(dialog.data_buffer.getvalue())
-        except OSError as e:
+        filename = os.path.basename(unquote(urlsplit(download_url).path))
+        if filename in ("", ".", ".."):
             QMessageBox.critical(
                 self,
-                "Save Error",
-                f"Failed to save downloaded file: {e}",
+                "Download Error",
+                f"Cannot determine a file name for '{game_name}' from its download URL.",
                 QMessageBox.Ok,
             )
+            return
+        filepath = os.path.join(games_path, filename)
+        if os.path.exists(filepath):
+            reply = QMessageBox.question(
+                self,
+                "File already exists",
+                f"'{filename}' already exists in the games folder. Replace it?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        # Stream to disk: game archives can be far larger than is reasonable
+        # to hold in memory.
+        dialog = DownloaderDialog(self, f"Downloading {game_name}")
+        dialog.start_download(download_url, filepath)
+        if dialog.exec() != QDialog.Accepted or dialog.downloaded_path is None:
             return
 
         # Add to local versions
@@ -1167,6 +1238,7 @@ class MainWindow(QMainWindow):
             config_files = {**new_files, **modified_files}
             self._gamedb.add_extra_files(config_files, version_id, constants.FileType.CONFIG)
         self.on_game_change()
+        self._maybe_quit_after_game()
 
     def _on_game_settings_saved(self):
         version_id = self.right_setup_tab.version_id
@@ -1209,13 +1281,32 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         launcher = self._launcher
         if launcher is not None and launcher.is_running:
-            # Don't touch widgets from the finished handler during teardown.
-            try:
-                launcher.finished.disconnect()
-            except (TypeError, RuntimeError):
-                pass
+            # Quitting now would kill DOSBox before the game's changed files
+            # (save games, setup results) are collected: stop the game first
+            # and close from the finished handler instead.
+            event.ignore()
+            if self._quit_after_game:
+                return  # Already stopping.
+            reply = QMessageBox.question(
+                self,
+                "Game still running",
+                f"{self._play_title} is still running.\n\n"
+                "Stop it and quit TurboStage? Games you saved in it will be kept.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return
+            self._quit_after_game = True
+            self.status.showMessage("Stopping game before quitting...")
             launcher.stop()
+            return
         super().closeEvent(event)
+
+    def _maybe_quit_after_game(self):
+        if self._quit_after_game:
+            # Deferred so the launcher's finished signal completes first.
+            QTimer.singleShot(0, self.close)
 
     @property
     def db_path(self):

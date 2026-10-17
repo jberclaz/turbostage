@@ -6,11 +6,16 @@ between different database versions without data loss or requiring users
 to delete their database files.
 """
 
-import json
+import logging
 import sqlite3
 from typing import Callable, Dict, List, Tuple
 
+import requests
+
+from turbostage.db.game_database import encode_screenshot_urls, normalize_rating
 from turbostage.igdb_client import IgdbClient
+
+logger = logging.getLogger(__name__)
 
 # Migration version format: major.minor.patch
 # Each migration function handles the upgrade from the previous version to this version
@@ -166,17 +171,28 @@ def migrate_to_0_9_0(conn: sqlite3.Connection) -> None:
     cursor.execute("ALTER TABLE games ADD COLUMN screenshot_urls TEXT DEFAULT '[]'")
     cursor.execute("ALTER TABLE games ADD COLUMN rating INTEGER DEFAULT 0")
 
+    # Backfilling the new columns from IGDB is best effort: this runs at
+    # startup, which must not fail offline. Rows left behind keep the
+    # column defaults.
     cursor.execute("SELECT igdb_id FROM games")
-    rows = cursor.fetchall()
+    igdb_ids = [row[0] for row in cursor.fetchall()]
     igdb_client = IgdbClient()
-    for igdb_id in rows[0]:
-        info = igdb_client.get_game_info(igdb_id)
+    for igdb_id in igdb_ids:
+        try:
+            info = igdb_client.get_game_info(igdb_id)
+        except requests.exceptions.RequestException as e:
+            # Offline or IGDB down: skip the rest rather than wait out a
+            # timeout per game.
+            logger.warning("Skipping IGDB backfill of game details, IGDB unreachable: %s", e)
+            break
+        if info is None:
+            continue
         cursor.execute(
             "UPDATE games SET developer = ?, screenshot_urls = ?, rating = ? WHERE igdb_id = ?",
             (
                 info["developer"],
-                json.dumps(info["screenshot_urls"]),
-                info["rating"],
+                encode_screenshot_urls(info["screenshot_urls"]),
+                normalize_rating(info["rating"]),
                 igdb_id,
             ),
         )

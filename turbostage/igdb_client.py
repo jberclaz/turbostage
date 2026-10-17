@@ -1,27 +1,91 @@
 import json
+import os
+import threading
 import time
 from typing import Any
 
 import requests
-from igdb.wrapper import IGDBWrapper
 
-from turbostage.constants import IGDB_CLIENT_ID, IGDB_CLIENT_SECRET, IGDB_DOS_PLATFORM_ID
+from turbostage.constants import IGDB_DOS_PLATFORM_ID
 
 # API documentation: https://api-docs.igdb.com/#authentication
+
+IGDB_API_URL = "https://api.igdb.com/v4/"
+AUTH_TIMEOUT_S = 10
+REQUEST_TIMEOUT_S = 15
+# IGDB allows 4 requests/s; back off linearly on HTTP 429, then give up.
+RATE_LIMIT_RETRIES = 5
+RATE_LIMIT_BACKOFF_S = 1.0
+
+
+class IgdbCredentialsMissing(requests.exceptions.RequestException):
+    """This build has no IGDB credentials.
+
+    A RequestException so that every caller treats it like IGDB being
+    unreachable, which they already handle.
+    """
+
+
+def load_credentials() -> tuple[str, str] | None:
+    """Return the IGDB (Twitch) app credentials as (client_id, client_secret).
+
+    They are kept out of the source: the IGDB_CLIENT_ID and IGDB_CLIENT_SECRET
+    environment variables take precedence (development), otherwise the module
+    that release builds generate with scripts/write_igdb_credentials.py.
+    """
+    client_id = os.environ.get("IGDB_CLIENT_ID")
+    client_secret = os.environ.get("IGDB_CLIENT_SECRET")
+    if client_id and client_secret:
+        return client_id, client_secret
+    try:
+        from turbostage import _igdb_credentials
+    except ImportError:
+        return None
+    return _igdb_credentials.CLIENT_ID, _igdb_credentials.CLIENT_SECRET
 
 
 class IgdbClient:
     def __init__(self):
-        self._auth_token = self._get_auth()
-        self._wrapper = IGDBWrapper(IGDB_CLIENT_ID, self._auth_token)
+        # Authentication is deferred to the first request: the client is built
+        # at startup, which must work offline. Worker threads share the client,
+        # hence the lock.
+        self._client_id: str | None = None
+        self._auth_token: str | None = None
+        self._auth_lock = threading.Lock()
+
+    def _get_token(self) -> str:
+        with self._auth_lock:
+            if self._auth_token is None:
+                credentials = load_credentials()
+                if credentials is None:
+                    raise IgdbCredentialsMissing(
+                        "IGDB credentials are not configured in this build "
+                        "(set IGDB_CLIENT_ID and IGDB_CLIENT_SECRET)"
+                    )
+                client_id, client_secret = credentials
+                self._auth_token = self._get_auth(client_id, client_secret)
+                self._client_id = client_id
+            return self._auth_token
+
+    def _api_request(self, endpoint: str, query: str) -> bytes:
+        """POST an Apicalypse query to an IGDB endpoint; return the raw response body."""
+        token = self._get_token()  # also sets self._client_id
+        response = requests.post(
+            IGDB_API_URL + endpoint,
+            headers={"Client-ID": self._client_id, "Authorization": f"Bearer {token}"},
+            data=query,
+            timeout=REQUEST_TIMEOUT_S,
+        )
+        response.raise_for_status()
+        return response.content
 
     @staticmethod
-    def _get_auth() -> str:
-        request_url = (
-            f"https://id.twitch.tv/oauth2/token?client_id={IGDB_CLIENT_ID}"
-            f"&client_secret={IGDB_CLIENT_SECRET}&grant_type=client_credentials"
+    def _get_auth(client_id: str, client_secret: str) -> str:
+        response = requests.post(
+            "https://id.twitch.tv/oauth2/token",
+            params={"client_id": client_id, "client_secret": client_secret, "grant_type": "client_credentials"},
+            timeout=AUTH_TIMEOUT_S,
         )
-        response = requests.post(request_url)
         response.raise_for_status()  # A better way to handle HTTP errors
         return response.json()["access_token"]
 
@@ -37,7 +101,7 @@ class IgdbClient:
         where platforms = ({IGDB_DOS_PLATFORM_ID});
         limit 20;
         """
-        byte_array = self._wrapper.api_request("games", query)
+        byte_array = self._api_request("games", query)
         return json.loads(byte_array)
 
     def get_game_info(self, igdb_id: int) -> dict[str, Any] | None:
@@ -60,15 +124,15 @@ class IgdbClient:
             release_dates.platform;
         where id = {igdb_id};
         """
-        while True:
+        for attempt in range(RATE_LIMIT_RETRIES + 1):
             try:
-                byte_array = self._wrapper.api_request("games", query)
+                byte_array = self._api_request("games", query)
                 break
             except requests.exceptions.HTTPError as err:
-                if err.response.status_code == 429:
-                    time.sleep(1)
-                else:
-                    raise err
+                rate_limited = err.response is not None and err.response.status_code == 429
+                if not rate_limited or attempt == RATE_LIMIT_RETRIES:
+                    raise
+                time.sleep(RATE_LIMIT_BACKOFF_S * (attempt + 1))
         results = json.loads(byte_array)
 
         if not results:

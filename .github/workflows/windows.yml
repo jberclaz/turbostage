@@ -28,6 +28,12 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements-dev.txt
 
+    - name: Write IGDB credentials
+      env:
+        IGDB_CLIENT_ID: ${{ secrets.IGDB_CLIENT_ID }}
+        IGDB_CLIENT_SECRET: ${{ secrets.IGDB_CLIENT_SECRET }}
+      run: python scripts/write_igdb_credentials.py
+
     - name: Run package build
       run: |
         poetry-dynamic-versioning
