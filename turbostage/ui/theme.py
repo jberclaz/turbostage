@@ -19,6 +19,11 @@ def muted_text_color() -> str:
     return "#a8a8a8" if is_dark_theme() else "#6e6e6e"
 
 
+def partial_version_color() -> str:
+    """Accent for demo/shareware labels; amber, readable in light and dark themes."""
+    return "#ffb74d" if is_dark_theme() else "#a35a00"
+
+
 def border_color() -> str:
     """A subtle border color that stays visible in light and dark themes."""
     return "#4a4a4a" if is_dark_theme() else "#b8b8b8"
