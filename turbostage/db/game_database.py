@@ -222,12 +222,11 @@ class GameDatabase:
             rows = cursor.fetchall()
             return rows[0][0] if rows else "unknown"
 
-    def merge_remote_json(self, data: dict, igdb_client) -> str:
+    def merge_remote_json(self, data: dict, metadata) -> str:
         games = data.get("games") or {}
 
-        # Fetch IGDB details for unknown games before writing anything: network
-        # calls must not run inside the write transaction, and a network
-        # failure must leave the database untouched.
+        # Look up details for unknown games before writing anything, so a
+        # failure leaves the database untouched.
         with self.read_only_transaction() as conn:
             known_ids = {row[0] for row in conn.execute("SELECT igdb_id FROM games")}
         new_games = {}
@@ -235,10 +234,11 @@ class GameDatabase:
         for igdb_id in games:
             if int(igdb_id) in known_ids:
                 continue
-            game_info = igdb_client.get_game_info(igdb_id)
+            game_info = metadata.get_game_info(igdb_id)
             if game_info is None:
-                # Removed from IGDB or bad id: skip it (and its versions)
-                # rather than failing the whole update.
+                # Not in the metadata snapshot (bad id, or a game newer than
+                # the snapshot): skip it and its versions rather than failing
+                # the whole update.
                 skipped_ids.add(igdb_id)
             else:
                 new_games[igdb_id] = game_info
@@ -333,7 +333,7 @@ class GameDatabase:
 
         result = f"Remote DB: +{inserted_games} games, +{inserted_versions} versions"
         if skipped_ids:
-            result += f" ({len(skipped_ids)} game(s) unknown to IGDB skipped)"
+            result += f" ({len(skipped_ids)} game(s) without metadata skipped)"
         return result
 
     def _check_version(self):

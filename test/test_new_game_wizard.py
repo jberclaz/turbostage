@@ -3,10 +3,10 @@ import threading
 from unittest import TestCase
 from unittest.mock import MagicMock
 
-import requests
 from PySide6.QtCore import QThreadPool
 from PySide6.QtWidgets import QApplication
 
+from turbostage.game_metadata import MetadataUnavailable
 from turbostage.ui.new_game_wizard import GameTitlePage
 
 
@@ -84,16 +84,16 @@ class TestGameTitlePageSearch(TestCase):
         finally:
             page.deleteLater()
 
-    def test_offline_search_shows_error_and_retry_works(self):
+    def test_unreadable_catalog_shows_error_and_retry_works(self):
         client = MagicMock()
-        client.search_games.side_effect = requests.exceptions.ConnectionError("offline")
+        client.search_games.side_effect = MetadataUnavailable("corrupt")
         page = GameTitlePage(client, "WingCommanderIII-CD1of4.zip")
         try:
             self._wait_for_search()
-            # Auto-search stops at the first network failure.
+            # Auto-search stops at the first failure.
             client.search_games.assert_called_once()
             self.assertTrue(page.search_status_label.isVisibleTo(page))
-            self.assertIn("Could not reach", page.search_status_label.text())
+            self.assertIn("could not be read", page.search_status_label.text())
             self.assertEqual(page.game_list_model.rowCount(), 0)
 
             client.search_games.side_effect = None

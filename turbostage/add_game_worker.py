@@ -28,7 +28,7 @@ class AddGameWorker(QRunnable):
         cpu_cycles: int,
         config: str,
         db_path: str,
-        igdb_client,
+        metadata,
         requires_install: bool = False,
         midi_device: int = 0,
     ):
@@ -43,7 +43,7 @@ class AddGameWorker(QRunnable):
         self._cpu_cycles = cpu_cycles
         self._config = config
         self._db_path = db_path
-        self._igdb_client = igdb_client
+        self._metadata = metadata
         self._requires_install = requires_install
         self._midi_device = midi_device
 
@@ -80,11 +80,12 @@ class AddGameWorker(QRunnable):
         # 1. check if game exists in db
         game = db.get_game_details_by_igdb_id(self._igdb_id)
         if game is None:
-            # 2.1 query IGDB for extra info (offline-safe: fall back to minimal details)
+            # 2.1 look up extra info (an unknown game or unreadable catalog
+            # must not block adding: fall back to minimal details)
             details = None
             try:
-                details = utils.fetch_game_details_online(self._igdb_client, self._igdb_id)
-            except Exception:  # noqa: BLE001 - offline or unknown game must not block adding
+                details = utils.lookup_game_details(self._metadata, self._igdb_id)
+            except Exception:  # noqa: BLE001 - must not block adding
                 details = None
             if details is None:
                 details = GameDetails(

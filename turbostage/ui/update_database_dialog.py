@@ -46,11 +46,11 @@ class UpdateDatabaseWorker(QThread):
     success = Signal(str)
     error = Signal(str)
 
-    def __init__(self, db_path: str, online_db_url: str, igdb_client):
+    def __init__(self, db_path: str, online_db_url: str, metadata):
         super().__init__()
         self._db_path = db_path
         self._online_db_url = online_db_url
-        self._igdb_client = igdb_client
+        self._metadata = metadata
 
     def run(self):
         try:
@@ -63,7 +63,7 @@ class UpdateDatabaseWorker(QThread):
             database = json.loads(data.decode("utf-8"))
 
             db = GameDatabase(self._db_path)
-            result = db.merge_remote_json(database, self._igdb_client)
+            result = db.merge_remote_json(database, self._metadata)
             self.success.emit(result)
         except requests.exceptions.RequestException as e:
             self.error.emit(str(e))

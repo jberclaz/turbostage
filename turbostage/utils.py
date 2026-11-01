@@ -90,8 +90,9 @@ def compute_hashes_for_executables_in_zip(zip_path):
         ]
 
 
-def fetch_game_details_online(igdb_client, igdb_id) -> GameDetails | None:
-    details = igdb_client.get_game_info(igdb_id)
+def lookup_game_details(metadata, igdb_id) -> GameDetails | None:
+    """Details of a game from the metadata catalog, or None when it is unknown."""
+    details = metadata.get_game_info(igdb_id)
     if not details:
         return None
     genres = details.get("genres") or []
