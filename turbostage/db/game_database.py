@@ -1,6 +1,7 @@
 import json
 import os
 import queue
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -8,6 +9,34 @@ from typing import Optional
 
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
+
+
+def _path_parts(path: str) -> list[str]:
+    return [part.lower() for part in re.split(r"[\\/]+", path.strip("\\/")) if part]
+
+
+def _closest_path(candidates: list[str], expected: str) -> str:
+    """Pick the candidate path that best matches the expected one.
+
+    The expected path itself wins; otherwise the candidate sharing the most
+    trailing path components (case-insensitive), then the one at the same
+    depth, so an archive with a different top folder still gets the copy at
+    the expected position.
+    """
+    if expected in candidates:
+        return expected
+    expected_parts = _path_parts(expected)[::-1]
+
+    def rank(candidate: str):
+        parts = _path_parts(candidate)[::-1]
+        common = 0
+        for a, b in zip(parts, expected_parts):
+            if a != b:
+                break
+            common += 1
+        return -common, abs(len(parts) - len(expected_parts)), len(parts), candidate
+
+    return min(candidates, key=rank)
 
 
 @dataclass
@@ -998,10 +1027,13 @@ class GameDatabase:
         archive_type, requires_install). The swap happens in a single
         transaction so an interrupted scan never leaves a half-empty library.
 
-        Versions already in the library keep their stored executables and
-        requires_install flag when the archive is unchanged or the game is
-        installed: those may be user choices (e.g. the executable picked after
-        installing a CD-ROM game) that hash matching cannot rediscover.
+        Versions already in the library keep their requires_install flag when
+        the archive is unchanged or the game is installed. Their stored
+        executables are user choices that hash matching cannot rediscover
+        when the game is installed (picked from the installed files), or when
+        the scan finds none (picked from a CD run straight from the disc);
+        otherwise the scan's result wins, which also repairs paths that an
+        earlier matcher picked wrongly.
         """
         with self.transaction() as conn:
             previous = self._get_preserved_local_versions(conn)
@@ -1022,8 +1054,12 @@ class GameDatabase:
                 seen.add(version_id)
                 kept = previous.get(version_id)
                 if kept is not None and (kept["archive"] == archive or kept["installed"]):
-                    executable = kept["executable"] or executable
-                    config_executable = kept["config_executable"] or config_executable
+                    if kept["installed"]:
+                        executable = kept["executable"] or executable
+                        config_executable = kept["config_executable"] or config_executable
+                    else:
+                        executable = executable or kept["executable"]
+                        config_executable = config_executable or kept["config_executable"]
                     requires_install = kept["requires_install"]
                 GameDatabase._insert_local_version(
                     conn,
@@ -1413,24 +1449,20 @@ class GameDatabase:
             expected_executable = row[0]
             expected_config_executable = row[1]
 
-        version_hashes = self.get_version_hashes(version_id)
-        version_hash_map = {fn: h for fn, h in version_hashes}
-        local_hash_map = {h: fn for fn, _, h in local_hashes}
+        version_hash_map = dict(self.get_version_hashes(version_id))
+        # An archive can hold identical copies of a file (Power Drive has the
+        # same PD.BAT in three folders), so a hash maps to several paths.
+        local_paths_by_hash: dict[str, list[str]] = {}
+        for path, _size, file_hash in local_hashes:
+            local_paths_by_hash.setdefault(file_hash, []).append(path)
 
-        local_executable = None
-        local_config_executable = None
+        def resolve(expected: str | None) -> str | None:
+            if not expected:
+                return None
+            candidates = local_paths_by_hash.get(version_hash_map.get(expected))
+            return _closest_path(candidates, expected) if candidates else None
 
-        if expected_executable:
-            expected_exec_hash = version_hash_map.get(expected_executable)
-            if expected_exec_hash:
-                local_executable = local_hash_map.get(expected_exec_hash)
-
-        if expected_config_executable:
-            expected_config_hash = version_hash_map.get(expected_config_executable)
-            if expected_config_hash:
-                local_config_executable = local_hash_map.get(expected_config_hash)
-
-        return local_executable, local_config_executable
+        return resolve(expected_executable), resolve(expected_config_executable)
 
     #
     # Utility methods
