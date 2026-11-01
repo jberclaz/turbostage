@@ -114,6 +114,17 @@ Or go to **System Settings → Privacy & Security** and click **Open Anyway**.
 
 After the first launch, it opens normally.
 
+## Linux: Flatpak
+
+Each release also has a Flatpak, with DOSBox Staging built in: **TurboStage-x86_64.flatpak** for most PCs and the Steam Deck, **TurboStage-aarch64.flatpak** for ARM machines. Install it with:
+
+```bash
+flatpak install --user TurboStage-x86_64.flatpak
+flatpak run io.github.jberclaz.turbostage
+```
+
+Flatpak fetches the runtime it needs from Flathub automatically. To update, install the newer file the same way. The Flatpak keeps its own settings and library (in `~/.var/app/io.github.jberclaz.turbostage/`), separate from the regular Linux build.
+
 ## Help the collection grow 🌱
 
 Found perfect settings for a game? **File > Upload local config** shares them with the community. **File > Update game database** safely merges new entries without touching your local games.
