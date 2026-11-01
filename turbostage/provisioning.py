@@ -19,9 +19,7 @@ import zipfile
 from io import BytesIO
 from zipfile import ZipFile
 
-from PySide6.QtCore import QStandardPaths
-
-from turbostage import constants
+from turbostage import app_paths, constants
 
 logger = logging.getLogger(__name__)
 
@@ -29,11 +27,8 @@ SOUNDCANVAS_ROMS_SUBPATH = os.path.join("Nuked-SC55-CLAP-ROM-files", "Nuked-SC55
 
 
 def app_subdir(name: str) -> str:
-    """Return (creating) a subdirectory of the app-data folder."""
-    base = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-    path = os.path.join(base, name)
-    os.makedirs(path, exist_ok=True)
-    return path
+    """Return (creating) a subdirectory of TurboStage's data folder."""
+    return app_paths.data_subdir(name)
 
 
 def dosbox_download_url(os_name: str) -> str:

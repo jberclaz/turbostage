@@ -9,9 +9,7 @@ import json
 import logging
 import os
 
-from PySide6.QtCore import QStandardPaths
-
-from turbostage import utils
+from turbostage import app_paths, utils
 from turbostage.db.constants import DB_VERSION
 from turbostage.db.database_manager import DatabaseManager
 from turbostage.db.game_database import GameDatabase, GameDetails
@@ -83,7 +81,7 @@ def populate_database(db_path, games):
 
 
 if __name__ == "__main__":
-    db_path = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+    db_path = app_paths.data_dir()
     db_file = os.path.join(db_path, "turbostage.db")
 
     # For development purposes, remove existing database before recreating

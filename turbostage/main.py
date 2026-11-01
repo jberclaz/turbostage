@@ -8,7 +8,7 @@ from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen
 
-from turbostage import utils
+from turbostage import app_paths, data_migration, utils
 from turbostage.log_setup import setup_logging
 from turbostage.ui.main_window import MainWindow
 
@@ -66,7 +66,13 @@ def main():
     # Wayland app id / X11 WM class; must match the installed .desktop file
     # so desktops show the right icon (otherwise the window is "python3").
     app.setDesktopFileName("io.github.jberclaz.turbostage")
+    # Before anything opens the library or the log: older versions kept them
+    # directly in the shared data folder.
+    migration = data_migration.migrate_legacy_data(QSettings("jberclaz", "TurboStage"))
+    if not migration.use_new_folder:
+        app_paths.use_legacy_root()
     setup_logging()
+    migration.log()
     utils.apply_flatpak_defaults(QSettings("jberclaz", "TurboStage"))
     if utils.is_flatpak():
         # Use Qt's own file dialogs, not the desktop's file-chooser portal: the

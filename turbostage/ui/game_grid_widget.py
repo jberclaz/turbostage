@@ -2,12 +2,12 @@ import hashlib
 import logging
 import os
 
-from PySide6.QtCore import QSize, QStandardPaths, Qt, QUrl, Slot
+from PySide6.QtCore import QSize, Qt, QUrl, Slot
 from PySide6.QtGui import QColor, QFont, QIcon, QPainter, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 
-from turbostage import utils
+from turbostage import app_paths, utils
 from turbostage.db.game_database import LocalGameDetails
 from turbostage.ui.theme import muted_text_color
 from turbostage.version_labels import display_title, partial_version_label, partial_version_note
@@ -39,7 +39,7 @@ class GameGridWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
-        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        app_data_folder = app_paths.data_dir()
         self._covers_cache_folder = os.path.join(app_data_folder, "image_cache", "covers")
         os.makedirs(self._covers_cache_folder, exist_ok=True)
         utils.prune_image_cache(self._covers_cache_folder)

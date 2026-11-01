@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from urllib.parse import unquote, urlsplit
 
 from PySide6 import QtWidgets
-from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
+from PySide6.QtCore import QSettings, Qt, QThreadPool, QTimer, QUrl
 from PySide6.QtGui import QAction, QColor, QDesktopServices, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from turbostage import __version__, constants, utils
+from turbostage import __version__, app_paths, constants, utils
 from turbostage.add_game_worker import AddGameWorker, IdentifyArchiveWorker
 from turbostage.constants import CPU_CYCLES, MIDI_DEVICE
 from turbostage.db.database_manager import DatabaseManager
@@ -116,7 +116,7 @@ class MainWindow(QMainWindow):
         self._metadata = GameMetadataCatalog()
         self._current_fetch_cancel_flag = None
         self._thread_pool = QThreadPool()
-        self._app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        self._app_data_folder = app_paths.data_dir()
         self._gamedb = GameDatabase(self.db_path)
 
         self._init_ui()
