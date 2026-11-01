@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.jberclaz.turbostage</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+
+  <name>TurboStage</name>
+  <summary>Organize and play your DOS games</summary>
+
+  <developer id="io.github.jberclaz">
+    <name>Jerome Berclaz</name>
+  </developer>
+
+  <description>
+    <p>
+      TurboStage is a friendly frontend for DOSBox Staging that turns your pile of DOS games
+      into a ready-to-play library. Drop in your .zip or .iso files, and TurboStage handles
+      detection, setup, sound configuration and launching. No command line, no config files.
+    </p>
+    <ul>
+      <li>Cover-art grid library with search, game details, summaries and screenshots</li>
+      <li>Automatic detection of known games, with community-shared configurations</li>
+      <li>CD-ROM (ISO) games, including guided hard-drive installation</li>
+      <li>One-click Roland MT-32 and Sound Canvas (SC-55) music, selectable per game</li>
+      <li>Simple per-game CPU speed presets and advanced DOSBox options</li>
+      <li>Free downloadable games available straight from the library</li>
+    </ul>
+    <p>
+      DOSBox Staging is included. TurboStage does not include any commercial games;
+      you need your own copies.
+    </p>
+    <p>
+      Game information and images are provided by IGDB.com.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.jberclaz.turbostage.desktop</launchable>
+
+  <url type="homepage">https://github.com/jberclaz/turbostage</url>
+  <url type="bugtracker">https://github.com/jberclaz/turbostage/issues</url>
+  <url type="vcs-browser">https://github.com/jberclaz/turbostage</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Game library with cover art and game details</caption>
+      <image>https://raw.githubusercontent.com/jberclaz/turbostage/master/doc/screenshot.png</image>
+    </screenshot>
+  </screenshots>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#7ad3f0</color>
+    <color type="primary" scheme_preference="dark">#3a1f5c</color>
+  </branding>
+
+  <categories>
+    <category>Game</category>
+    <category>Emulator</category>
+  </categories>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+  <recommends>
+    <display_length compare="ge">768</display_length>
+  </recommends>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.11.1" date="2026-10-27"/>
+    <release version="0.11.0" date="2026-09-05"/>
+    <release version="0.10.3" date="2026-08-20"/>
+  </releases>
+</component>

@@ -1,0 +1,61 @@
+name: Flatpak Build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'flatpak/**'
+      - '.github/workflows/flatpak.yml'
+
+jobs:
+  build-flatpak:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
+      options: --privileged
+
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags, for the version number
+
+      - name: Set version from git
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          version=$(git describe --tags --always | sed 's/^v//')
+          sed -i "s/^__version__ = .*/__version__ = \"$version\"/" turbostage/__init__.py
+          grep __version__ turbostage/__init__.py
+
+      - name: Fetch Flathub shared modules
+        run: flatpak/fetch-shared-modules.sh
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3  # v6.8
+        with:
+          manifest-path: flatpak/io.github.jberclaz.turbostage.yml
+          bundle: TurboStage-${{ matrix.arch }}.flatpak
+          arch: ${{ matrix.arch }}
+          # The default cache key follows the manifest, so DOSBox and its libraries
+          # are rebuilt only when it changes. Tags attach the bundle to the release below.
+          upload-artifact: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+      - name: Upload Release Asset
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda
+        with:
+          files: TurboStage-${{ matrix.arch }}.flatpak

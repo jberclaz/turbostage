@@ -4,10 +4,11 @@ import os
 import sys
 from argparse import ArgumentParser
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSettings, Qt
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen
 
+from turbostage import utils
 from turbostage.log_setup import setup_logging
 from turbostage.ui.main_window import MainWindow
 
@@ -62,7 +63,17 @@ def main():
         os.environ["QT_QPA_PLATFORMTHEME"] = "gtk3"
 
     app = QApplication(sys.argv)
+    # Wayland app id / X11 WM class; must match the installed .desktop file
+    # so desktops show the right icon (otherwise the window is "python3").
+    app.setDesktopFileName("io.github.jberclaz.turbostage")
     setup_logging()
+    utils.apply_flatpak_defaults(QSettings("jberclaz", "TurboStage"))
+    if utils.is_flatpak():
+        # Use Qt's own file dialogs, not the desktop's file-chooser portal: the
+        # portal can fail without ever answering (e.g. a typed folder that
+        # doesn't exist), leaving the app waiting forever. Qt's dialog also
+        # shows exactly the folders the sandbox can access.
+        app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs)
 
     splash = None
     if not args.skip_splash:
