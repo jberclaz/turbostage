@@ -62,8 +62,10 @@ The About dialog credits IGDB.com, as required when showing its data.
 
 ### Flatpak
 `flatpak/` holds the Flatpak packaging (app id `io.github.jberclaz.turbostage`):
-KDE runtime + `io.qt.PySide.BaseApp`, with DOSBox Staging built from source
-inside the package. Inside the sandbox the app always uses the bundled
+freedesktop runtime, PySide6 (with its own Qt) from PyPI wheels, and DOSBox
+Staging built from source inside the package. The KDE runtime +
+`io.qt.PySide.BaseApp` is deliberately not used: every Qt patch update of the
+runtime breaks base-app apps until they are rebuilt. Inside the sandbox the app always uses the bundled
 `/app/bin/dosbox` and hides the DOSBox download/browse buttons
 (`utils.is_flatpak()`).
 ```bash

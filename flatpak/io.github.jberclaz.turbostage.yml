@@ -1,9 +1,12 @@
 id: io.github.jberclaz.turbostage
-runtime: org.kde.Platform
-runtime-version: '6.11'
-sdk: org.kde.Sdk
-base: io.qt.PySide.BaseApp
-base-version: '6.11'
+# The freedesktop runtime, with PySide6 and its own Qt bundled from PyPI
+# wheels. Not the KDE runtime + io.qt.PySide.BaseApp: PySide uses Qt's
+# private API, so every Qt patch update of the KDE runtime breaks apps built
+# on the base app until they are rebuilt
+# (https://github.com/flathub/io.qt.PySide.BaseApp/issues/44).
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
 command: turbostage
 
 finish-args:
@@ -23,11 +26,6 @@ finish-args:
   - --filesystem=/run/media
   - --filesystem=/mnt
 
-build-options:
-  env:
-    BASEAPP_REMOVE_WEBENGINE: '1'
-    BASEAPP_DISABLE_NUMPY: '1'
-
 cleanup:
   - /include
   - /lib/pkgconfig
@@ -35,9 +33,6 @@ cleanup:
   - /share/man
   - '*.a'
   - '*.la'
-
-cleanup-commands:
-  - /app/cleanup-BaseApp.sh
 
 modules:
   # ---------------------------------------------------------------------------
@@ -151,6 +146,29 @@ modules:
   # ---------------------------------------------------------------------------
   # TurboStage
   # ---------------------------------------------------------------------------
+  # libgssapi_krb5, linked by the bundled QtNetwork but not in the runtime
+  - name: krb5
+    subdir: src
+    build-options:
+      env:
+        # Setting WARN_CFLAGS stops configure adding its -Werror list, which
+        # fails on the runtime's C23 glibc (const strchr, discarded-qualifiers).
+        WARN_CFLAGS: -Wall
+    config-opts:
+      - --disable-static
+      - --disable-rpath
+      - --localstatedir=/var/lib
+    cleanup:
+      - /bin
+      - /sbin
+      - /share/examples
+      - /share/et
+      - /var
+    sources:
+      - type: archive
+        url: https://kerberos.org/dist/krb5/1.22/krb5-1.22.2.tar.gz
+        sha256: 3243ffbc8ea4d4ac22ddc7dd2a1dc54c57874c40648b60ff97009763554eaf13
+
   - python3-requirements.json
 
   - name: turbostage
