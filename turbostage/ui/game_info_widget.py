@@ -9,7 +9,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
 from turbostage import utils
-from turbostage.ui.theme import group_box_style, muted_text_color
+from turbostage.ui.theme import group_box_style, muted_text_color, partial_version_color
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,12 @@ class GameInfoWidget(QWidget):
         self.title_label = QLabel("Select a game to see details here.")
         self.title_label.setWordWrap(True)
         self.title_label.setStyleSheet("font-size: 22px; font-weight: bold;")
+        # "Demo/Shareware version: ..." under the title; independent of
+        # clear_info(), which runs again when the details arrive.
+        self.version_note_label = QLabel()
+        self.version_note_label.setWordWrap(True)
+        self.version_note_label.setStyleSheet(f"color: {partial_version_color()}; font-weight: bold;")
+        self.version_note_label.hide()
 
         # Details group (cover + fields)
         self.details_group = self._make_group("Details")
@@ -103,6 +109,7 @@ class GameInfoWidget(QWidget):
         screenshots_layout.addWidget(self.screenshots_scroll_area)
 
         self.main_layout.addWidget(self.title_label)
+        self.main_layout.addWidget(self.version_note_label)
         self.main_layout.addWidget(self.details_group)
         self.main_layout.addWidget(self.summary_group)
         self.main_layout.addWidget(self.screenshots_group)
@@ -143,6 +150,11 @@ class GameInfoWidget(QWidget):
 
     def set_game_name(self, game_name: str):
         self.title_label.setText(game_name)
+
+    def set_version_note(self, note: str | None):
+        """Show (or hide, for None) a note that this version is not the complete game."""
+        self.version_note_label.setText(note or "")
+        self.version_note_label.setVisible(bool(note))
 
     def set_game_info(
         self,

@@ -50,7 +50,7 @@ from turbostage.scanning_thread import ScanningThread
 from turbostage.ui.about_dialog import AboutDialog
 from turbostage.ui.binary_list_model import BinaryListModel
 from turbostage.ui.download_dialog import DownloaderDialog
-from turbostage.ui.game_grid_widget import GameGridWidget
+from turbostage.ui.game_grid_widget import VERSION_ROLE, GameGridWidget
 from turbostage.ui.game_info_widget import GameInfoWidget
 from turbostage.ui.game_setup_dialog import GameSetupDialog
 from turbostage.ui.game_setup_widget import GameSetupWidget
@@ -59,6 +59,7 @@ from turbostage.ui.locked_file_dialog import LockedFileDialog
 from turbostage.ui.new_game_wizard import NewGameWizard
 from turbostage.ui.settings_dialog import SettingsDialog
 from turbostage.ui.submit_config_dialog import SubmitLocalConfigDialog
+from turbostage.version_labels import display_title, partial_version_label, partial_version_note
 
 
 def pick_executable(parent, executables: list[str], location: str) -> str | None:
@@ -317,6 +318,16 @@ class MainWindow(QMainWindow):
         use_grid = utils.to_bool(QSettings("jberclaz", "TurboStage").value("app/grid_view", True))
         self.game_view_stack.setCurrentWidget(self.game_grid if use_grid else self.game_table)
 
+    def _selected_version_name(self) -> str | None:
+        """Version name of the selected library entry (e.g. "shareware"), or None."""
+        view = self._current_view()
+        if view is self.game_table:
+            items = view.selectedItems()
+            item = items[0] if items else None
+        else:
+            item = view.currentItem()
+        return item.data(VERSION_ROLE) if item is not None else None
+
     def _selected_game_info(self):
         """Return (igdb_id, version_id, needs_install, is_downloadable, title) or None."""
         view = self._current_view()
@@ -564,6 +575,7 @@ class MainWindow(QMainWindow):
         if selection is None:
             self._game_info.clear_info()
             self._game_info.set_game_name("Select a game to see details here.")
+            self._game_info.set_version_note(None)
             self.right_setup_tab.set_game(None, None)
             if not self._is_game_running():
                 self.launch_button.setEnabled(False)
@@ -574,6 +586,7 @@ class MainWindow(QMainWindow):
         igdb_id, version_id, needs_install, is_downloadable, game_name = selection
 
         self._game_info.set_game_name(game_name)
+        self._game_info.set_version_note(partial_version_note(self._selected_version_name()))
         if is_downloadable:
             self.right_setup_tab.set_game(None, self._gamedb)
         else:
@@ -626,7 +639,8 @@ class MainWindow(QMainWindow):
         self.game_table.setSortingEnabled(False)
         self.game_table.setRowCount(len(all_games))
         for row_num, game in enumerate(all_games):
-            game_title = QTableWidgetItem(game.title)
+            game_title = QTableWidgetItem(display_title(game.title, game.version))
+            game_title.setData(VERSION_ROLE, game.version)
 
             # Check if this game needs installation (ISO with requires_install flag and not yet installed)
             archive_type, requires_install, is_installed = flags.get(game.version_id, ("zip", False, False))
@@ -652,7 +666,9 @@ class MainWindow(QMainWindow):
             self.game_table.setItem(row_num, 0, game_title)
             self.game_table.setItem(row_num, 1, QTableWidgetItem(release_date))
             self.game_table.setItem(row_num, 2, QTableWidgetItem(game.genre or ""))
-            self.game_table.setItem(row_num, 3, QTableWidgetItem(game.version or ""))
+            self.game_table.setItem(
+                row_num, 3, QTableWidgetItem(partial_version_label(game.version) or game.version or "")
+            )
 
             # Mark games that need installation
             if needs_install:
@@ -670,6 +686,14 @@ class MainWindow(QMainWindow):
                     item = self.game_table.item(row_num, col)
                     if item:
                         item.setForeground(faded)
+
+            note = partial_version_note(game.version)
+            if note:
+                for col in range(4):
+                    item = self.game_table.item(row_num, col)
+                    if item:
+                        tooltip = item.toolTip()
+                        item.setToolTip(f"{tooltip}\n{note}" if tooltip else note)
 
             grid_entries.append((game, needs_install, is_downloadable))
 
@@ -1049,6 +1073,7 @@ class MainWindow(QMainWindow):
             self._gamedb.delete_local_version(version_id)
             self._game_info.clear_info()
             self._game_info.set_game_name("Select a game to see details here.")
+            self._game_info.set_version_note(None)
             self.right_setup_tab.set_game(None, None)
             self.launch_button.setEnabled(False)
             self.load_games()

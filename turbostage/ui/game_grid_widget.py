@@ -10,6 +10,7 @@ from PySide6.QtWidgets import QAbstractItemView, QListWidget, QListWidgetItem
 from turbostage import utils
 from turbostage.db.game_database import LocalGameDetails
 from turbostage.ui.theme import muted_text_color
+from turbostage.version_labels import display_title, partial_version_label, partial_version_note
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,8 @@ DOWNLOADABLE_OPACITY = 0.45
 
 BADGE_DOWNLOAD = "Download"
 BADGE_INSTALL = "Install"
+# Item data role holding the version name (Qt.UserRole holds the selection tuple).
+VERSION_ROLE = Qt.UserRole + 1
 
 
 def badge_for_item(needs_install: bool, is_downloadable: bool) -> str | None:
@@ -66,17 +69,20 @@ class GameGridWidget(QListWidget):
         """
         self.clear()
         for game, needs_install, is_downloadable in entries:
-            title = game.title or "Unknown"
+            title = display_title(game.title, game.version)
             item = QListWidgetItem(title)
             item.setData(Qt.UserRole, (game.igdb_id, game.version_id, needs_install, is_downloadable))
+            item.setData(VERSION_ROLE, game.version)
             item.setSizeHint(self.gridSize())
             if is_downloadable:
                 item.setForeground(QColor(150, 150, 150))
-                item.setToolTip(f"{title} — click to download")
+                tooltip = f"{title} — click to download"
             elif needs_install:
-                item.setToolTip(f"{title} — needs installation")
+                tooltip = f"{title} — needs installation"
             else:
-                item.setToolTip(title)
+                tooltip = title
+            note = partial_version_note(game.version)
+            item.setToolTip(f"{tooltip}\n{note}" if note else tooltip)
             self.addItem(item)
 
             if game.cover_url:
@@ -125,6 +131,9 @@ class GameGridWidget(QListWidget):
         badge = self._badge_for_item(item)
         if badge:
             pixmap = self._add_badge(pixmap, badge)
+        partial = partial_version_label(item.data(VERSION_ROLE))
+        if partial:
+            pixmap = self._add_badge(pixmap, partial, top=True)
         item.setIcon(QIcon(pixmap))
 
     @staticmethod
@@ -152,8 +161,9 @@ class GameGridWidget(QListWidget):
         return badge_for_item(bool(needs_install), bool(is_downloadable))
 
     @staticmethod
-    def _add_badge(pixmap: QPixmap, text: str) -> QPixmap:
-        """Paint a small status pill at the bottom-left of a cover."""
+    def _add_badge(pixmap: QPixmap, text: str, top: bool = False) -> QPixmap:
+        """Paint a small pill on a cover: status at the bottom-left, or the
+        demo/shareware label at the top-left."""
         result = QPixmap(pixmap)
         painter = QPainter(result)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -167,11 +177,12 @@ class GameGridWidget(QListWidget):
         text_height = metrics.height()
         badge_width = text_width + 2 * padding_x
         badge_height = text_height + 2 * padding_y
-        x, y = 6, pixmap.height() - badge_height - 6
+        x, y = 6, (6 if top else pixmap.height() - badge_height - 6)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(30, 30, 30, 210))
+        # Demo/shareware: amber pill with dark text, distinct from the status pill.
+        painter.setBrush(QColor(255, 183, 77, 235) if top else QColor(30, 30, 30, 210))
         painter.drawRoundedRect(x, y, badge_width, badge_height, 8, 8)
-        painter.setPen(QColor("#ffd75e"))
+        painter.setPen(QColor("#2a1c00") if top else QColor("#ffd75e"))
         painter.drawText(x, y, badge_width, badge_height, Qt.AlignmentFlag.AlignCenter, text)
         painter.end()
         return result
