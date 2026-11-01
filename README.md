@@ -102,6 +102,8 @@ If a downloaded game has no sound or won't start, right-click → **Run Game Set
 
 ## macOS Notes
 
+Download the DMG that matches your Mac: **TurboStage-AppleSilicon.dmg** for M1 and later, **TurboStage-Intel.dmg** for Intel Macs (Apple menu → **About This Mac** shows which one you have). macOS 13 Ventura or later is required.
+
 The app isn't signed with an Apple Developer certificate, so Gatekeeper may block the first launch. In Terminal, run:
 
 ```bash

@@ -8,8 +8,20 @@ on:
 
 jobs:
   build-macos:
+    # One native app per CPU. A single universal2 app would need every
+    # binary, the Python interpreter included, to be universal2.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            arch: arm64
+            dmg: TurboStage-AppleSilicon.dmg
+          - runner: macos-15-intel
+            arch: x86_64
+            dmg: TurboStage-Intel.dmg
 
-    runs-on: macos-latest
+    runs-on: ${{ matrix.runner }}
 
     permissions:
       contents: write
@@ -48,29 +60,36 @@ jobs:
           # in PyInstaller 6 and unpacks the whole app to a temp dir on every
           # launch.
           pyinstaller --windowed --icon=icon.icns \
+            --target-arch ${{ matrix.arch }} \
             --osx-bundle-identifier com.jberclaz.turbostage \
             --add-data "turbostage/content:turbostage/content" \
             --add-data "turbostage/conf:turbostage/conf" \
             -n turbostage turbostage/main.py
 
+      - name: Check app architecture
+        run: |
+          file dist/turbostage.app/Contents/MacOS/turbostage
+          file dist/turbostage.app/Contents/MacOS/turbostage | grep -q "${{ matrix.arch }}"
+
       - name: Create DMG
         run: |
           brew install create-dmg
-          rm -f "dist/TurboStage.dmg"
+          rm -f "dist/${{ matrix.dmg }}"
           create-dmg --volname "TurboStage" \
                      --background "splash.png" \
                      --app-drop-link 300 200 \
-                     "dist/TurboStage.dmg" "dist/turbostage.app"
+                     "dist/${{ matrix.dmg }}" "dist/turbostage.app"
 
       - name: Upload Build Artifact
         if: "!startsWith(github.ref, 'refs/tags/')"
         uses: actions/upload-artifact@v4
         with:
-          name: turbostage-macos-${{ github.ref_name }}
-          path: dist/TurboStage.dmg
+          # Not ref_name: branch names may contain "/", which artifact names reject.
+          name: turbostage-macos-${{ matrix.arch }}-${{ github.sha }}
+          path: dist/${{ matrix.dmg }}
 
       - name: Upload Release Asset
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda
         with:
-          files: dist/TurboStage.dmg
+          files: dist/${{ matrix.dmg }}
