@@ -98,7 +98,9 @@ poetry run turbostage
 ```bash
 make test
 # Or directly:
-python -m xmlrunner discover -o test-reports -s test
+python -m xmlrunner discover -o test-reports -s test -t .
+# -t . runs test/__init__.py first, which points the app's data folders and
+# settings at throwaway locations: tests never touch your real library.
 ```
 
 ### Build Package

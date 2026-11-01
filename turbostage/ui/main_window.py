@@ -881,12 +881,7 @@ class MainWindow(QMainWindow):
                 return
             if requires_install:
                 ensure_installation_dir(self._gamedb, match.version_id)
-            QMessageBox.information(
-                self,
-                "New game added",
-                "New game added to game list",
-            )
-            self._on_game_added()
+            self._on_game_added(match.version_id)
             return
         new_game_wizard = NewGameWizard(self._metadata, game_path, self)
         if new_game_wizard.exec() != QDialog.Accepted:
@@ -913,13 +908,13 @@ class MainWindow(QMainWindow):
         self.status.showMessage("Adding new game...", 3000)
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
 
-    def _on_game_added(self, version_id: int | None = None):
+    def _on_game_added(self, version_id: int | None = None, message: str = "New game added."):
         self.load_games()
         # Show the game just added (e.g. a finished download) rather than nothing.
         if version_id is None or not self._select_version(version_id):
             self.on_game_change()
         QGuiApplication.restoreOverrideCursor()  # Restore normal cursor
-        self.status.showMessage("New game added.", 3000)
+        self.status.showMessage(message, 8000)
 
     def _on_game_add_failed(self, message: str):
         QGuiApplication.restoreOverrideCursor()
@@ -1172,14 +1167,10 @@ class MainWindow(QMainWindow):
         archive_type = "iso" if filename.lower().endswith(".iso") else "zip"
         self._gamedb.add_local_game_version(version_id, filename, archive_type=archive_type)
 
-        QMessageBox.information(
-            self,
-            "Download Complete",
-            f"'{game_name}' has been downloaded successfully.",
-            QMessageBox.Ok,
-        )
-
-        self._on_game_added(version_id)
+        # No message box: one that pops up after a long download can come up
+        # invisible on Wayland if the screen was powered off meanwhile, and
+        # then blocks the whole window. The status bar and the selection say it.
+        self._on_game_added(version_id, f"'{game_name}' downloaded and ready to play.")
 
     def _on_reinstall_game(self):
         _, version_id, game_name = self.selected_game

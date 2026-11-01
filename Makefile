@@ -39,7 +39,7 @@ dist/turbostage: venv turbostage/*.py pyproject.toml turbostage.spec
 
 .PHONY: test
 test:
-	python -m xmlrunner discover -o test-reports -s test
+	python -m xmlrunner discover -o test-reports -s test -t .
 
 clean:
 	${RM} -rf venv *~

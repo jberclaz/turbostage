@@ -85,3 +85,37 @@ class TestSelectVersion(TestCase):
         self.assertEqual(window.game_grid.currentItem().text(), "Game 22")
         self.assertFalse(window._select_version(99))
         window.deleteLater()
+
+
+class TestDownloadCompletion(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        _ensure_app()
+
+    def test_no_message_box_after_a_download(self):
+        # A message box after a long download can come up invisible on Wayland
+        # (screen powered off meanwhile) and block the window: use the status bar.
+        import tempfile
+        from unittest.mock import PropertyMock, patch
+
+        from PySide6.QtWidgets import QDialog, QMessageBox
+
+        window = _bare_window()
+        window._selected_game_info = MagicMock(return_value=(1, 22, False, True, "Doom (Shareware)"))
+        window._gamedb = MagicMock()
+        window._gamedb.get_download_url.return_value = "https://example.org/games/doom-box.zip"
+        window._on_game_added = MagicMock()
+        with tempfile.TemporaryDirectory() as games_path, patch.object(
+            MainWindow, "games_path", new_callable=PropertyMock, return_value=games_path
+        ), patch("turbostage.ui.main_window.DownloaderDialog") as dialog_cls, patch.object(
+            QMessageBox, "information", side_effect=AssertionError("message box shown")
+        ):
+            dialog_cls.return_value.exec.return_value = QDialog.Accepted
+            dialog_cls.return_value.downloaded_path = f"{games_path}/doom-box.zip"
+            window._on_download_game()
+
+        window._gamedb.add_local_game_version.assert_called_once_with(22, "doom-box.zip", archive_type="zip")
+        version_id, message = window._on_game_added.call_args.args
+        self.assertEqual(version_id, 22)
+        self.assertIn("Doom (Shareware)", message)
+        window.deleteLater()
