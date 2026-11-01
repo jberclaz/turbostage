@@ -2,7 +2,6 @@ import importlib
 import os
 import re
 
-import requests
 from PySide6.QtCore import QAbstractListModel, QModelIndex, QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
@@ -20,6 +19,7 @@ from PySide6.QtWidgets import (
 )
 
 from turbostage import constants, iso_utils
+from turbostage.game_metadata import MetadataUnavailable
 from turbostage.ui.binary_list_model import BinaryListModel
 from turbostage.ui.icons import icon_widget, load_icon
 
@@ -38,7 +38,7 @@ def _label_row(icon_name: str, label: QLabel) -> QHBoxLayout:
 
 
 class NewGameWizard(QWizard):
-    def __init__(self, igdb_client, game_archive_path: str, parent=None):
+    def __init__(self, metadata, game_archive_path: str, parent=None):
         super(NewGameWizard, self).__init__(parent)
         self.setWindowTitle("Add New Game")
         self.setWizardStyle(QWizard.ModernStyle)
@@ -61,7 +61,7 @@ class NewGameWizard(QWizard):
         if self._is_iso:
             self._volume_label = iso_utils.get_iso_volume_label(game_archive_path)
 
-        self.addPage(GameTitlePage(igdb_client, os.path.basename(game_archive_path)))
+        self.addPage(GameTitlePage(metadata, os.path.basename(game_archive_path)))
         self.addPage(VersionPage(self._volume_label, self._is_iso))
         self.addPage(ExecutablePage(executables, is_iso=self._is_iso))
         # ConfigPage will be conditionally skipped for ISO with installation
@@ -143,12 +143,15 @@ class _SearchSignals(QObject):
 
 
 class _SearchTask(QRunnable):
-    """Run IGDB searches off the UI thread, trying queries in order until one has results."""
+    """Search the game catalog off the UI thread, trying queries in order until one has results.
 
-    def __init__(self, igdb_client, queries: list[str], generation: int):
+    The first search loads the catalog from disk, which must not block the UI.
+    """
+
+    def __init__(self, metadata, queries: list[str], generation: int):
         super().__init__()
         self.signals = _SearchSignals()
-        self._igdb_client = igdb_client
+        self._metadata = metadata
         self._queries = queries
         self._generation = generation
 
@@ -156,21 +159,21 @@ class _SearchTask(QRunnable):
         results = []
         try:
             for query in self._queries:
-                results = [(row["name"], row["id"]) for row in self._igdb_client.search_games(query)]
+                results = [(row["name"], row["id"]) for row in self._metadata.search_games(query)]
                 if results:
                     break
-        except requests.exceptions.RequestException as e:
+        except MetadataUnavailable as e:
             self.signals.failed.emit(self._generation, str(e))
             return
         self.signals.finished.emit(self._generation, results)
 
 
 class GameTitlePage(QWizardPage):
-    def __init__(self, igdb_client, file_name, parent=None):
+    def __init__(self, metadata, file_name, parent=None):
         super().__init__(parent)
         self.setTitle("Game title")
         self.setSubTitle("Search for the game title in the search box and pick the correct version")
-        self._igdb_client = igdb_client
+        self._metadata = metadata
 
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
@@ -218,11 +221,11 @@ class GameTitlePage(QWizardPage):
 
     @classmethod
     def _sanitize_search_queries(cls, base_name: str) -> list[str]:
-        """Return candidate IGDB search queries derived from an archive name, best first.
+        """Return candidate title search queries derived from an archive name, best first.
 
         Archive names often carry separators, version suffixes, release years and
         scene tags (``doom_v1.9``, ``SimCity_DOS_EN_v110``, ``Screamer_1995``) that
-        IGDB's search does not match. Several cleaned variants are produced so the
+        the title search does not match. Several cleaned variants are produced so the
         caller can try them in order until one yields results.
         """
         # Strip version/build tokens and years before normalizing separators, using
@@ -305,17 +308,17 @@ class GameTitlePage(QWizardPage):
         self._start_search(self._sanitize_search_queries(base_name))
 
     def _start_search(self, queries: list[str]):
-        """Search IGDB in the background; the network must never block the UI."""
+        """Search the game catalog in the background."""
         self._search_generation += 1
         self.game_list_model.set_games([])
         self.completeChanged.emit()
-        self.search_status_label.setText("Searching the IGDB game database...")
+        self.search_status_label.setText("Searching the game database...")
         self.search_status_label.show()
-        task = _SearchTask(self._igdb_client, queries, self._search_generation)
+        task = _SearchTask(self._metadata, queries, self._search_generation)
         task.signals.finished.connect(self._on_search_finished)
         task.signals.failed.connect(self._on_search_failed)
         # The global pool, not a page-owned one: closing the wizard must not
-        # wait for an in-flight request to time out.
+        # wait for an in-flight search.
         QThreadPool.globalInstance().start(task)
 
     def _on_search_finished(self, generation: int, game_names: list):
@@ -333,8 +336,7 @@ class GameTitlePage(QWizardPage):
         if generation != self._search_generation:
             return
         self.search_status_label.setText(
-            f"Could not reach the IGDB game database ({message}). "
-            "Check your internet connection, then press Enter in the search box to retry."
+            f"The game database could not be read ({message}). " "Reinstalling TurboStage should fix this."
         )
         self.search_status_label.show()
 

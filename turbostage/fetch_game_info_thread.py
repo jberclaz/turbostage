@@ -5,7 +5,7 @@ from PySide6.QtCore import QObject, QRunnable, Signal
 
 from turbostage import utils
 from turbostage.db.game_database import GameDatabase, normalize_rating
-from turbostage.igdb_client import IgdbClient
+from turbostage.game_metadata import GameMetadataCatalog
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +30,10 @@ def _format_release(release_date) -> str:
 class FetchGameInfoWorker(QObject):
     finished = Signal(str, str, str, str, str, str, str, int)
 
-    def __init__(self, game_id: int, igdb_client: IgdbClient, db_path: str, cancel_flag):
+    def __init__(self, game_id: int, metadata: GameMetadataCatalog, db_path: str, cancel_flag):
         super().__init__()
         self._igdb_id = game_id
-        self._igdb_client = igdb_client
+        self._metadata = metadata
         self._cancel_flag = cancel_flag
         self._db_path = db_path
 
@@ -73,11 +73,11 @@ class FetchGameInfoWorker(QObject):
         if self._cancel_flag():
             return
 
-        # If we don't have complete details, fetch them from IGDB
+        # If we don't have complete details, look them up in the catalog
         try:
-            details = utils.fetch_game_details_online(self._igdb_client, self._igdb_id)
-        except Exception:  # noqa: BLE001 - offline IGDB must not kill the pool thread
-            logger.exception("IGDB fetch failed for game %s", self._igdb_id)
+            details = utils.lookup_game_details(self._metadata, self._igdb_id)
+        except Exception:  # noqa: BLE001 - must not kill the pool thread
+            logger.exception("Metadata lookup failed for game %s", self._igdb_id)
             return
 
         if self._cancel_flag():

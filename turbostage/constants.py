@@ -36,7 +36,3 @@ MIDI_DEVICE = {
     "MT-32": 1,
     "Sound Canvas": 2,
 }
-
-# IGDB API constants. The client credentials are not in the source: see
-# igdb_client.load_credentials().
-IGDB_DOS_PLATFORM_ID = 13
