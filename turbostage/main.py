@@ -68,6 +68,12 @@ def main():
     app.setDesktopFileName("io.github.jberclaz.turbostage")
     setup_logging()
     utils.apply_flatpak_defaults(QSettings("jberclaz", "TurboStage"))
+    if utils.is_flatpak():
+        # Use Qt's own file dialogs, not the desktop's file-chooser portal: the
+        # portal can fail without ever answering (e.g. a typed folder that
+        # doesn't exist), leaving the app waiting forever. Qt's dialog also
+        # shows exactly the folders the sandbox can access.
+        app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs)
 
     splash = None
     if not args.skip_splash:
