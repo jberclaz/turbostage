@@ -5,6 +5,10 @@ on:
   push:
     tags:
       - 'v*'
+  pull_request:
+    paths:
+      - 'flatpak/**'
+      - '.github/workflows/flatpak.yml'
 
 jobs:
   build-flatpak:
@@ -46,8 +50,8 @@ jobs:
           manifest-path: flatpak/io.github.jberclaz.turbostage.yml
           bundle: TurboStage-${{ matrix.arch }}.flatpak
           arch: ${{ matrix.arch }}
-          cache-key: flatpak-builder-${{ github.sha }}
-          # Manual runs get the bundle as a workflow artifact; tags attach it below.
+          # The default cache key follows the manifest, so DOSBox and its libraries
+          # are rebuilt only when it changes. Tags attach the bundle to the release below.
           upload-artifact: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
       - name: Upload Release Asset
