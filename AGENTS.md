@@ -60,6 +60,20 @@ IGDB_CLIENT_ID=... IGDB_CLIENT_SECRET=... python scripts/build_metadata_cache.py
 The output is deterministic, so an unchanged IGDB produces an identical file.
 The About dialog credits IGDB.com, as required when showing its data.
 
+### Flatpak
+`flatpak/` holds the Flatpak packaging (app id `io.github.jberclaz.turbostage`):
+KDE runtime + `io.qt.PySide.BaseApp`, with DOSBox Staging built from source
+inside the package. Inside the sandbox the app always uses the bundled
+`/app/bin/dosbox` and hides the DOSBox download/browse buttons
+(`utils.is_flatpak()`).
+```bash
+flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+flatpak/build.sh                     # builds and installs a local user Flatpak
+flatpak run io.github.jberclaz.turbostage
+```
+The manifest builds from the local checkout (`type: dir`); a Flathub
+submission replaces that source with a git tag and commit.
+
 ## Common Commands
 
 ### Run Application

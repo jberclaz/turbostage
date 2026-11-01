@@ -13,7 +13,8 @@ finish-args:
   # DOSBox needs OpenGL and game controllers
   - --device=all
   - --socket=pulseaudio
-  # IGDB metadata, cover art, game database and ROM downloads
+  # Cover art and screenshots, game database updates, ROM and game downloads
+  # (game metadata itself is bundled)
   - --share=network
   # The games folder is a persistent, user-chosen path read by both the
   # frontend and DOSBox; a portal file chooser cannot grant that durably.
@@ -177,6 +178,7 @@ modules:
         skip:
           - .git
           - venv
+          # Old build-time credentials file, if still present in a checkout
           - turbostage/_igdb_credentials.py
           - build
           - dist

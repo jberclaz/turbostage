@@ -29,6 +29,9 @@
       DOSBox Staging is included. TurboStage does not include any commercial games;
       you need your own copies.
     </p>
+    <p>
+      Game information and images are provided by IGDB.com.
+    </p>
   </description>
 
   <launchable type="desktop-id">io.github.jberclaz.turbostage.desktop</launchable>
