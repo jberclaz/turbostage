@@ -1,0 +1,185 @@
+id: io.github.jberclaz.turbostage
+runtime: org.kde.Platform
+runtime-version: '6.11'
+sdk: org.kde.Sdk
+base: io.qt.PySide.BaseApp
+base-version: '6.11'
+command: turbostage
+
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  # DOSBox needs OpenGL and game controllers
+  - --device=all
+  - --socket=pulseaudio
+  # IGDB metadata, cover art, game database and ROM downloads
+  - --share=network
+  # The games folder is a persistent, user-chosen path read by both the
+  # frontend and DOSBox; a portal file chooser cannot grant that durably.
+  - --filesystem=home
+  - --filesystem=/media
+  - --filesystem=/run/media
+  - --filesystem=/mnt
+
+build-options:
+  env:
+    BASEAPP_REMOVE_WEBENGINE: '1'
+    BASEAPP_DISABLE_NUMPY: '1'
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /lib/cmake
+  - /share/man
+  - '*.a'
+  - '*.la'
+
+cleanup-commands:
+  - /app/cleanup-BaseApp.sh
+
+modules:
+  # ---------------------------------------------------------------------------
+  # DOSBox Staging and its dependencies, following
+  # https://github.com/flathub/io.github.dosbox-staging
+  # ---------------------------------------------------------------------------
+  - shared-modules/linux-audio/fluidsynth2.json
+
+  - shared-modules/SDL2/SDL2_image.json
+
+  - name: iir1
+    buildsystem: cmake-ninja
+    sources:
+      - type: archive
+        url: https://github.com/berndporr/iir1/archive/refs/tags/1.11.1.tar.gz
+        sha256: ee3ffd1c8b7d406cd5610d537a9e033d93e00f5db208ea0341f0dbd0472e486a
+
+  - name: mt32emu
+    buildsystem: cmake-ninja
+    config-opts:
+      - -Dmunt_WITH_MT32EMU_SMF2WAV=FALSE
+      - -Dmunt_WITH_MT32EMU_QT=FALSE
+      - -Dlibmt32emu_WITH_VERSION_TAGGING=TRUE
+      - -Dlibmt32emu_WITH_SYMBOL_VERSIONING=TRUE
+    sources:
+      - type: archive
+        url: https://github.com/munt/munt/archive/libmt32emu_2_8_3.tar.gz
+        sha256: 81f8c462f46bc8901618762ae34cf9de93894ff81f41db73c79472fa3baef875
+
+  - name: libslirp
+    buildsystem: meson
+    sources:
+      - type: archive
+        url: https://gitlab.freedesktop.org/slirp/libslirp/-/archive/v4.9.7/libslirp-v4.9.7.tar.gz
+        sha256: d2567fa06a6357c7755d61c67293b2c0bf069b3f2173bde6b76cf768529a1938
+
+  - name: zlib-ng
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DZLIB_ENABLE_TESTS=false
+    sources:
+      - type: archive
+        url: https://github.com/zlib-ng/zlib-ng/archive/refs/tags/2.3.3.tar.gz
+        sha256: f9c65aa9c852eb8255b636fd9f07ce1c406f061ec19a2e7d508b318ca0c907d1
+
+  - name: opusfile
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+    sources:
+      - type: archive
+        url: https://ftp.osuosl.org/pub/xiph/releases/opus/opusfile-0.12.tar.gz
+        sha256: 118d8601c12dd6a44f52423e68ca9083cc9f2bfe72da7a8c1acb22a80ae3550b
+
+  # Header-only; DOSBox only needs the includes
+  - name: asio
+    buildsystem: simple
+    build-commands:
+      - cp -a include/. /app/include/
+    sources:
+      - type: archive
+        url: https://altushost-bul.dl.sourceforge.net/project/asio/asio/1.38.2%20%28Stable%29/asio-1.38.2.tar.gz
+        sha256: 4893ad026013d1f64bf111c606e6abd857bb953823a4744e449969f1063fd9ce
+
+  - name: speexdsp
+    buildsystem: autotools
+    config-opts:
+      - --disable-static
+    sources:
+      - type: archive
+        url: https://ftp.osuosl.org/pub/xiph/releases/speex/speexdsp-1.2.1.tar.gz
+        sha256: 8c777343e4a6399569c72abc38a95b24db56882c83dbdb6c6424a5f4aeb54d3d
+
+  # Roland Sound Canvas (SC-55) emulation plugin loaded by DOSBox
+  - name: nuked-sc55-clap
+    buildsystem: simple
+    build-commands:
+      - cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - cmake --build build --parallel ${FLATPAK_BUILDER_N_JOBS}
+      - install -Dm755 build/Nuked-SC55.clap ${FLATPAK_DEST}/plugins/Nuked-SC55.clap
+    sources:
+      - type: git
+        url: https://github.com/johnnovak/Nuked-SC55-CLAP.git
+        tag: v0.11.0
+        commit: 0081b1f3417e932dbf310089d15c6d12c4709092
+
+  - name: dosbox-staging
+    buildsystem: cmake
+    build-options:
+      cppflags: -DNDEBUG
+      cflags: -O3
+      cxxflags: -O3
+    config-opts:
+      - -DOPT_TESTS=OFF
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DUSE_SYSTEM_LIBS=ON
+    sources:
+      - type: archive
+        url: https://github.com/dosbox-staging/dosbox-staging/archive/refs/tags/v0.83.0.tar.gz
+        sha256: 9b36be5a666784adaeffa560bd0950691f851a76bdb97e7ae3c989561e91caf3
+      - type: patch
+        path: fix-sdl2-includes.patch
+    post-install:
+      # DOSBox expects its resources directly below /app/share/dosbox-staging.
+      - cp -a /app/share/dosbox-staging/resources/. /app/share/dosbox-staging/
+      - rm -rf /app/share/dosbox-staging/resources
+      - find /app/share/dosbox-staging -name meson.build -delete
+      # DOSBox is an internal component here, not a second launcher entry.
+      - rm -rf /app/share/applications /app/share/metainfo /app/share/icons
+
+  # ---------------------------------------------------------------------------
+  # TurboStage
+  # ---------------------------------------------------------------------------
+  - python3-requirements.json
+
+  - name: turbostage
+    buildsystem: simple
+    build-commands:
+      - |
+        site=$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib", vars={"base": "/app"}))')
+        mkdir -p "$site"
+        cp -a turbostage "$site/"
+      - |
+        if [ -n "${TURBOSTAGE_VERSION:-}" ]; then
+          sed -i "s/^__version__ = .*/__version__ = \"${TURBOSTAGE_VERSION}\"/" \
+            "$(python3 -c 'import sysconfig; print(sysconfig.get_path("purelib", vars={"base": "/app"}))')/turbostage/__init__.py"
+        fi
+      - install -Dm755 flatpak/turbostage.sh ${FLATPAK_DEST}/bin/turbostage
+      - install -Dm644 flatpak/${FLATPAK_ID}.desktop -t ${FLATPAK_DEST}/share/applications/
+      - install -Dm644 flatpak/${FLATPAK_ID}.metainfo.xml -t ${FLATPAK_DEST}/share/metainfo/
+      - install -Dm644 flatpak/icon-256.png ${FLATPAK_DEST}/share/icons/hicolor/256x256/apps/${FLATPAK_ID}.png
+    sources:
+      # Local development build. For the Flathub submission this becomes
+      #   type: git, url: https://github.com/jberclaz/turbostage.git,
+      #   tag: vX.Y.Z, commit: <sha>
+      - type: dir
+        path: ..
+        skip:
+          - .git
+          - venv
+          - turbostage/_igdb_credentials.py
+          - build
+          - dist
+          - flatpak/.flatpak-builder
+          - flatpak/build-dir
+          - flatpak/repo

@@ -107,6 +107,10 @@ class EmulatorPage(QWizardPage):
         download_button.clicked.connect(self._download_emulator)
         row.addWidget(download_button)
         layout.addLayout(row)
+        if utils.is_flatpak():
+            self.setSubTitle("DOSBox Staging is included with this version of TurboStage.")
+            browse_button.hide()
+            download_button.hide()
 
         self.status_label = QLabel()
         self.status_label.setWordWrap(True)

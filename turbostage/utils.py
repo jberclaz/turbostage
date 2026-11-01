@@ -8,6 +8,24 @@ from datetime import datetime, timezone
 
 from turbostage.db.game_database import GameDetails
 
+# DOSBox Staging is built into the Flatpak package at this path.
+FLATPAK_DOSBOX = "/app/bin/dosbox"
+
+
+def is_flatpak() -> bool:
+    """True when running inside a Flatpak sandbox (with the bundled DOSBox)."""
+    return os.path.exists("/.flatpak-info")
+
+
+def apply_flatpak_defaults(settings) -> None:
+    """Point the emulator setting at the bundled DOSBox when sandboxed.
+
+    A DOSBox downloaded by a non-Flatpak install is not visible inside the
+    sandbox, so the bundled one always wins.
+    """
+    if is_flatpak():
+        settings.setValue("app/emulator_path", FLATPAK_DOSBOX)
+
 
 def epoch_to_formatted_date(epoch_s: int) -> str:
     dt = datetime.fromtimestamp(epoch_s, timezone.utc)

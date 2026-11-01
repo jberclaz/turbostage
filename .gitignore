@@ -181,3 +181,9 @@ turbostage/conf/shell_history.txt
 test-reports/
 # Former build-time IGDB credentials file; must never be committed or bundled
 turbostage/_igdb_credentials.py
+
+# Flatpak build output
+flatpak/.flatpak-builder/
+flatpak/build-dir/
+flatpak/repo/
+flatpak/shared-modules/

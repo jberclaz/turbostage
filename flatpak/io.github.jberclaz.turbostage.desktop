@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=TurboStage
+GenericName=DOS Game Launcher
+Comment=Organize and play your DOS games with DOSBox Staging
+Exec=turbostage
+Icon=io.github.jberclaz.turbostage
+Terminal=false
+Categories=Game;Emulator;
+Keywords=dos;dosbox;retro;emulator;launcher;

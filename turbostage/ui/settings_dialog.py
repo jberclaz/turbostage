@@ -72,6 +72,10 @@ class SettingsDialog(QDialog):
                 [emulator_browse_button, self.emu_download_button],
             )
         )
+        if utils.is_flatpak():
+            # The bundled DOSBox is the only one usable inside the sandbox.
+            emulator_browse_button.hide()
+            self.emu_download_button.hide()
 
         self.games_path_input = self._make_path_field(str(self.settings.value("app/games_path", "")))
         games_browse_button = QPushButton(load_icon("folder"), "Browse…", self)
