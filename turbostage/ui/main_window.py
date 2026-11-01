@@ -115,6 +115,8 @@ class MainWindow(QMainWindow):
         QMainWindow.__init__(self)
         self._metadata = GameMetadataCatalog()
         self._current_fetch_cancel_flag = None
+        # The details request whose result the info panel should show.
+        self._current_fetch_worker = None
         self._thread_pool = QThreadPool()
         self._app_data_folder = app_paths.data_dir()
         self._gamedb = GameDatabase(self.db_path)
@@ -572,6 +574,10 @@ class MainWindow(QMainWindow):
 
     def on_game_change(self):
         selection = self._selected_game_info()
+        if self._current_fetch_cancel_flag is not None:
+            self._current_fetch_cancel_flag.cancelled = True
+        # Details still loading for the previous selection must not land in the panel.
+        self._current_fetch_worker = None
         if selection is None:
             self._game_info.clear_info()
             self._game_info.set_game_name("Select a game to see details here.")
@@ -580,8 +586,6 @@ class MainWindow(QMainWindow):
             if not self._is_game_running():
                 self.launch_button.setEnabled(False)
             return
-        if self._current_fetch_cancel_flag is not None:
-            self._current_fetch_cancel_flag.cancelled = True
 
         igdb_id, version_id, needs_install, is_downloadable, game_name = selection
 
@@ -616,9 +620,34 @@ class MainWindow(QMainWindow):
         cancel_flag = utils.CancellationFlag()
         fetch_worker = FetchGameInfoWorker(igdb_id, self._metadata, self.db_path, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
-        fetch_worker.finished.connect(self._game_info.set_game_info)
+        self._current_fetch_worker = fetch_worker
+        fetch_worker.finished.connect(self._on_game_info_fetched)
         fetch_task = FetchGameInfoTask(fetch_worker)
         self._thread_pool.start(fetch_task)
+
+    def _on_game_info_fetched(self, *details):
+        """Show fetched details, unless the selection changed since they were requested."""
+        if self.sender() is not self._current_fetch_worker:
+            return
+        self._game_info.set_game_info(*details)
+
+    def _select_version(self, version_id: int) -> bool:
+        """Select a version in the library (both views); True if it was found."""
+        for row in range(self.game_table.rowCount()):
+            item = self.game_table.item(row, 0)
+            data = item.data(Qt.UserRole) if item else None
+            if data and len(data) >= 2 and data[1] == version_id:
+                self.game_table.selectRow(row)
+                self.game_table.scrollToItem(item)
+                break
+        for index in range(self.game_grid.count()):
+            item = self.game_grid.item(index)
+            data = item.data(Qt.UserRole)
+            if data and len(data) >= 2 and data[1] == version_id:
+                self.game_grid.setCurrentItem(item)
+                self.game_grid.scrollToItem(item)
+                return True
+        return False
 
     def load_games(self):
         local_games = self._gamedb.get_games_with_local_versions()
@@ -884,9 +913,11 @@ class MainWindow(QMainWindow):
         self.status.showMessage("Adding new game...", 3000)
         QGuiApplication.setOverrideCursor(Qt.BusyCursor)
 
-    def _on_game_added(self):
+    def _on_game_added(self, version_id: int | None = None):
         self.load_games()
-        self.on_game_change()
+        # Show the game just added (e.g. a finished download) rather than nothing.
+        if version_id is None or not self._select_version(version_id):
+            self.on_game_change()
         QGuiApplication.restoreOverrideCursor()  # Restore normal cursor
         self.status.showMessage("New game added.", 3000)
 
@@ -1148,7 +1179,7 @@ class MainWindow(QMainWindow):
             QMessageBox.Ok,
         )
 
-        self._on_game_added()
+        self._on_game_added(version_id)
 
     def _on_reinstall_game(self):
         _, version_id, game_name = self.selected_game
