@@ -17,6 +17,7 @@ SCREENSHOTS = ["https://images.igdb.com/1.jpg", "https://images.igdb.com/2.jpg"]
 class TestFetchGameInfoWorker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):

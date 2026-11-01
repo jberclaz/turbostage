@@ -28,6 +28,7 @@ GAME_FILES = {
 class TestIdentifyArchiveWorker(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         cls.app = QApplication.instance() or QApplication([])
 
     def setUp(self):
@@ -86,6 +87,7 @@ class TestIdentifyArchiveWorker(unittest.TestCase):
 class TestAddGameHandlers(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         cls.app = QApplication.instance() or QApplication([])
 
     def _window(self):

@@ -1,3 +1,4 @@
+import os
 from unittest import TestCase
 from unittest.mock import MagicMock, PropertyMock
 
@@ -11,6 +12,7 @@ from turbostage.ui.about_dialog import AboutDialog
 class TestAboutDialog(TestCase):
     @classmethod
     def setUpClass(cls):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
         cls._app = QApplication.instance() or QApplication([])
 
     def _text(self, metadata):
