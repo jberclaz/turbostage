@@ -1,4 +1,5 @@
 import importlib.resources
+import logging
 import os
 import shutil
 import sys
@@ -7,6 +8,7 @@ import time
 import zipfile
 
 from PySide6.QtCore import (
+    QIODevice,
     QObject,
     QProcess,
     QProcessEnvironment,
@@ -19,6 +21,9 @@ from PySide6.QtWidgets import QMessageBox
 
 from turbostage import constants, utils
 from turbostage.db.game_database import GameDatabase
+from turbostage.log_setup import dosbox_log_file_path
+
+logger = logging.getLogger(__name__)
 
 # A game that runs for less than this many seconds is considered to have
 # exited immediately, usually because it failed to start correctly.
@@ -311,11 +316,31 @@ class GameLauncher(QObject):
         process_env = _dosbox_process_env()
         if process_env is not None:
             self._process.setProcessEnvironment(process_env)
+        self._redirect_output(self._process)
+        logger.info("Starting DOSBox: %s", " ".join(command))
         self._start_time = time.monotonic()
         self._process.setProgram(command[0])
         self._process.setArguments(command[1:])
         self._process.start()
         return True
+
+    @staticmethod
+    def _redirect_output(process: QProcess) -> None:
+        """Send DOSBox's output to dosbox.log (replaced at each run), for bug reports.
+
+        Qt refuses to start a process whose output file cannot be created, so
+        check first: a logging problem must never prevent playing.
+        """
+        path = dosbox_log_file_path()
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w"):
+                pass
+        except OSError as e:
+            logger.warning("Cannot write DOSBox output to '%s': %s", path, e)
+            return
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        process.setStandardOutputFile(path, QIODevice.OpenModeFlag.Truncate)
 
     def _prepare_zip_game(
         self,
@@ -447,7 +472,7 @@ class GameLauncher(QObject):
     ) -> str | None:
         if not (config or mt32_roms_path or soundcanvas_roms_path or disk_noise or cpu_cycles > 0 or midi_device > 0):
             return None
-        with tempfile.NamedTemporaryFile(suffix=".conf", mode="wt", delete=False) as conf_file:
+        with tempfile.NamedTemporaryFile(suffix=".conf", mode="w+t", delete=False) as conf_file:
             GameLauncher._write_custom_dosbox_config_file(
                 conf_file,
                 config,
@@ -457,6 +482,8 @@ class GameLauncher(QObject):
                 cpu_cycles,
                 midi_device,
             )
+            conf_file.seek(0)
+            logger.info("Extra DOSBox config:%s", conf_file.read().rstrip())
             return conf_file.name
 
     def _on_process_started(self):
@@ -479,12 +506,14 @@ class GameLauncher(QObject):
             # Already handled via errorOccurred (e.g. FailedToStart).
             return
         crashed = exit_status != QProcess.ExitStatus.NormalExit
+        logger.info("DOSBox exited with code %s%s", exit_code, " (crashed)" if crashed else "")
         if not self._stopped_by_user:
             if crashed or exit_code != 0:
                 QMessageBox.warning(
                     None,
                     "Error in DosBox",
-                    f"The game failed with exit code {exit_code}.",
+                    f"The game failed with exit code {exit_code}.\n\n"
+                    "DOSBox's messages are in File > Show DOSBox log.",
                     QMessageBox.Ok,
                 )
             elif not self._install_mode and time.monotonic() - self._start_time < IMMEDIATE_EXIT_SECONDS:
@@ -566,13 +595,14 @@ class GameLauncher(QObject):
         cpu_cycles: int,
         midi_device: int = 0,
     ):
-        # Write MIDI device setting first so it takes precedence over free-form config
+        if config_content:
+            config_file.write(config_content)
+        # The MIDI device chosen in the Setup tab goes after the free-form
+        # config: when DOSBox reads a setting twice, the last value wins.
         if midi_device == 1:
             config_file.write("\n[midi]\nmididevice = mt32\n")
         elif midi_device == 2:
             config_file.write("\n[midi]\nmididevice = soundcanvas\n")
-        if config_content:
-            config_file.write(config_content)
         if cpu_cycles > 0:
             config_file.write(f"\n[cpu]\ncpu_cycles = {cpu_cycles}\ncpu_cycles_protected = {cpu_cycles}\n")
         if mt32_roms_path:

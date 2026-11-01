@@ -44,7 +44,7 @@ from turbostage.db.remote_db import RemoteDB
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_launcher import GameLauncher
 from turbostage.game_metadata import GameMetadataCatalog
-from turbostage.log_setup import log_file_path
+from turbostage.log_setup import dosbox_log_file_path, log_file_path
 from turbostage.provisioning import ensure_installation_dir
 from turbostage.scanning_thread import ScanningThread
 from turbostage.ui.about_dialog import AboutDialog
@@ -165,6 +165,8 @@ class MainWindow(QMainWindow):
         # Log file, for bug reports: windowed builds have no visible stderr
         log_file_action = QAction(load_icon("info"), "Show log file", self)
         log_file_action.triggered.connect(self._on_show_log_file)
+        dosbox_log_action = QAction(load_icon("info"), "Show DOSBox log", self)
+        dosbox_log_action.triggered.connect(self._on_show_dosbox_log)
 
         self.file_menu.addAction(self._add_action)
         self.file_menu.addSeparator()
@@ -176,6 +178,7 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction(self._setup_wizard_action)
         self.file_menu.addAction(settings_action)
         self.file_menu.addAction(log_file_action)
+        self.file_menu.addAction(dosbox_log_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
 
@@ -877,9 +880,14 @@ class MainWindow(QMainWindow):
         AboutDialog(self._metadata, self).exec()
 
     def _on_show_log_file(self):
-        path = log_file_path()
+        self._open_log(log_file_path(), "No log file yet")
+
+    def _on_show_dosbox_log(self):
+        self._open_log(dosbox_log_file_path(), "No DOSBox log yet: it is written when a game runs")
+
+    def _open_log(self, path: str, missing_message: str):
         if not os.path.isfile(path):
-            self.status.showMessage(f"No log file yet ({path}).", 5000)
+            self.status.showMessage(f"{missing_message} ({path}).", 5000)
             return
         if not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
             QMessageBox.information(self, "Log file", f"The log file is at:\n{path}", QMessageBox.Ok)

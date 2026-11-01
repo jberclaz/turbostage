@@ -161,6 +161,37 @@ class TestReplaceLocalVersions(TestCase):
             finally:
                 os.unlink(tmp.name)
 
+    def test_rescan_repairs_wrongly_matched_executable(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp.close()
+            try:
+                db = _make_db(tmp.name)
+                _, v1 = _add_game(db, 111, "Game One")
+                # An earlier matcher stored the wrong one of identical copies.
+                db.add_local_game_version(v1, "one.zip", executable="GAME/Y/PD.BAT")
+
+                db.replace_local_versions([(v1, "one.zip", "GAME/PD.BAT", None, "zip", False)])
+
+                self.assertEqual(db.get_version_by_version_id(v1).executable, "GAME/PD.BAT")
+            finally:
+                os.unlink(tmp.name)
+
+    def test_rescan_keeps_executable_picked_for_disc_game(self):
+        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
+            tmp.close()
+            try:
+                db = _make_db(tmp.name)
+                _, v1 = _add_game(db, 111, "Game One")
+                # A CD run straight from the disc: the user picked the executable.
+                db.add_local_game_version(v1, "one.iso", archive_type="iso")
+                db.set_local_executables(v1, executable="GAME/START.EXE")
+
+                db.replace_local_versions([(v1, "one.iso", None, None, "iso", False)])
+
+                self.assertEqual(db.get_version_by_version_id(v1).executable, "GAME/START.EXE")
+            finally:
+                os.unlink(tmp.name)
+
     def test_rescan_uses_scan_result_for_replaced_archive(self):
         with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as tmp:
             tmp.close()
