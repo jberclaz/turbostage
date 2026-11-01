@@ -46,14 +46,19 @@ uv pip install -r requirements-dev.txt
 pre-commit install
 ```
 
-### IGDB Credentials
-The IGDB (Twitch) app credentials are not in the repository. Without them the
-app runs normally but treats IGDB as unreachable (no game search/metadata).
-- **Development**: export `IGDB_CLIENT_ID` and `IGDB_CLIENT_SECRET`.
-- **Release builds**: CI runs `scripts/write_igdb_credentials.py` with the
-  `IGDB_CLIENT_ID` / `IGDB_CLIENT_SECRET` GitHub Actions secrets, generating the
-  gitignored `turbostage/_igdb_credentials.py` that PyInstaller bundles. For a
-  local `make package`, run that script first.
+### Game Metadata (IGDB snapshot)
+The app never calls the IGDB API and ships no credentials. Game metadata
+(titles, summaries, dates, genres, companies, ratings, image ids) for every DOS
+game on IGDB is bundled in `turbostage/content/game_metadata.json.gz`, read by
+`turbostage/game_metadata.py` for lookups and title search. Only images are
+fetched at runtime, from IGDB's public image CDN (no credentials needed).
+
+The snapshot is regenerated locally, never in CI, and committed:
+```bash
+IGDB_CLIENT_ID=... IGDB_CLIENT_SECRET=... python scripts/build_metadata_cache.py
+```
+The output is deterministic, so an unchanged IGDB produces an identical file.
+The About dialog credits IGDB.com, as required when showing its data.
 
 ## Common Commands
 

@@ -10,10 +10,8 @@ import logging
 import sqlite3
 from typing import Callable, Dict, List, Tuple
 
-import requests
-
 from turbostage.db.game_database import encode_screenshot_urls, normalize_rating
-from turbostage.igdb_client import IgdbClient
+from turbostage.game_metadata import GameMetadataCatalog, MetadataUnavailable
 
 logger = logging.getLogger(__name__)
 
@@ -171,19 +169,17 @@ def migrate_to_0_9_0(conn: sqlite3.Connection) -> None:
     cursor.execute("ALTER TABLE games ADD COLUMN screenshot_urls TEXT DEFAULT '[]'")
     cursor.execute("ALTER TABLE games ADD COLUMN rating INTEGER DEFAULT 0")
 
-    # Backfilling the new columns from IGDB is best effort: this runs at
-    # startup, which must not fail offline. Rows left behind keep the
+    # Backfilling the new columns from the metadata catalog is best effort:
+    # this runs at startup, which must not fail. Rows left behind keep the
     # column defaults.
     cursor.execute("SELECT igdb_id FROM games")
     igdb_ids = [row[0] for row in cursor.fetchall()]
-    igdb_client = IgdbClient()
+    metadata = GameMetadataCatalog()
     for igdb_id in igdb_ids:
         try:
-            info = igdb_client.get_game_info(igdb_id)
-        except requests.exceptions.RequestException as e:
-            # Offline or IGDB down: skip the rest rather than wait out a
-            # timeout per game.
-            logger.warning("Skipping IGDB backfill of game details, IGDB unreachable: %s", e)
+            info = metadata.get_game_info(igdb_id)
+        except MetadataUnavailable as e:
+            logger.warning("Skipping backfill of game details: %s", e)
             break
         if info is None:
             continue

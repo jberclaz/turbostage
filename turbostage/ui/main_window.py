@@ -8,15 +8,7 @@ from urllib.parse import unquote, urlsplit
 
 from PySide6 import QtWidgets
 from PySide6.QtCore import QSettings, QStandardPaths, Qt, QThreadPool, QTimer, QUrl
-from PySide6.QtGui import (
-    QAction,
-    QColor,
-    QDesktopServices,
-    QGuiApplication,
-    QIcon,
-    QKeySequence,
-    QShortcut,
-)
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QGuiApplication, QIcon, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QComboBox,
@@ -51,10 +43,11 @@ from turbostage.db.game_database import GameDatabase
 from turbostage.db.remote_db import RemoteDB
 from turbostage.fetch_game_info_thread import FetchGameInfoTask, FetchGameInfoWorker
 from turbostage.game_launcher import GameLauncher
-from turbostage.igdb_client import IgdbClient
+from turbostage.game_metadata import GameMetadataCatalog
 from turbostage.log_setup import log_file_path
 from turbostage.provisioning import ensure_installation_dir
 from turbostage.scanning_thread import ScanningThread
+from turbostage.ui.about_dialog import AboutDialog
 from turbostage.ui.binary_list_model import BinaryListModel
 from turbostage.ui.download_dialog import DownloaderDialog
 from turbostage.ui.game_grid_widget import GameGridWidget
@@ -119,7 +112,7 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         QMainWindow.__init__(self)
-        self._igdb_client = IgdbClient()
+        self._metadata = GameMetadataCatalog()
         self._current_fetch_cancel_flag = None
         self._thread_pool = QThreadPool()
         self._app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
@@ -185,6 +178,13 @@ class MainWindow(QMainWindow):
         self.file_menu.addAction(log_file_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(exit_action)
+
+        # Help menu (on macOS, Qt moves About into the application menu)
+        self.help_menu = self.menu.addMenu("Help")
+        about_action = QAction(load_icon("info"), "About TurboStage", self)
+        about_action.setMenuRole(QAction.AboutRole)
+        about_action.triggered.connect(self._on_show_about_dialog)
+        self.help_menu.addAction(about_action)
 
         # Status Bar
         self.status = self.statusBar()
@@ -598,7 +598,7 @@ class MainWindow(QMainWindow):
         self._current_is_downloadable = is_downloadable
 
         cancel_flag = utils.CancellationFlag()
-        fetch_worker = FetchGameInfoWorker(igdb_id, self._igdb_client, self.db_path, cancel_flag)
+        fetch_worker = FetchGameInfoWorker(igdb_id, self._metadata, self.db_path, cancel_flag)
         self._current_fetch_cancel_flag = cancel_flag
         fetch_worker.finished.connect(self._game_info.set_game_info)
         fetch_task = FetchGameInfoTask(fetch_worker)
@@ -832,7 +832,7 @@ class MainWindow(QMainWindow):
             )
             self._on_game_added()
             return
-        new_game_wizard = NewGameWizard(self._igdb_client, game_path, self)
+        new_game_wizard = NewGameWizard(self._metadata, game_path, self)
         if new_game_wizard.exec() != QDialog.Accepted:
             return
 
@@ -846,7 +846,7 @@ class MainWindow(QMainWindow):
             list(CPU_CYCLES.values())[new_game_wizard.cpu],
             new_game_wizard.dosbox_config,
             self.db_path,
-            self._igdb_client,
+            self._metadata,
             new_game_wizard.requires_install,
             list(MIDI_DEVICE.values())[new_game_wizard.midi_device],
         )
@@ -873,6 +873,9 @@ class MainWindow(QMainWindow):
             QMessageBox.Ok,
         )
 
+    def _on_show_about_dialog(self):
+        AboutDialog(self._metadata, self).exec()
+
     def _on_show_log_file(self):
         path = log_file_path()
         if not os.path.isfile(path):
@@ -889,11 +892,7 @@ class MainWindow(QMainWindow):
 
     def maybe_show_setup_wizard(self, force: bool = False):
         """Show the first-run setup wizard on fresh installs (or on demand)."""
-        from turbostage.ui.setup_wizard import (
-            SETUP_COMPLETED_KEY,
-            SetupWizard,
-            is_setup_completed,
-        )
+        from turbostage.ui.setup_wizard import SETUP_COMPLETED_KEY, SetupWizard, is_setup_completed
 
         settings = QSettings("jberclaz", "TurboStage")
         if not force and is_setup_completed(settings):
@@ -933,10 +932,7 @@ class MainWindow(QMainWindow):
         if self._is_game_running():
             self.status.showMessage("Stop the running game before updating the database.", 3000)
             return
-        from turbostage.ui.update_database_dialog import (
-            UpdateDatabaseDialog,
-            UpdateDatabaseWorker,
-        )
+        from turbostage.ui.update_database_dialog import UpdateDatabaseDialog, UpdateDatabaseWorker
 
         dialog = UpdateDatabaseDialog(self)
         updated = {"value": False}
@@ -945,7 +941,7 @@ class MainWindow(QMainWindow):
             updated["value"] = True
             dialog.show_success(message)
 
-        worker = UpdateDatabaseWorker(self.db_path, self.ONLINE_DB_URL, self._igdb_client)
+        worker = UpdateDatabaseWorker(self.db_path, self.ONLINE_DB_URL, self._metadata)
         worker.success.connect(on_success)
         worker.error.connect(dialog.show_error)
         worker.start()

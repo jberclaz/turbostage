@@ -11,7 +11,7 @@ from unittest.mock import patch
 from turbostage import utils
 from turbostage.add_game_worker import AddGameWorker
 from turbostage.db.database_manager import DatabaseManager
-from turbostage.igdb_client import IgdbClient
+from turbostage.game_metadata import GameMetadataCatalog
 
 
 class TestUtils(TestCase):
@@ -19,7 +19,7 @@ class TestUtils(TestCase):
         name = "Mortal Kombat"
         version = "vga"
         game_id = 1618
-        client = IgdbClient()
+        client = GameMetadataCatalog()
         with tempfile.TemporaryDirectory() as tempdir:
             archive_path = os.path.join(tempdir, f"mortal_kombat.zip")
             filenames = ["MK/MK.EXE", "MK/GAME.DAT", "MK/SOUND.DAT", "MK/START.BAT"]
@@ -40,6 +40,9 @@ class TestUtils(TestCase):
             cursor.execute("SELECT count(*) FROM games")
             results = cursor.fetchall()
             self.assertEqual(1, results[0][0])
+            # Details come from the bundled metadata snapshot, offline.
+            cursor.execute("SELECT release_date, genre FROM games WHERE igdb_id = ?", (game_id,))
+            self.assertEqual(cursor.fetchone(), (757296000, "Fighting"))
             cursor.execute("SELECT count(*) FROM versions")
             results = cursor.fetchall()
             self.assertEqual(1, results[0][0])

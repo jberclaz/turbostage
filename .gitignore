@@ -179,5 +179,5 @@ roms/
 .idea/
 turbostage/conf/shell_history.txt
 test-reports/
-# IGDB credentials, generated at build time by scripts/write_igdb_credentials.py
+# Former build-time IGDB credentials file; must never be committed or bundled
 turbostage/_igdb_credentials.py

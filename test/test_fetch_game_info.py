@@ -25,15 +25,15 @@ class TestFetchGameInfoWorker(unittest.TestCase):
         self.addCleanup(os.unlink, self.db_path)
         DatabaseManager.initialize_database(self.db_path)
         db = GameDatabase(self.db_path)
-        # A game added offline: no release date, so the worker asks IGDB.
+        # A game added without details: no release date, so the worker looks it up.
         db.insert_game_with_details(
             "Game",
             GameDetails("Game", None, "", "", "", "", "", None, IGDB_ID, []),
         )
         db.close()
 
-        self.igdb = MagicMock()
-        self.igdb.get_game_info.return_value = {
+        self.metadata = MagicMock()
+        self.metadata.get_game_info.return_value = {
             "summary": "A game",
             "cover_url": "",
             "release_date": 946684800,
@@ -45,7 +45,7 @@ class TestFetchGameInfoWorker(unittest.TestCase):
         }
 
     def _run_worker(self):
-        worker = FetchGameInfoWorker(IGDB_ID, self.igdb, self.db_path, lambda: False)
+        worker = FetchGameInfoWorker(IGDB_ID, self.metadata, self.db_path, lambda: False)
         emitted = []
         worker.finished.connect(lambda *args: emitted.append(args))
         worker.run()
@@ -69,9 +69,9 @@ class TestFetchGameInfoWorker(unittest.TestCase):
 
     def test_second_fetch_comes_from_cache(self):
         self._run_worker()
-        self.igdb.get_game_info.reset_mock()
+        self.metadata.get_game_info.reset_mock()
         args = self._run_worker()
-        self.igdb.get_game_info.assert_not_called()
+        self.metadata.get_game_info.assert_not_called()
         self.assertEqual(json.loads(args[6]), SCREENSHOTS)
 
 
