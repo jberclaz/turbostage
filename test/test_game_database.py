@@ -482,3 +482,19 @@ class TestGameDatabase(unittest.TestCase):
         exec_path, config_exec_path = db.resolve_local_executables(version_id, local_hashes)
         self.assertEqual(exec_path, "GAMES/GAME.EXE")
         self.assertEqual(config_exec_path, "SETUP.EXE")
+
+    def test_resolve_local_executables_with_identical_copies(self):
+        """Power Drive ships the same PD.BAT in three folders; only the top one runs the game."""
+        db = GameDatabase(self.temp_db.name)
+        game_id = db.insert_game_with_details("Power Drive", self.test_game_details)
+        version_id = db.insert_game_version(game_id, "1.0", "powerdrive/PD.BAT", None, "", 0)
+        db.insert_multiple_hashes(version_id, [("powerdrive/PD.BAT", 22, "hash_bat")])
+
+        copies = ["powerdrive/S/PD.BAT", "powerdrive/PD.BAT", "powerdrive/Y/PD.BAT"]
+        for order in (copies, copies[::-1]):  # the archive order must not matter
+            local_hashes = [(path, 22, "hash_bat") for path in order]
+            self.assertEqual(db.resolve_local_executables(version_id, local_hashes)[0], "powerdrive/PD.BAT")
+
+        # A differently named top folder still gets the copy at the expected depth.
+        renamed = [(path.replace("powerdrive", "PD"), 22, "hash_bat") for path in copies]
+        self.assertEqual(db.resolve_local_executables(version_id, renamed)[0], "PD/PD.BAT")
