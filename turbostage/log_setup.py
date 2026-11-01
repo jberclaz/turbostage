@@ -15,6 +15,7 @@ from PySide6.QtCore import QStandardPaths, QtMsgType, qInstallMessageHandler
 from turbostage import __version__
 
 LOG_FILE_NAME = "turbostage.log"
+DOSBOX_LOG_FILE_NAME = "dosbox.log"
 _MAX_BYTES = 1024 * 1024
 _BACKUP_COUNT = 3
 _FORMAT = "%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s"
@@ -32,6 +33,11 @@ def log_file_path() -> str:
     """Return the log file path, next to the app's database."""
     folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
     return os.path.join(folder, LOG_FILE_NAME)
+
+
+def dosbox_log_file_path() -> str:
+    """Return the path of the DOSBox output of the last game run, next to the log file."""
+    return os.path.join(os.path.dirname(log_file_path()), DOSBOX_LOG_FILE_NAME)
 
 
 def setup_logging(directory: str | None = None) -> str | None:
