@@ -76,6 +76,14 @@ flatpak run io.github.jberclaz.turbostage
 The manifest builds from the local checkout (`type: dir`); a Flathub
 submission replaces that source with a git tag and commit.
 
+### App Data Location
+TurboStage keeps its files (library database, logs, `crash.log`, image cache,
+downloaded DOSBox and ROMs, CD-ROM installs) in a `TurboStage` folder inside
+the platform data folder: `~/.local/share/TurboStage`,
+`~/Library/Application Support/TurboStage`, `%APPDATA%\TurboStage`. Always
+build paths with `turbostage/app_paths.py`. Versions up to 0.13 used the data
+folder itself; `turbostage/data_migration.py` moves those files at startup.
+
 ## Common Commands
 
 ### Run Application

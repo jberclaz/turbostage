@@ -3,12 +3,12 @@ import json
 import logging
 import os
 
-from PySide6.QtCore import QStandardPaths, Qt, QUrl, Slot
+from PySide6.QtCore import Qt, QUrl, Slot
 from PySide6.QtGui import QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget
 
-from turbostage import utils
+from turbostage import app_paths, utils
 from turbostage.ui.theme import group_box_style, muted_text_color, partial_version_color
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class GameInfoWidget(QWidget):
     def __init__(self):
         super().__init__()
 
-        app_data_folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
+        app_data_folder = app_paths.data_dir()
         self._cache_folder = os.path.join(app_data_folder, "image_cache")
         self._covers_cache_folder = os.path.join(self._cache_folder, "covers")
         self._screenshots_cache_folder = os.path.join(self._cache_folder, "screenshots")

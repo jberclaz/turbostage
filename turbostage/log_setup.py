@@ -4,18 +4,21 @@ The Windows and macOS builds are windowed, so stderr goes nowhere there: the
 log file is the only record of errors for bug reports.
 """
 
+import faulthandler
 import logging
 import os
 import sys
 import threading
 from logging.handlers import RotatingFileHandler
 
-from PySide6.QtCore import QStandardPaths, QtMsgType, qInstallMessageHandler
+from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 
-from turbostage import __version__
+from turbostage import __version__, app_paths
 
 LOG_FILE_NAME = "turbostage.log"
 DOSBOX_LOG_FILE_NAME = "dosbox.log"
+# Stack traces of native crashes (segfaults in Qt, ...), which logging cannot record.
+CRASH_FILE_NAME = "crash.log"
 _MAX_BYTES = 1024 * 1024
 _BACKUP_COUNT = 3
 _FORMAT = "%(asctime)s %(levelname)s [%(threadName)s] %(name)s: %(message)s"
@@ -31,8 +34,7 @@ _QT_LEVELS = {
 
 def log_file_path() -> str:
     """Return the log file path, next to the app's database."""
-    folder = os.path.dirname(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
-    return os.path.join(folder, LOG_FILE_NAME)
+    return app_paths.data_path(LOG_FILE_NAME)
 
 
 def dosbox_log_file_path() -> str:
@@ -72,7 +74,38 @@ def setup_logging(directory: str | None = None) -> str | None:
     _install_exception_hooks()
     qInstallMessageHandler(_qt_message_handler)
     logging.getLogger(__name__).info("TurboStage %s starting on %s", __version__, sys.platform)
+    if log_path:
+        _enable_crash_traces(os.path.join(os.path.dirname(log_path), CRASH_FILE_NAME))
     return log_path
+
+
+_crash_file = None  # kept open for faulthandler
+
+
+def _enable_crash_traces(path: str) -> None:
+    """Record native crashes in crash.log; report the previous session's into the log.
+
+    A crash inside Qt or another C library kills the process before Python
+    can log anything. faulthandler writes the Python stack of every thread to
+    a file instead; the next start copies it into the log, which is what
+    users send with bug reports.
+    """
+    global _crash_file
+    log = logging.getLogger(__name__)
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            previous = f.read().strip()
+    except OSError:
+        previous = ""
+    if previous:
+        log.error("The previous session crashed:\n%s", previous)
+    try:
+        if _crash_file is not None:
+            _crash_file.close()
+        _crash_file = open(path, "w", encoding="utf-8")
+        faulthandler.enable(_crash_file, all_threads=True)
+    except OSError as e:
+        log.warning("Cannot record crash traces in %s: %s", path, e)
 
 
 def _install_exception_hooks():
