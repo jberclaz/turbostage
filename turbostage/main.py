@@ -4,7 +4,7 @@ import os
 import sys
 from argparse import ArgumentParser
 
-from PySide6.QtCore import QSettings, Qt
+from PySide6.QtCore import QSettings, Qt, QTimer
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import QApplication, QSplashScreen
 
@@ -80,10 +80,13 @@ def main():
         splash = show_splash_screen(app)
 
     window = MainWindow()
-
+    window.show()
     if splash:
         splash.finish(window)
-    window.show()
+
+    # Only once the splash is gone: it stays on top, so a first-run wizard
+    # opened while it is up hides behind it (Windows) and the app looks stuck.
+    QTimer.singleShot(0, window.maybe_show_setup_wizard)
 
     sys.exit(app.exec())
 
