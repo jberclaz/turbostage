@@ -123,7 +123,6 @@ class MainWindow(QMainWindow):
 
         self._init_ui()
         self.load_games()
-        self.maybe_show_setup_wizard()
 
     def _init_ui(self):
         self.setWindowTitle(f"TurboStage {__version__}")
