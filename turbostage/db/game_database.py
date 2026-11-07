@@ -959,7 +959,7 @@ class GameDatabase:
         :param game_archive_name: game archive name (without path)
         :param executable: actual executable path in the user's archive (optional)
         :param config_executable: actual config executable path in the user's archive (optional)
-        :param archive_type: type of archive ('zip' or 'iso')
+        :param archive_type: type of archive ('zip', 'iso' or 'dir' for a game folder)
         :param requires_install: whether the game requires hard drive installation
         :return: 1 if successfully added and 0 if the game already exists
         """

@@ -97,6 +97,21 @@ def find_executables(folder: str) -> list[str]:
     return sorted(found)
 
 
+def list_local_games(games_path: str) -> list[str]:
+    """Names of the game archives (.zip, .iso) and game folders in the games folder.
+
+    Hidden entries (starting with '.') are skipped. Raises OSError when the
+    folder cannot be read.
+    """
+    games = []
+    for name in sorted(os.listdir(games_path)):
+        if name.startswith("."):
+            continue
+        if name.lower().endswith((".zip", ".iso")) or os.path.isdir(os.path.join(games_path, name)):
+            games.append(name)
+    return games
+
+
 def sort_games(games: list, sort_by: str = "title") -> list:
     """Sort game entries for the library views. Release date is newest-first."""
     if sort_by == "release_date":
@@ -144,8 +159,10 @@ class MainWindow(QMainWindow):
         self._scan_action.triggered.connect(self.scan_local_games)
 
         # Add new game
-        self._add_action = QAction(load_icon("add_game"), "Add new game", self)
+        self._add_action = QAction(load_icon("add_game"), "Add game from archive...", self)
         self._add_action.triggered.connect(self._on_add_new_game)
+        self._add_folder_action = QAction(load_icon("folder"), "Add game from folder...", self)
+        self._add_folder_action.triggered.connect(self._on_add_game_folder)
 
         # Update game database
         self._update_db_action = QAction(load_icon("download"), "Update game database", self)
@@ -171,6 +188,7 @@ class MainWindow(QMainWindow):
         dosbox_log_action.triggered.connect(self._on_show_dosbox_log)
 
         self.file_menu.addAction(self._add_action)
+        self.file_menu.addAction(self._add_folder_action)
         self.file_menu.addSeparator()
         self.file_menu.addAction(self._scan_action)
         self.file_menu.addAction(self._update_db_action)
@@ -439,7 +457,10 @@ class MainWindow(QMainWindow):
         selection = self._selected_game_info()
         game_name = selection[4] if selection else "game"
 
-        launcher = GameLauncher(track_change=True)
+        # A game folder keeps its own saves on disk: hashing the whole folder
+        # around each run to copy them into the database would be wasted work.
+        track_change = self._gamedb.get_archive_type(version_id) != "dir"
+        launcher = GameLauncher(track_change=track_change)
         launcher.finished.connect(
             lambda completed, path, gl=launcher, install=needs_install: self._on_game_finished(
                 completed, path, install, gl
@@ -457,6 +478,7 @@ class MainWindow(QMainWindow):
         for action in (
             self._scan_action,
             self._add_action,
+            self._add_folder_action,
             self._update_db_action,
             self._submit_config_action,
             self._setup_wizard_action,
@@ -744,7 +766,7 @@ class MainWindow(QMainWindow):
             )
             return
         try:
-            local_game_archives = [file for file in os.listdir(games_path) if file.lower().endswith((".zip", ".iso"))]
+            local_game_archives = list_local_games(games_path)
         except OSError as e:
             QMessageBox.critical(
                 self,
@@ -831,11 +853,49 @@ class MainWindow(QMainWindow):
         dialog.setFileMode(QFileDialog.FileMode.ExistingFile)
         if not dialog.exec():
             return
-        game_path = dialog.selectedFiles()[0]
+        selected = dialog.selectedFiles()
+        if not selected:
+            return
+        self._identify_game(selected[0])
 
+    def _on_add_game_folder(self):
+        if self._is_game_running():
+            self.status.showMessage("Stop the running game before adding a game.", 3000)
+            return
+        games_path = self.games_path
+        if not games_path or not os.path.isdir(games_path):
+            QMessageBox.critical(
+                self,
+                "Games folder not specified",
+                "Cannot add a game folder, because the games folder has not been specified. "
+                "Use the Settings dialog to set it up.",
+                QMessageBox.Ok,
+            )
+            return
+        dialog = LockedFileDialog(self, "Select game folder", games_path)
+        dialog.setFileMode(QFileDialog.FileMode.Directory)
+        dialog.setOption(QFileDialog.Option.ShowDirsOnly, True)
+        if not dialog.exec():
+            return
+        selected = dialog.selectedFiles()
+        game_path = os.path.realpath(selected[0]) if selected else ""
+        # Like archives, a game folder is stored by name: it must sit directly
+        # in the games folder (the scan finds it there too).
+        if not game_path or os.path.dirname(game_path) != os.path.realpath(games_path) or not os.path.isdir(game_path):
+            QMessageBox.warning(
+                self,
+                "Select a game folder",
+                f"Select a game's folder inside the games folder '{games_path}'.",
+                QMessageBox.Ok,
+            )
+            return
+        self._identify_game(game_path)
+
+    def _identify_game(self, game_path: str):
         # Hashing a large ISO takes seconds: do it off the UI thread, behind a
         # modal busy dialog so nothing else starts meanwhile.
-        self._identify_dialog = QProgressDialog("Reading game archive...", None, 0, 0, self)
+        label = "Reading game folder..." if os.path.isdir(game_path) else "Reading game archive..."
+        self._identify_dialog = QProgressDialog(label, None, 0, 0, self)
         self._identify_dialog.setWindowTitle("Please Wait")
         self._identify_dialog.setWindowModality(Qt.WindowModal)
         self._identify_dialog.setMinimumDuration(0)

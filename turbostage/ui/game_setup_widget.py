@@ -306,6 +306,9 @@ class GameSetupWidget(QWidget):
             else:
                 status = "ISO"
                 drive_icon = "cdrom"
+        elif archive_type == "dir":
+            status = "Folder"
+            drive_icon = "folder"
         else:
             status = "ZIP archive"
             drive_icon = "floppy"
@@ -314,7 +317,7 @@ class GameSetupWidget(QWidget):
 
         lines = [
             f"Version: {version_details.version_name}",
-            f"Archive: {version_details.archive}",
+            f"{'Folder' if archive_type == 'dir' else 'Archive'}: {version_details.archive}",
             f"Type: {status}",
         ]
         if warning:
@@ -344,9 +347,11 @@ class GameSetupWidget(QWidget):
     @staticmethod
     def _list_binaries(game_archive: str):
         binaries = []
-        from turbostage import iso_utils
+        from turbostage import iso_utils, utils
 
-        if iso_utils.is_iso_file(game_archive):
+        if os.path.isdir(game_archive):
+            binaries = utils.list_executables_in_dir(game_archive)
+        elif iso_utils.is_iso_file(game_archive):
             binaries = iso_utils.list_executables_in_iso(game_archive)
         else:
             with zipfile.ZipFile(game_archive, "r") as zf:

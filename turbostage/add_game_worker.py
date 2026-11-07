@@ -67,7 +67,7 @@ class AddGameWorker(QRunnable):
     def _run(self, db: GameDatabase):
         from turbostage.db.game_database import GameDetails
 
-        if not self._game_archive or not os.path.isfile(self._game_archive):
+        if not self._game_archive or not (os.path.isfile(self._game_archive) or os.path.isdir(self._game_archive)):
             raise FileNotFoundError(f"Game archive not found: '{self._game_archive}'")
 
         # Determine archive type
