@@ -161,6 +161,8 @@ class GameLauncher(QObject):
         self._version_id = None
         self._process: QProcess | None = None
         self._temp_dir: str | None = None
+        # Set while an unpacked game folder runs in place (never deleted).
+        self._game_dir: str | None = None
         self._conf_path: str | None = None
         self._start_time = 0.0
         self._install_mode = False
@@ -254,14 +256,36 @@ class GameLauncher(QObject):
 
         main_config = str(importlib.resources.files("turbostage").joinpath("conf/dosbox-staging.conf"))
 
-        # The temp dir outlives this call on purpose: it is removed in
-        # _on_process_finished once DOSBox has exited.
-        self._temp_dir = tempfile.mkdtemp()
-        temp_dir = self._temp_dir
         archive_path = os.path.join(games_path, archive)
 
+        if archive_type == "dir":
+            # A game folder runs in place: no temp copy to make or clean up.
+            self._temp_dir = None
+            self._game_dir = archive_path
+            temp_dir = None
+        else:
+            # The temp dir outlives this call on purpose: it is removed in
+            # _on_process_finished once DOSBox has exited.
+            self._game_dir = None
+            self._temp_dir = tempfile.mkdtemp()
+            temp_dir = self._temp_dir
+
         try:
-            if archive_type == "iso":
+            if archive_type == "dir":
+                command = self._prepare_dir_game(
+                    dosbox_exec,
+                    main_config,
+                    full_screen,
+                    archive_path,
+                    executable,
+                    config,
+                    mt32_roms_path,
+                    soundcanvas_roms_path,
+                    disk_noise,
+                    cpu_cycles,
+                    midi_device,
+                )
+            elif archive_type == "iso":
                 command = self._prepare_iso_game(
                     db,
                     dosbox_exec,
@@ -305,8 +329,10 @@ class GameLauncher(QObject):
                 f"Failed to prepare the game files: '{e}'",
                 QMessageBox.Ok,
             )
-            shutil.rmtree(temp_dir, ignore_errors=True)
+            if temp_dir:
+                shutil.rmtree(temp_dir, ignore_errors=True)
             self._temp_dir = None
+            self._game_dir = None
             return False
 
         self._process = QProcess(self)
@@ -387,6 +413,48 @@ class GameLauncher(QObject):
         )
         command = build_dosbox_command(dosbox_exec, main_config, full_screen, self._conf_path)
         command.append(_safe_join(temp_dir, executable))
+        return command
+
+    def _prepare_dir_game(
+        self,
+        dosbox_exec,
+        main_config,
+        full_screen,
+        game_dir,
+        executable,
+        config,
+        mt32_roms_path,
+        soundcanvas_roms_path,
+        disk_noise,
+        cpu_cycles,
+        midi_device,
+    ):
+        """Build the DOSBox command for an unpacked game folder, run in place.
+
+        The folder is the game's own copy: its saves and config files stay on
+        disk, so nothing stored in the database is written into it.
+        """
+        if not executable:
+            raise OSError("No game executable selected for this game.")
+        if not os.path.isdir(game_dir):
+            raise OSError(f"Game folder not found: '{game_dir}'")
+        executable_path = _safe_join(game_dir, executable)
+        if not os.path.isfile(executable_path):
+            raise OSError(f"Game executable not found: '{executable}'")
+
+        if self._track_change:
+            self._original_files = utils.list_files_with_md5(game_dir)
+
+        self._conf_path = self._write_extra_conf(
+            config,
+            mt32_roms_path,
+            soundcanvas_roms_path,
+            disk_noise,
+            cpu_cycles,
+            midi_device,
+        )
+        command = build_dosbox_command(dosbox_exec, main_config, full_screen, self._conf_path)
+        command.append(executable_path)
         return command
 
     def _prepare_iso_game(
@@ -533,9 +601,12 @@ class GameLauncher(QObject):
             return
         self._finalized = True
         try:
-            if self._track_change and self._temp_dir and os.path.isdir(self._temp_dir):
-                self._extract_changed_files(self._temp_dir)
+            tracked_dir = self._game_dir or self._temp_dir
+            if self._track_change and tracked_dir and os.path.isdir(tracked_dir):
+                self._extract_changed_files(tracked_dir)
         finally:
+            # Only the temp copy is removed: a game folder is never deleted.
+            self._game_dir = None
             if self._conf_path and os.path.isfile(self._conf_path):
                 os.unlink(self._conf_path)
             self._conf_path = None

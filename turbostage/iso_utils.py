@@ -225,8 +225,11 @@ def get_archive_type(file_path: str) -> str:
         file_path: Path to the archive file
 
     Returns:
-        'iso' if the file is an ISO image, 'zip' otherwise
+        'dir' for an unpacked game folder, 'iso' if the file is an ISO image,
+        'zip' otherwise
     """
+    if os.path.isdir(file_path):
+        return "dir"
     return "iso" if is_iso_file(file_path) else "zip"
 
 

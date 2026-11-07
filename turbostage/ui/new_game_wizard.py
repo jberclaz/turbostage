@@ -124,6 +124,10 @@ class NewGameWizard(QWizard):
 
     @staticmethod
     def get_executables_from_archive(game_archive: str) -> list[str]:
+        if os.path.isdir(game_archive):
+            from turbostage import utils
+
+            return utils.list_executables_in_dir(game_archive)
         if iso_utils.is_iso_file(game_archive):
             return iso_utils.list_executables_in_iso(game_archive)
         else:

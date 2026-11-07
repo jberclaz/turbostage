@@ -58,6 +58,46 @@ def compute_hash_for_largest_files_in_zip(zip_path, n=5):
 EXECUTABLE_EXTENSIONS = {".exe", ".bat", ".com"}
 
 
+def _walk_dir_files(folder: str) -> list[tuple[str, str]]:
+    """List (relative path with '/' separators, full path) for every file under folder.
+
+    Relative paths use '/' like zip member names, so a folder and a zip of the
+    same game store executables the same way. Symlinks are not followed.
+    """
+    found = []
+    for root, _dirs, files in os.walk(folder):
+        for file_name in files:
+            full_path = os.path.join(root, file_name)
+            if os.path.islink(full_path) or not os.path.isfile(full_path):
+                continue
+            rel_path = os.path.relpath(full_path, folder).replace(os.sep, "/")
+            found.append((rel_path, full_path))
+    return sorted(found)
+
+
+def compute_hash_for_largest_files_in_dir(folder: str, n: int = 5) -> list[tuple[str, int, str]]:
+    """Hash the largest n files of an unpacked game folder."""
+    if not os.path.isdir(folder):
+        raise FileNotFoundError(f"Game folder not found: '{folder}'")
+    sized = [(rel, full, os.path.getsize(full)) for rel, full in _walk_dir_files(folder)]
+    largest = sorted(sized, key=lambda x: x[2], reverse=True)[:n]
+    return [(rel, size, compute_file_md5(full)) for rel, full, size in largest]
+
+
+def list_executables_in_dir(folder: str) -> list[str]:
+    """List DOS executables of an unpacked game folder, as '/'-separated relative paths."""
+    return [rel for rel, _ in _walk_dir_files(folder) if os.path.splitext(rel)[1].lower() in EXECUTABLE_EXTENSIONS]
+
+
+def compute_hashes_for_executables_in_dir(folder: str) -> list[tuple[str, int, str]]:
+    """Compute MD5 hashes for all executable files (.exe, .bat, .com) in a game folder."""
+    return [
+        (rel, os.path.getsize(full), compute_file_md5(full))
+        for rel, full in _walk_dir_files(folder)
+        if os.path.splitext(rel)[1].lower() in EXECUTABLE_EXTENSIONS
+    ]
+
+
 def hash_archive_top(game_path: str, n: int = 4) -> tuple[str, list[tuple[str, int, str]]]:
     """Hash the largest n files of a game archive for library matching.
 
@@ -66,6 +106,8 @@ def hash_archive_top(game_path: str, n: int = 4) -> tuple[str, list[tuple[str, i
     """
     from turbostage import iso_utils
 
+    if os.path.isdir(game_path):
+        return "dir", compute_hash_for_largest_files_in_dir(game_path, n)
     if iso_utils.is_iso_file(game_path):
         return "iso", iso_utils.compute_hash_for_largest_files_in_iso(game_path, n)
     return "zip", compute_hash_for_largest_files_in_zip(game_path, n)
@@ -75,6 +117,8 @@ def hash_archive_executables(game_path: str) -> list[tuple[str, int, str]]:
     """Hash all executables in a game archive for path resolution."""
     from turbostage import iso_utils
 
+    if os.path.isdir(game_path):
+        return compute_hashes_for_executables_in_dir(game_path)
     if iso_utils.is_iso_file(game_path):
         return iso_utils.compute_hashes_for_executables_in_iso(game_path)
     return compute_hashes_for_executables_in_zip(game_path)
@@ -89,7 +133,9 @@ def hash_for_new_version(game_path: str, binary: str | None, n: int = 4) -> tupl
     archive_type, hashes = hash_archive_top(game_path, n)
     names = [h[0] for h in hashes]
     if binary and binary not in names:
-        if archive_type == "iso":
+        if archive_type == "dir":
+            h = compute_file_md5(os.path.join(game_path, *binary.replace("\\", "/").split("/")))
+        elif archive_type == "iso":
             h = iso_utils.compute_md5_from_iso(game_path, binary)
         else:
             with zipfile.ZipFile(game_path, "r") as zf:
